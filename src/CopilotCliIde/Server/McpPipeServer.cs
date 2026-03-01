@@ -263,7 +263,7 @@ public sealed class McpPipeServer : IAsyncDisposable
             }
         }
 
-        // Read body if Content-Length present
+        // Read body
         var body = "";
         if (headers.TryGetValue("content-length", out var clStr) && int.TryParse(clStr, out var contentLength) && contentLength > 0)
         {
@@ -277,8 +277,63 @@ public sealed class McpPipeServer : IAsyncDisposable
             }
             body = Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
         }
+        else if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
+        {
+            // Read chunked transfer encoding
+            body = await ReadChunkedBodyAsync(stream, ct).ConfigureAwait(false);
+        }
 
         return (method, path, headers, body);
+    }
+
+    private static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
+    {
+        var result = new StringBuilder();
+        var lineBuf = new StringBuilder();
+
+        while (true)
+        {
+            // Read chunk size line (hex\r\n)
+            lineBuf.Clear();
+            while (true)
+            {
+                var b = new byte[1];
+                var read = await stream.ReadAsync(b, ct).ConfigureAwait(false);
+                if (read == 0) return result.ToString();
+                lineBuf.Append((char)b[0]);
+                if (lineBuf.Length >= 2 && lineBuf[^2] == '\r' && lineBuf[^1] == '\n')
+                    break;
+            }
+
+            var sizeLine = lineBuf.ToString().TrimEnd('\r', '\n').Trim();
+            // Strip chunk extensions if any
+            var semiIdx = sizeLine.IndexOf(';');
+            if (semiIdx >= 0) sizeLine = sizeLine[..semiIdx];
+
+            if (!int.TryParse(sizeLine, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
+                break;
+
+            // Read chunk data
+            var chunkBuf = new byte[chunkSize];
+            var totalRead = 0;
+            while (totalRead < chunkSize)
+            {
+                var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct).ConfigureAwait(false);
+                if (read == 0) break;
+                totalRead += read;
+            }
+            result.Append(Encoding.UTF8.GetString(chunkBuf, 0, totalRead));
+
+            // Read trailing \r\n after chunk data
+            var trail = new byte[2];
+            await stream.ReadAsync(trail, ct).ConfigureAwait(false);
+        }
+
+        // Read trailing headers/\r\n after the final 0-size chunk
+        var trailBuf = new byte[2];
+        await stream.ReadAsync(trailBuf, ct).ConfigureAwait(false);
+
+        return result.ToString();
     }
 
     private static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
