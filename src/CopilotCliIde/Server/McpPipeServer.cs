@@ -55,8 +55,15 @@ public sealed class McpPipeServer : IAsyncDisposable
                 if (method.GetCustomAttribute<McpServerToolAttribute>() == null)
                     continue;
 
-                var tool = McpServerTool.Create(method, options: toolOptions);
-                _serverOptions.ToolCollection.Add(tool);
+                try
+                {
+                    var tool = McpServerTool.Create(method, options: toolOptions);
+                    _serverOptions.ToolCollection.Add(tool);
+                }
+                catch (Exception ex)
+                {
+                    await LogAsync($"Failed to register tool {type.Name}.{method.Name}: {ex.Message}").ConfigureAwait(false);
+                }
             }
         }
 
@@ -119,9 +126,6 @@ public sealed class McpPipeServer : IAsyncDisposable
             {
                 var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct).ConfigureAwait(false);
                 if (method == null) break;
-
-                // Log all requests for debugging
-                await LogAsync($"Request: {method} {path} body={body.Length}chars").ConfigureAwait(false);
 
                 headers.TryGetValue("authorization", out var auth);
                 if (auth != $"Nonce {_nonce}")
