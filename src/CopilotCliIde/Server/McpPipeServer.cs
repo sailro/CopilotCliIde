@@ -105,21 +105,19 @@ public sealed class McpPipeServer : IAsyncDisposable
     {
         StreamableHttpServerTransport? transport = null;
         McpServer? server = null;
-        Task? serverRunTask = null;
 
         try
         {
             var serviceProvider = new SingletonServiceProvider(_extensibility!);
             transport = new StreamableHttpServerTransport { SessionId = $"vs-{Guid.NewGuid():N}" };
             server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
-            serverRunTask = server.RunAsync(ct);
+            _ = server.RunAsync(ct);
 
             while (pipe.IsConnected && !ct.IsCancellationRequested)
             {
                 var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct).ConfigureAwait(false);
                 if (method == null) break;
 
-                // Validate nonce
                 headers.TryGetValue("authorization", out var auth);
                 if (auth != $"Nonce {_nonce}")
                 {
@@ -137,9 +135,24 @@ public sealed class McpPipeServer : IAsyncDisposable
                     }
 
                     var responseStream = new MemoryStream();
-                    var hasResponse = await transport.HandlePostRequestAsync(message, responseStream, ct).ConfigureAwait(false);
 
-                    if (hasResponse)
+                    // HandlePostRequestAsync writes SSE events to the stream and returns
+                    // true if there's a response to send back, false for notifications (202)
+                    using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    postCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                    bool hasResponse;
+                    try
+                    {
+                        hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        await WriteHttpResponseAsync(pipe, 504, "Timeout", ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (hasResponse && responseStream.Length > 0)
                     {
                         responseStream.Position = 0;
                         var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
@@ -157,7 +170,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 
                 if (method == "GET" && (path == "/mcp" || path == "/"))
                 {
-                    // SSE stream for server-initiated messages — not needed for basic /ide flow
                     await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct).ConfigureAwait(false);
                     continue;
                 }
@@ -172,7 +184,18 @@ public sealed class McpPipeServer : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) { }
-        catch { }
+        catch (Exception ex)
+        {
+            // Log connection-level errors
+            try
+            {
+                var logPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".copilot", "ide", "vs-connection.log");
+                await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n").ConfigureAwait(false);
+            }
+            catch { }
+        }
         finally
         {
             if (transport != null) await transport.DisposeAsync().ConfigureAwait(false);
@@ -244,14 +267,17 @@ public sealed class McpPipeServer : IAsyncDisposable
         var statusText = statusCode switch
         {
             200 => "OK",
+            202 => "Accepted",
+            400 => "Bad Request",
             401 => "Unauthorized",
             404 => "Not Found",
             405 => "Method Not Allowed",
+            504 => "Gateway Timeout",
             _ => "Error"
         };
 
         var bodyBytes = Encoding.UTF8.GetBytes(body);
-        var response = $"HTTP/1.1 {statusCode} {statusText}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyBytes.Length}\r\n{extraHeaders}\r\n";
+        var response = $"HTTP/1.1 {statusCode} {statusText}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n{extraHeaders}\r\n";
         var headerBytes = Encoding.UTF8.GetBytes(response);
 
         await stream.WriteAsync(headerBytes, ct).ConfigureAwait(false);
