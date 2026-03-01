@@ -7,45 +7,48 @@ namespace CopilotCliIde.Tools;
 [McpServerToolType]
 public sealed class GetSelectionTool
 {
-    [McpServerTool(Name = "get_selection"), Description("Get the list of currently open documents in Visual Studio with their file paths and dirty status")]
+    [McpServerTool(Name = "get_selection"), Description("Get the current text selection from the active editor in Visual Studio, including selected text, file path, and line/column range")]
     public static async Task<object> GetSelectionAsync(VisualStudioExtensibility extensibility)
     {
+        var selection = SelectionTracker.LastSelection;
+
+        // Also get open documents list
+        List<object>? openDocs = null;
         try
         {
             var docs = await extensibility.Documents().GetOpenDocumentsAsync(CancellationToken.None).ConfigureAwait(false);
-
-            var results = new List<object>();
-            foreach (var doc in docs)
+            openDocs = docs.Select(d => new
             {
-                var entry = new Dictionary<string, object?>
-                {
-                    ["filePath"] = doc.Moniker.LocalPath,
-                    ["isDirty"] = doc.IsDirty,
-                    ["isReadOnly"] = doc.IsReadOnly,
-                };
-
-                // Try to get text content for initialized documents
-                try
-                {
-                    var textDoc = await extensibility.Documents()
-                        .GetTextDocumentSnapshotAsync(doc, CancellationToken.None)
-                        .ConfigureAwait(false);
-                    if (textDoc != null)
-                    {
-                        entry["lineCount"] = textDoc.Lines.Count;
-                        entry["uri"] = textDoc.Uri?.ToString();
-                    }
-                }
-                catch { }
-
-                results.Add(entry);
-            }
-
-            return new { documents = results, count = results.Count };
+                filePath = d.Moniker.LocalPath,
+                isDirty = d.IsDirty,
+            } as object).ToList();
         }
-        catch (Exception ex)
+        catch { }
+
+        if (selection == null)
         {
-            return new { error = ex.Message };
+            return new
+            {
+                current = false,
+                message = "No selection tracked yet. Open or click in a file in Visual Studio.",
+                openDocuments = openDocs,
+            };
         }
+
+        return new
+        {
+            current = true,
+            filePath = selection.FilePath,
+            fileUrl = selection.FileUri,
+            text = selection.SelectedText,
+            selection = new
+            {
+                start = new { line = selection.StartLine, character = selection.StartColumn },
+                end = new { line = selection.EndLine, character = selection.EndColumn },
+                isEmpty = selection.IsEmpty,
+            },
+            timestamp = selection.Timestamp.ToString("O"),
+            openDocuments = openDocs,
+        };
     }
 }
