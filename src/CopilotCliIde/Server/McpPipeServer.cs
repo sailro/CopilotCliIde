@@ -1,94 +1,114 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using System.IO.Pipes;
+using System.Reflection;
 using Microsoft.VisualStudio.Extensibility;
 using Microsoft.VisualStudio.ProjectSystem.Query;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 
 namespace CopilotCliIde;
 
 /// <summary>
 /// Hosts an MCP server on a Windows named pipe so Copilot CLI can connect via /ide.
-/// Uses ASP.NET Core Kestrel with the Streamable HTTP MCP transport.
+/// Uses NamedPipeServerStream + MCP StreamServerTransport (no ASP.NET Core dependency).
 /// </summary>
 public sealed class McpPipeServer : IAsyncDisposable
 {
-    private WebApplication? _app;
     private string? _pipeName;
     private string? _nonce;
     private IdeDiscovery? _discovery;
     private CancellationTokenSource? _cts;
+    private McpServerOptions? _serverOptions;
+    private VisualStudioExtensibility? _extensibility;
 
     public string? PipeName => _pipeName;
 
     public async Task StartAsync(VisualStudioExtensibility extensibility, IdeDiscovery discovery, CancellationToken ct)
     {
         _discovery = discovery;
+        _extensibility = extensibility;
         _pipeName = $"mcp-{Guid.NewGuid()}.sock";
         _nonce = Guid.NewGuid().ToString();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        var builder = WebApplication.CreateBuilder();
-
-        // Listen on named pipe only (no TCP)
-        builder.WebHost.ConfigureKestrel(options =>
+        _serverOptions = new McpServerOptions
         {
-            options.ListenNamedPipe(_pipeName, listenOptions =>
-            {
-                listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-            });
-        });
+            ServerInfo = new Implementation { Name = "Visual Studio", Version = "1.0.0" },
+            Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
+        };
 
-        // Suppress console logging from ASP.NET Core
-        builder.Logging.ClearProviders();
-
-        // Register MCP server with tools from this assembly
-        builder.Services.AddMcpServer()
-            .WithHttpTransport()
-            .WithToolsFromAssembly();
-
-        // Make VS extensibility available to tools via DI
-        builder.Services.AddSingleton(extensibility);
-
-        _app = builder.Build();
-
-        // Nonce auth middleware
-        var nonce = _nonce;
-        _app.Use(async (context, next) =>
+        // Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
+        var assembly = typeof(McpPipeServer).Assembly;
+        foreach (var type in assembly.GetTypes())
         {
-            var auth = context.Request.Headers.Authorization.ToString();
-            if (auth != $"Nonce {nonce}")
+            if (type.GetCustomAttribute<McpServerToolTypeAttribute>() == null)
+                continue;
+
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic))
             {
-                context.Response.StatusCode = 401;
-                return;
+                if (method.GetCustomAttribute<McpServerToolAttribute>() == null)
+                    continue;
+
+                var tool = McpServerTool.Create(method);
+                _serverOptions.ToolCollection.Add(tool);
             }
-            await next();
-        });
+        }
 
-        _app.MapMcp();
+        // Start accepting connections in background
+        _ = Task.Run(() => AcceptConnectionsAsync(_cts.Token), ct);
 
-        // Start server in background
-        var appCts = _cts;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _app.StartAsync(appCts.Token).ConfigureAwait(false);
-                // Keep alive until cancelled
-                try { await Task.Delay(Timeout.Infinite, appCts.Token).ConfigureAwait(false); }
-                catch (OperationCanceledException) { }
-                await _app.StopAsync().ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { }
-        }, ct);
-
-        // Wait briefly for server to start listening
-        await Task.Delay(500, ct).ConfigureAwait(false);
+        // Wait briefly for pipe to be created
+        await Task.Delay(200, ct).ConfigureAwait(false);
 
         // Write lock file with workspace path
         var workspaceFolders = await GetWorkspaceFoldersAsync(extensibility).ConfigureAwait(false);
         await discovery.WriteLockFileAsync(_pipeName, _nonce, workspaceFolders).ConfigureAwait(false);
+    }
+
+    private async Task AcceptConnectionsAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var pipe = new NamedPipeServerStream(
+                _pipeName!,
+                PipeDirection.InOut,
+                NamedPipeServerStream.MaxAllowedServerInstances,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous);
+
+            try
+            {
+                await pipe.WaitForConnectionAsync(ct).ConfigureAwait(false);
+
+                // Handle each connection independently
+                _ = Task.Run(() => HandleConnectionAsync(pipe, ct), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                await pipe.DisposeAsync().ConfigureAwait(false);
+                break;
+            }
+            catch
+            {
+                await pipe.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
+    {
+        try
+        {
+            var serviceProvider = new SingletonServiceProvider(_extensibility!);
+            await using var transport = new StreamServerTransport(pipe, pipe);
+            await using var server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
+            await server.RunAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { }
+        catch { }
+        finally
+        {
+            await pipe.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     internal static async Task<IReadOnlyList<string>> GetWorkspaceFoldersAsync(VisualStudioExtensibility extensibility)
@@ -119,7 +139,14 @@ public sealed class McpPipeServer : IAsyncDisposable
             await _cts.CancelAsync().ConfigureAwait(false);
             _cts.Dispose();
         }
-        if (_app != null)
-            await _app.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Minimal IServiceProvider that resolves VisualStudioExtensibility for MCP tool DI.
+    /// </summary>
+    private sealed class SingletonServiceProvider(VisualStudioExtensibility extensibility) : IServiceProvider
+    {
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(VisualStudioExtensibility) ? extensibility : null;
     }
 }
