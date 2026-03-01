@@ -30,13 +30,25 @@ public class CopilotCliIdeExtension : Extension
     {
         await base.OnInitializedAsync(extensibility, cancellationToken);
 
-        var server = this.ServiceProvider.GetRequiredService<McpPipeServer>();
-        var discovery = this.ServiceProvider.GetRequiredService<IdeDiscovery>();
+        try
+        {
+            var server = this.ServiceProvider.GetRequiredService<McpPipeServer>();
+            var discovery = this.ServiceProvider.GetRequiredService<IdeDiscovery>();
 
-        // Clean stale lock files from previous VS sessions
-        await discovery.CleanStaleLockFilesAsync();
+            // Clean stale lock files from previous VS sessions
+            await discovery.CleanStaleLockFilesAsync();
 
-        // Start MCP server and write lock file
-        await server.StartAsync(extensibility, discovery, cancellationToken);
+            // Start MCP server and write lock file
+            await server.StartAsync(extensibility, discovery, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Write diagnostic file so user can see what went wrong
+            var diagPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".copilot", "ide", "vs-error.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(diagPath)!);
+            await File.WriteAllTextAsync(diagPath, $"{DateTime.UtcNow:O}\n{ex}", cancellationToken);
+        }
     }
 }
