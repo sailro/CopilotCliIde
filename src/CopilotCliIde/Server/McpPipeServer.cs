@@ -99,20 +99,25 @@ public sealed class McpPipeServer : IAsyncDisposable
 
     /// <summary>
     /// Handles a single pipe connection. The CLI sends HTTP requests (Streamable HTTP MCP transport)
-    /// over the pipe. We parse them minimally and route to the MCP server via StreamServerTransport.
+    /// over the pipe. We use StreamableHttpServerTransport to handle the MCP session properly.
     /// </summary>
     private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
     {
+        StreamableHttpServerTransport? transport = null;
+        McpServer? server = null;
+        Task? serverRunTask = null;
+
         try
         {
-            // The MCP Streamable HTTP transport sends HTTP POST requests to /mcp
-            // We need to handle this as a simple HTTP server on the raw pipe stream.
-            // Each HTTP request/response pair uses the pipe.
+            var serviceProvider = new SingletonServiceProvider(_extensibility!);
+            transport = new StreamableHttpServerTransport { SessionId = $"vs-{Guid.NewGuid():N}" };
+            server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
+            serverRunTask = server.RunAsync(ct);
+
             while (pipe.IsConnected && !ct.IsCancellationRequested)
             {
-                // Read HTTP request
                 var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct).ConfigureAwait(false);
-                if (method == null) break; // Connection closed
+                if (method == null) break;
 
                 // Validate nonce
                 headers.TryGetValue("authorization", out var auth);
@@ -122,27 +127,45 @@ public sealed class McpPipeServer : IAsyncDisposable
                     continue;
                 }
 
-                if (method == "GET" && path == "/mcp")
+                if (method == "POST" && (path == "/mcp" || path == "/"))
                 {
-                    // SSE endpoint for server-to-client notifications - send 405 for now
+                    var message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
+                    if (message == null)
+                    {
+                        await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    var responseStream = new MemoryStream();
+                    var hasResponse = await transport.HandlePostRequestAsync(message, responseStream, ct).ConfigureAwait(false);
+
+                    if (hasResponse)
+                    {
+                        responseStream.Position = 0;
+                        var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
+                        await WriteHttpResponseAsync(pipe, 200, responseBody, ct,
+                            contentType: "text/event-stream",
+                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n").ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await WriteHttpResponseAsync(pipe, 202, "", ct,
+                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n").ConfigureAwait(false);
+                    }
+                    continue;
+                }
+
+                if (method == "GET" && (path == "/mcp" || path == "/"))
+                {
+                    // SSE stream for server-initiated messages — not needed for basic /ide flow
                     await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct).ConfigureAwait(false);
                     continue;
                 }
 
-                if (method == "DELETE" && path == "/mcp")
+                if (method == "DELETE" && (path == "/mcp" || path == "/"))
                 {
-                    await WriteHttpResponseAsync(pipe, 200, "{}", ct).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (method == "POST" && path == "/mcp")
-                {
-                    // Parse JSON-RPC request and handle via MCP server
-                    var response = await HandleMcpRequestAsync(body, ct).ConfigureAwait(false);
-                    await WriteHttpResponseAsync(pipe, 200, response, ct,
-                        contentType: "application/json",
-                        extraHeaders: "Mcp-Session-Id: vs-session\r\n").ConfigureAwait(false);
-                    continue;
+                    await WriteHttpResponseAsync(pipe, 200, "", ct).ConfigureAwait(false);
+                    break;
                 }
 
                 await WriteHttpResponseAsync(pipe, 404, "Not Found", ct).ConfigureAwait(false);
@@ -152,34 +175,10 @@ public sealed class McpPipeServer : IAsyncDisposable
         catch { }
         finally
         {
+            if (transport != null) await transport.DisposeAsync().ConfigureAwait(false);
+            if (server != null) await server.DisposeAsync().ConfigureAwait(false);
             await pipe.DisposeAsync().ConfigureAwait(false);
         }
-    }
-
-    private McpServer? _mcpServer;
-    private StreamServerTransport? _mcpTransport;
-
-    private async Task<string> HandleMcpRequestAsync(string body, CancellationToken ct)
-    {
-        // Use a pair of memory streams to feed the JSON-RPC message to the MCP server
-        // and capture the response
-        var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(body + "\n"));
-        var outputStream = new MemoryStream();
-
-        var serviceProvider = new SingletonServiceProvider(_extensibility!);
-        await using var transport = new StreamServerTransport(inputStream, outputStream);
-        await using var server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
-
-        // Start the server (it will process the single message and the input stream will end)
-        var runTask = server.RunAsync(ct);
-
-        // Give it time to process
-        await Task.WhenAny(runTask, Task.Delay(5000, ct)).ConfigureAwait(false);
-
-        outputStream.Position = 0;
-        var response = Encoding.UTF8.GetString(outputStream.ToArray()).Trim();
-
-        return string.IsNullOrEmpty(response) ? "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"No response\"},\"id\":null}" : response;
     }
 
     private static async Task<(string? method, string? path, Dictionary<string, string> headers, string body)> ReadHttpRequestAsync(Stream stream, CancellationToken ct)
