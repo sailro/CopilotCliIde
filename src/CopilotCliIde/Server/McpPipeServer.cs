@@ -118,6 +118,9 @@ public sealed class McpPipeServer : IAsyncDisposable
                 var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct).ConfigureAwait(false);
                 if (method == null) break;
 
+                // Log all requests for debugging
+                await LogAsync($"Request: {method} {path} body={body.Length}chars").ConfigureAwait(false);
+
                 headers.TryGetValue("authorization", out var auth);
                 if (auth != $"Nonce {_nonce}")
                 {
@@ -127,7 +130,24 @@ public sealed class McpPipeServer : IAsyncDisposable
 
                 if (method == "POST" && (path == "/mcp" || path == "/"))
                 {
-                    var message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
+                    if (string.IsNullOrWhiteSpace(body))
+                    {
+                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    JsonRpcMessage? message;
+                    try
+                    {
+                        message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
+                    }
+                    catch (JsonException ex)
+                    {
+                        await LogAsync($"JSON parse error: {ex.Message} body='{body}'").ConfigureAwait(false);
+                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct).ConfigureAwait(false);
+                        continue;
+                    }
+
                     if (message == null)
                     {
                         await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct).ConfigureAwait(false);
@@ -316,5 +336,17 @@ public sealed class McpPipeServer : IAsyncDisposable
     {
         public object? GetService(Type serviceType) =>
             serviceType == typeof(VisualStudioExtensibility) ? extensibility : null;
+    }
+
+    private static async Task LogAsync(string message)
+    {
+        try
+        {
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".copilot", "ide", "vs-connection.log");
+            await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n").ConfigureAwait(false);
+        }
+        catch { }
     }
 }
