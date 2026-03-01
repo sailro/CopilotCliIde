@@ -29,9 +29,9 @@ public sealed class McpPipeServer : IAsyncDisposable
         _nonce = Guid.NewGuid().ToString();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        var builder = WebApplication.CreateSlimBuilder();
+        var builder = WebApplication.CreateBuilder();
 
-        // Listen on named pipe
+        // Listen on named pipe only (no TCP)
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.ListenNamedPipe(_pipeName, listenOptions =>
