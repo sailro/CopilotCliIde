@@ -42,6 +42,8 @@ public sealed class McpPipeServer : IAsyncDisposable
         };
 
         // Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
+        var services = new SingletonServiceProvider(extensibility);
+        var toolOptions = new McpServerToolCreateOptions { Services = services };
         var assembly = typeof(McpPipeServer).Assembly;
         foreach (var type in assembly.GetTypes())
         {
@@ -53,7 +55,7 @@ public sealed class McpPipeServer : IAsyncDisposable
                 if (method.GetCustomAttribute<McpServerToolAttribute>() == null)
                     continue;
 
-                var tool = McpServerTool.Create(method);
+                var tool = McpServerTool.Create(method, options: toolOptions);
                 _serverOptions.ToolCollection.Add(tool);
             }
         }
@@ -387,10 +389,15 @@ public sealed class McpPipeServer : IAsyncDisposable
         }
     }
 
-    private sealed class SingletonServiceProvider(VisualStudioExtensibility extensibility) : IServiceProvider
+    private sealed class SingletonServiceProvider(VisualStudioExtensibility extensibility) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
     {
         public object? GetService(Type serviceType) =>
-            serviceType == typeof(VisualStudioExtensibility) ? extensibility : null;
+            serviceType == typeof(VisualStudioExtensibility) ? extensibility :
+            serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService) ? this :
+            null;
+
+        public bool IsService(Type serviceType) =>
+            serviceType == typeof(VisualStudioExtensibility);
     }
 
     private static async Task LogAsync(string message)
