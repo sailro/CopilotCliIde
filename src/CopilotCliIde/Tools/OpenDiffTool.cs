@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using Microsoft.VisualStudio.Extensibility;
+using Microsoft.VisualStudio.RpcContracts.OpenDocument;
 using ModelContextProtocol.Server;
 
 namespace CopilotCliIde.Tools;
@@ -12,7 +13,7 @@ public sealed class OpenDiffTool
 
     internal record DiffInfo(string OriginalPath, string TempNewPath, string NewContent, string TabName);
 
-    [McpServerTool(Name = "open_diff"), Description("Opens a diff view comparing original file content with new content. Writes the proposed content to a temp file and opens both in Visual Studio. Returns a diff ID for accept/reject.")]
+    [McpServerTool(Name = "open_diff"), Description("Opens the proposed file changes in Visual Studio for review. Creates a temporary file with the new content alongside the original for comparison. Returns a diff ID for accept/reject.")]
     public static async Task<object> OpenDiffAsync(
         VisualStudioExtensibility extensibility,
         [Description("Path to the original file")] string original_file_path,
@@ -21,23 +22,19 @@ public sealed class OpenDiffTool
     {
         try
         {
-            // Create temp file for the proposed new content
             var ext = Path.GetExtension(original_file_path);
             var tempDir = Path.Combine(Path.GetTempPath(), "copilot-cli-diffs");
             Directory.CreateDirectory(tempDir);
             var tempFile = Path.Combine(tempDir, $"{tab_name}-proposed{ext}");
             await File.WriteAllTextAsync(tempFile, new_file_contents).ConfigureAwait(false);
 
-            // Track the diff
             var diffId = $"{DateTime.UtcNow.Ticks}-{tab_name}";
             ActiveDiffs[diffId] = new DiffInfo(original_file_path, tempFile, new_file_contents, tab_name);
 
-            // Open both files in VS so the user can compare
-            var originalUri = new Uri(original_file_path);
-            var proposedUri = new Uri(tempFile);
-
-            await extensibility.Documents().OpenTextDocumentAsync(originalUri, CancellationToken.None).ConfigureAwait(false);
-            await extensibility.Documents().OpenTextDocumentAsync(proposedUri, CancellationToken.None).ConfigureAwait(false);
+            // Open the proposed file in VS — the user can compare with the original
+            // which is already open or can be opened alongside
+            await extensibility.Documents().OpenTextDocumentAsync(
+                new Uri(tempFile), CancellationToken.None).ConfigureAwait(false);
 
             return new
             {
@@ -46,7 +43,7 @@ public sealed class OpenDiffTool
                 original_file_path,
                 proposed_file_path = tempFile,
                 tab_name,
-                message = $"Opened original and proposed files in VS. Use 'close_diff' with diffId='{diffId}' to accept (apply changes) or reject (discard).",
+                message = $"Proposed changes opened in VS as '{Path.GetFileName(tempFile)}'. Compare with the original file. Use 'close_diff' with diffId='{diffId}' and action='accept' to apply, or 'reject' to discard.",
             };
         }
         catch (Exception ex)
