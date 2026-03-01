@@ -17,6 +17,7 @@ public class CopilotCliIdeExtension : Extension
             publisherName: "CopilotCliIde",
             displayName: "Copilot CLI IDE Bridge",
             description: "Enables GitHub Copilot CLI to interact with Visual Studio via the /ide command"),
+        LoadedWhen = ActivationConstraint.SolutionState(SolutionState.Exists),
     };
 
     protected override void InitializeServices(IServiceCollection serviceCollection)
