@@ -34,6 +34,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         {
             ServerInfo = new Implementation { Name = "Visual Studio", Version = "1.0.0" },
             Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
+            ToolCollection = [],
         };
 
         // Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
