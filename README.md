@@ -4,26 +4,9 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 
 ## How It Works
 
-```
-Visual Studio (devenv.exe)             Copilot CLI
-┌──────────────────────┐               ┌──────────────┐
-│  CopilotCliIde.vsix  │               │  /ide command │
-│  (VSSDK AsyncPackage) │               │              │
-│       │               │               │  Agent       │
-│       │ RPC (pipe)    │               │              │
-│       ▼               │               └──────┬───────┘
-│  CopilotCliIde.Server │◄─named pipe─────────┘
-│  (net8.0 process)     │   (HTTP/MCP)
-│  \\.\pipe\mcp-{id}    │
-└──────────┬────────────┘
-           │
-           ▼
-  ~/.copilot/ide/{id}.lock  ← discovery file
-```
-
 1. **Package loads** when a solution is opened in Visual Studio (`ProvideAutoLoad`)
 2. **RPC server starts** on a named pipe, exposing VS services (DTE, diff, diagnostics)
-3. **MCP server process launches** as a separate net8.0 child process, connecting back to VS via RPC
+3. **MCP server process launches** as a separate net10.0 child process, connecting back to VS via RPC
 4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders
 5. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
 
@@ -34,18 +17,18 @@ Visual Studio (devenv.exe)             Copilot CLI
 - Visual Studio 2022 (v17.x) or Visual Studio 2025/2026 (v18.x)
 - [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) installed
 - An active Copilot subscription
-- .NET 8.0 SDK (for the MCP server process)
+- .NET 10.0 SDK (for the MCP server process)
 
 ### Build & Install
 
 ```bash
 # Clone and build
-git clone <repo-url>
+git clone https://github.com/sailro/CopilotCliIde
 cd vsext
 
 # Build both the VSSDK package and the MCP server
 dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj
-dotnet build src/CopilotCliIde/CopilotCliIde.csproj -p:DeployExtension=false
+dotnet build src/CopilotCliIde/CopilotCliIde.csproj
 
 # The .vsix is produced at:
 # src/CopilotCliIde/bin/Debug/CopilotCliIde.vsix
@@ -155,24 +138,7 @@ The diff workflow lets the agent propose changes that you review in VS:
 
 ## Architecture
 
-### Two-Process Design
-
-The extension uses a two-process architecture to avoid assembly version conflicts between the MCP SDK (which requires modern `Microsoft.Extensions.*` packages) and Visual Studio's AppDomain:
-
-- **VSSDK Package** (`CopilotCliIde`, net472) — runs in-proc in `devenv.exe`, provides access to VS services via DTE and COM interfaces
-- **MCP Server** (`CopilotCliIde.Server`, net8.0) — runs as a separate child process, hosts the MCP protocol over named pipes
-
-The two processes communicate via **StreamJsonRpc** over a named pipe. The MCP server calls back to VS for operations like opening diff views, reading the error list, or querying the active selection.
-
 ### Protocol Stack
-
-```
-Copilot CLI  ←→  HTTP/1.1 over Named Pipe  ←→  MCP (JSON-RPC/SSE)  ←→  MCP Server Process
-                                                                            │
-                                                                     RPC (StreamJsonRpc)
-                                                                            │
-                                                                     VS Package (DTE, IVsDifferenceService)
-```
 
 - **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with HTTP/1.1 + Nonce auth
 - **RPC Transport**: Windows named pipe (`\\.\pipe\copilot-cli-rpc-{uuid}`) with StreamJsonRpc
@@ -192,61 +158,6 @@ Copilot CLI  ←→  HTTP/1.1 over Named Pipe  ←→  MCP (JSON-RPC/SSE)  ←�
   "isTrusted": true
 }
 ```
-
-### VS APIs Used
-
-- **`DTE2`** — solution/project queries, active document, selection
-- **`IVsDifferenceService`** — native diff view (`OpenComparisonWindow2`)
-- **`ErrorList.ErrorItems`** — build diagnostics from the Error List
-- **`ProvideAutoLoad`** — auto-activation when a solution is loaded
-
-### Dependencies
-
-- `Microsoft.VisualStudio.SDK` 17.14 + `Microsoft.VSSDK.BuildTools` — legacy VSSDK extension model
-- `StreamJsonRpc` 2.24 — inter-process RPC communication
-- `ModelContextProtocol` 0.8.0 — MCP SDK (in the server process only)
-
-## Development
-
-### Project Structure
-
-```
-src/
-├── CopilotCliIde/                    # VSSDK Package (net472, in-proc)
-│   ├── CopilotCliIdePackage.cs       # AsyncPackage entry point
-│   ├── VsServiceRpc.cs              # IVsServiceRpc implementation (DTE, diff, diagnostics)
-│   ├── ServerProcessManager.cs       # Manages MCP server child process
-│   ├── Server/
-│   │   └── IdeDiscovery.cs           # Lock file management
-│   └── source.extension.vsixmanifest
-│
-├── CopilotCliIde.Server/            # MCP Server (net8.0, child process)
-│   ├── Program.cs                    # Entry point
-│   ├── McpPipeServer.cs             # Named pipe HTTP server + MCP routing
-│   ├── RpcClient.cs                 # StreamJsonRpc client to VS
-│   └── Tools/                        # MCP tool implementations
-│       ├── OpenDiffTool.cs
-│       ├── CloseDiffTool.cs
-│       ├── GetVsInfoTool.cs
-│       ├── GetSelectionTool.cs
-│       ├── GetDiagnosticsTool.cs
-│       ├── ReadFileTool.cs
-│       └── UpdateSessionNameTool.cs
-│
-└── CopilotCliIde.Shared/            # Shared contracts (netstandard2.0)
-    └── Contracts.cs                  # IVsServiceRpc interface + DTOs
-```
-
-### Debugging
-
-1. Set `CopilotCliIde` as the startup project
-2. F5 launches the VS experimental instance with the extension deployed
-3. Open a solution in the experimental instance
-4. Run `copilot` in a terminal, then `/ide` to connect
-5. Check `~/.copilot/ide/vs-error.log` if the extension fails to start
-6. Check `~/.copilot/ide/vs-connection.log` for MCP connection-level errors
-7. Attach a second debugger to the `CopilotCliIde.Server` process for MCP/tool debugging
-
 ## License
 
 MIT
