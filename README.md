@@ -24,7 +24,6 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 ```bash
 # Clone and build
 git clone https://github.com/sailro/CopilotCliIde
-cd vsext
 
 # Build both the VSSDK package and the MCP server
 dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj
