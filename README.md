@@ -16,7 +16,7 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 
 ### Prerequisites
 
-- Visual Studio 2022 (v17.x) or Visual Studio 2025/2026 (v18.x)
+- Visual Studio 2022 (v17.x) or Visual Studio 2026 (v18.x)
 - [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) installed
 - An active Copilot subscription
 - .NET 10.0 SDK (for the MCP server process)
