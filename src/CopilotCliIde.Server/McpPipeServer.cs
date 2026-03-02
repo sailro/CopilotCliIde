@@ -1,14 +1,11 @@
 using System.IO.Pipes;
-using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using Microsoft.VisualStudio.Extensibility;
-using Microsoft.VisualStudio.ProjectSystem.Query;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
-namespace CopilotCliIde;
+namespace CopilotCliIde.Server;
 
 /// <summary>
 /// Hosts an MCP server on a Windows named pipe so Copilot CLI can connect via /ide.
@@ -19,19 +16,17 @@ public sealed class McpPipeServer : IAsyncDisposable
 {
     private string? _pipeName;
     private string? _nonce;
-    private IdeDiscovery? _discovery;
     private CancellationTokenSource? _cts;
     private McpServerOptions? _serverOptions;
-    private VisualStudioExtensibility? _extensibility;
+    private RpcClient? _rpcClient;
 
     public string? PipeName => _pipeName;
 
-    public async Task StartAsync(VisualStudioExtensibility extensibility, IdeDiscovery discovery, CancellationToken ct)
+    public async Task StartAsync(RpcClient rpcClient, string pipeName, string nonce, CancellationToken ct)
     {
-        _discovery = discovery;
-        _extensibility = extensibility;
-        _pipeName = $"mcp-{Guid.NewGuid()}.sock";
-        _nonce = Guid.NewGuid().ToString();
+        _rpcClient = rpcClient;
+        _pipeName = pipeName;
+        _nonce = nonce;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         _serverOptions = new McpServerOptions
@@ -42,7 +37,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         };
 
         // Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
-        var services = new SingletonServiceProvider(extensibility);
+        var services = new SingletonServiceProvider(rpcClient);
         var toolOptions = new McpServerToolCreateOptions { Services = services };
         var assembly = typeof(McpPipeServer).Assembly;
         foreach (var type in assembly.GetTypes())
@@ -62,7 +57,7 @@ public sealed class McpPipeServer : IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    await LogAsync($"Failed to register tool {type.Name}.{method.Name}: {ex.Message}").ConfigureAwait(false);
+                    await LogAsync($"Failed to register tool {type.Name}.{method.Name}: {ex.Message}");
                 }
             }
         }
@@ -71,11 +66,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         _ = Task.Run(() => AcceptConnectionsAsync(_cts.Token), ct);
 
         // Wait briefly for pipe to be created
-        await Task.Delay(200, ct).ConfigureAwait(false);
-
-        // Write lock file with workspace path
-        var workspaceFolders = await GetWorkspaceFoldersAsync(extensibility).ConfigureAwait(false);
-        await discovery.WriteLockFileAsync(_pipeName, _nonce, workspaceFolders).ConfigureAwait(false);
+        await Task.Delay(200, ct);
     }
 
     private async Task AcceptConnectionsAsync(CancellationToken ct)
@@ -91,17 +82,17 @@ public sealed class McpPipeServer : IAsyncDisposable
 
             try
             {
-                await pipe.WaitForConnectionAsync(ct).ConfigureAwait(false);
+                await pipe.WaitForConnectionAsync(ct);
                 _ = Task.Run(() => HandleConnectionAsync(pipe, ct), ct);
             }
             catch (OperationCanceledException)
             {
-                await pipe.DisposeAsync().ConfigureAwait(false);
+                pipe.Dispose();
                 break;
             }
             catch
             {
-                await pipe.DisposeAsync().ConfigureAwait(false);
+                pipe.Dispose();
             }
         }
     }
@@ -117,20 +108,20 @@ public sealed class McpPipeServer : IAsyncDisposable
 
         try
         {
-            var serviceProvider = new SingletonServiceProvider(_extensibility!);
+            var serviceProvider = new SingletonServiceProvider(_rpcClient!);
             transport = new StreamableHttpServerTransport { SessionId = $"vs-{Guid.NewGuid():N}" };
             server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
             _ = server.RunAsync(ct);
 
             while (pipe.IsConnected && !ct.IsCancellationRequested)
             {
-                var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct).ConfigureAwait(false);
+                var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct);
                 if (method == null) break;
 
                 headers.TryGetValue("authorization", out var auth);
                 if (auth != $"Nonce {_nonce}")
                 {
-                    await WriteHttpResponseAsync(pipe, 401, "Unauthorized", ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(pipe, 401, "Unauthorized", ct);
                     continue;
                 }
 
@@ -138,7 +129,7 @@ public sealed class McpPipeServer : IAsyncDisposable
                 {
                     if (string.IsNullOrWhiteSpace(body))
                     {
-                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct).ConfigureAwait(false);
+                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct);
                         continue;
                     }
 
@@ -149,14 +140,14 @@ public sealed class McpPipeServer : IAsyncDisposable
                     }
                     catch (JsonException ex)
                     {
-                        await LogAsync($"JSON parse error: {ex.Message} body='{body}'").ConfigureAwait(false);
-                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct).ConfigureAwait(false);
+                        await LogAsync($"JSON parse error: {ex.Message} body='{body}'");
+                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct);
                         continue;
                     }
 
                     if (message == null)
                     {
-                        await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct).ConfigureAwait(false);
+                        await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct);
                         continue;
                     }
 
@@ -170,11 +161,20 @@ public sealed class McpPipeServer : IAsyncDisposable
                     bool hasResponse;
                     try
                     {
-                        hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token).ConfigureAwait(false);
+                        await LogAsync($"HandlePostRequest start: {body?[..Math.Min(body.Length, 200)]}");
+                        hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token);
+                        await LogAsync($"HandlePostRequest done: hasResponse={hasResponse} streamLen={responseStream.Length}");
                     }
                     catch (OperationCanceledException)
                     {
-                        await WriteHttpResponseAsync(pipe, 504, "Timeout", ct).ConfigureAwait(false);
+                        await LogAsync("HandlePostRequest TIMEOUT after 30s");
+                        await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
+                        continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        await LogAsync($"HandlePostRequest ERROR: {ex}");
+                        await WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
                         continue;
                     }
 
@@ -184,29 +184,29 @@ public sealed class McpPipeServer : IAsyncDisposable
                         var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
                         await WriteHttpResponseAsync(pipe, 200, responseBody, ct,
                             contentType: "text/event-stream",
-                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n").ConfigureAwait(false);
+                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
                     }
                     else
                     {
                         await WriteHttpResponseAsync(pipe, 202, "", ct,
-                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n").ConfigureAwait(false);
+                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
                     }
                     continue;
                 }
 
                 if (method == "GET" && (path == "/mcp" || path == "/"))
                 {
-                    await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct);
                     continue;
                 }
 
                 if (method == "DELETE" && (path == "/mcp" || path == "/"))
                 {
-                    await WriteHttpResponseAsync(pipe, 200, "", ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(pipe, 200, "", ct);
                     break;
                 }
 
-                await WriteHttpResponseAsync(pipe, 404, "Not Found", ct).ConfigureAwait(false);
+                await WriteHttpResponseAsync(pipe, 404, "Not Found", ct);
             }
         }
         catch (OperationCanceledException) { }
@@ -218,15 +218,15 @@ public sealed class McpPipeServer : IAsyncDisposable
                 var logPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".copilot", "ide", "vs-connection.log");
-                await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n").ConfigureAwait(false);
+                await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n", ct);
             }
             catch { }
         }
         finally
         {
-            if (transport != null) await transport.DisposeAsync().ConfigureAwait(false);
-            if (server != null) await server.DisposeAsync().ConfigureAwait(false);
-            await pipe.DisposeAsync().ConfigureAwait(false);
+            if (transport != null) await transport.DisposeAsync();
+            if (server != null) await server.DisposeAsync();
+            pipe.Dispose();
         }
     }
 
@@ -240,7 +240,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         // Read headers byte by byte until \r\n\r\n
         while (!headerComplete && !ct.IsCancellationRequested)
         {
-            var read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, 1), ct);
             if (read == 0) return (null, null, headers, "");
 
             sb.Append((char)buffer[0]);
@@ -249,7 +249,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         }
 
         var headerText = sb.ToString();
-        var lines = headerText.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+        var lines = headerText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length == 0) return (null, null, headers, "");
 
         // Parse request line
@@ -277,7 +277,7 @@ public sealed class McpPipeServer : IAsyncDisposable
             var totalRead = 0;
             while (totalRead < contentLength)
             {
-                var read = await stream.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct).ConfigureAwait(false);
+                var read = await stream.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct);
                 if (read == 0) break;
                 totalRead += read;
             }
@@ -286,7 +286,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         else if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
         {
             // Read chunked transfer encoding
-            body = await ReadChunkedBodyAsync(stream, ct).ConfigureAwait(false);
+            body = await ReadChunkedBodyAsync(stream, ct);
         }
 
         return (method, path, headers, body);
@@ -304,7 +304,7 @@ public sealed class McpPipeServer : IAsyncDisposable
             while (true)
             {
                 var b = new byte[1];
-                var read = await stream.ReadAsync(b, ct).ConfigureAwait(false);
+                var read = await stream.ReadAsync(b.AsMemory(0, 1), ct);
                 if (read == 0) return result.ToString();
                 lineBuf.Append((char)b[0]);
                 if (lineBuf.Length >= 2 && lineBuf[^2] == '\r' && lineBuf[^1] == '\n')
@@ -324,7 +324,7 @@ public sealed class McpPipeServer : IAsyncDisposable
             var totalRead = 0;
             while (totalRead < chunkSize)
             {
-                var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct).ConfigureAwait(false);
+                var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct);
                 if (read == 0) break;
                 totalRead += read;
             }
@@ -332,12 +332,12 @@ public sealed class McpPipeServer : IAsyncDisposable
 
             // Read trailing \r\n after chunk data
             var trail = new byte[2];
-            await stream.ReadAsync(trail, ct).ConfigureAwait(false);
+            await stream.ReadExactlyAsync(trail.AsMemory(0, 2), ct);
         }
 
         // Read trailing headers/\r\n after the final 0-size chunk
         var trailBuf = new byte[2];
-        await stream.ReadAsync(trailBuf, ct).ConfigureAwait(false);
+        await stream.ReadExactlyAsync(trailBuf.AsMemory(0, 2), ct);
 
         return result.ToString();
     }
@@ -361,47 +361,36 @@ public sealed class McpPipeServer : IAsyncDisposable
         var response = $"HTTP/1.1 {statusCode} {statusText}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n{extraHeaders}\r\n";
         var headerBytes = Encoding.UTF8.GetBytes(response);
 
-        await stream.WriteAsync(headerBytes, ct).ConfigureAwait(false);
-        await stream.WriteAsync(bodyBytes, ct).ConfigureAwait(false);
-        await stream.FlushAsync(ct).ConfigureAwait(false);
+        await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), ct);
+        await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
+        await stream.FlushAsync(ct);
     }
 
-    internal static async Task<IReadOnlyList<string>> GetWorkspaceFoldersAsync(VisualStudioExtensibility extensibility)
+    public ValueTask DisposeAsync()
     {
-        try
-        {
-            var result = await extensibility.Workspaces().QuerySolutionAsync(
-                query => query.With(q => q.Directory),
-                CancellationToken.None).ConfigureAwait(false);
-
-            var solutionDir = result.FirstOrDefault()?.Directory;
-            if (!string.IsNullOrEmpty(solutionDir))
-                return [solutionDir];
-        }
-        catch { }
-
-        return [Directory.GetCurrentDirectory()];
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        _discovery?.RemoveLockFile();
         if (_cts != null)
         {
-            await _cts.CancelAsync().ConfigureAwait(false);
+            _cts.Cancel();
             _cts.Dispose();
         }
+        return ValueTask.CompletedTask;
     }
 
-    private sealed class SingletonServiceProvider(VisualStudioExtensibility extensibility) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
+    private sealed class SingletonServiceProvider(RpcClient rpcClient) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
     {
-        public object? GetService(Type serviceType) =>
-            serviceType == typeof(VisualStudioExtensibility) ? extensibility :
-            serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService) ? this :
-            null;
+        public object? GetService(Type serviceType)
+        {
+            if (serviceType == typeof(RpcClient))
+                return rpcClient;
+            if (serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService))
+                return this;
+            return null;
+        }
 
-        public bool IsService(Type serviceType) =>
-            serviceType == typeof(VisualStudioExtensibility);
+        public bool IsService(Type serviceType)
+        {
+            return serviceType == typeof(RpcClient);
+        }
     }
 
     private static async Task LogAsync(string message)
@@ -411,7 +400,7 @@ public sealed class McpPipeServer : IAsyncDisposable
             var logPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".copilot", "ide", "vs-connection.log");
-            await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n").ConfigureAwait(false);
+            await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n");
         }
         catch { }
     }

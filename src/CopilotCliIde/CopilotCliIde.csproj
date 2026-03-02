@@ -1,15 +1,91 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFramework>net8.0-windows8.0</TargetFramework>
+    <TargetFramework>net472</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <GeneratePkgDefFile>true</GeneratePkgDefFile>
+    <VSSDKTargetPlatformRegRootSuffix>Exp</VSSDKTargetPlatformRegRootSuffix>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CustomAfterMicrosoftCSharpTargets Condition="$(VsSDKInstall) != ''">$(VsSDKInstall)\Microsoft.VsSDK.targets</CustomAfterMicrosoftCSharpTargets>
+    <RootNamespace>CopilotCliIde</RootNamespace>
+    <AssemblyName>CopilotCliIde</AssemblyName>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.SDK.VsixSuppression" Version="14.1.37" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.14.2120" PrivateAssets="all" />
+    <PackageReference Include="StreamJsonRpc" Version="2.24.84" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CopilotCliIde.Shared\CopilotCliIde.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug'">
+    <StartAction>Program</StartAction>
+    <StartProgram>$(DevEnvDir)\devenv.exe</StartProgram>
+    <StartArguments>/rootsuffix $(VSSDKTargetPlatformRegRootSuffix)</StartArguments>
+    <DeployExtension>true</DeployExtension>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.VisualStudio.Extensibility.Sdk" Version="17.14.40608" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.VisualStudio.Extensibility.Build" Version="17.14.40608" PrivateAssets="all" />
-    <PackageReference Include="ModelContextProtocol" Version="0.8.0-preview.1" />
+    <None Include="source.extension.vsixmanifest">
+      <SubType>Designer</SubType>
+    </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Update="VSPackage.resx">
+      <MergeWithCTO>true</MergeWithCTO>
+      <ManifestResourceName>VSPackage</ManifestResourceName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="../../LICENSE" />
+    <None Remove="../../README.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="../../LICENSE">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
+    <Content Include="../../README.md">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
+  </ItemGroup>
+
+  <!-- Bundle the MCP server process in the VSIX -->
+  <ItemGroup>
+    <Content Include="$(OutputPath)\CopilotCliIde.Server\**\*.*">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>McpServer</VSIXSubPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>McpServer\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+  <Target Name="PublishServerBeforeBuild" BeforeTargets="Build">
+    <Exec Command="dotnet publish ..\CopilotCliIde.Server\CopilotCliIde.Server.csproj -c $(Configuration) -o $(OutputPath)\CopilotCliIde.Server --no-self-contained" />
+  </Target>
+
+  <!-- Re-add server dependencies that VSSDK incorrectly suppresses -->
+  <Target Name="FixServerDeps" AfterTargets="RemoveVSSDKAssemblies">
+    <ItemGroup>
+      <VSIXSourceItem Include="$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Validation.dll">
+        <VSIXSubPath>McpServer</VSIXSubPath>
+      </VSIXSourceItem>
+      <VSIXSourceItem Include="$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Threading.dll">
+        <VSIXSubPath>McpServer</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
 </Project>

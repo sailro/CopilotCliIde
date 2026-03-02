@@ -5,30 +5,36 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 ## How It Works
 
 ```
-Visual Studio                          Copilot CLI
+Visual Studio (devenv.exe)             Copilot CLI
 ┌──────────────────────┐               ┌──────────────┐
-│  CopilotCliIde.vsix  │◄─named pipe──│  /ide command │
-│                      │   (HTTP/MCP)  │              │
-│  MCP Server          │               │  Agent       │
-│  \\.\pipe\mcp-{id}   │               │              │
-└──────────┬───────────┘               └──────────────┘
+│  CopilotCliIde.vsix  │               │  /ide command │
+│  (VSSDK AsyncPackage) │               │              │
+│       │               │               │  Agent       │
+│       │ RPC (pipe)    │               │              │
+│       ▼               │               └──────┬───────┘
+│  CopilotCliIde.Server │◄─named pipe─────────┘
+│  (net8.0 process)     │   (HTTP/MCP)
+│  \\.\pipe\mcp-{id}    │
+└──────────┬────────────┘
            │
            ▼
   ~/.copilot/ide/{id}.lock  ← discovery file
 ```
 
-1. **Extension loads** when a solution is opened in Visual Studio (`LoadedWhen = SolutionState.Exists`)
-2. **MCP server starts** on a Windows named pipe, listening for HTTP requests
-3. **Lock file written** to `~/.copilot/ide/` with the pipe path, auth nonce, and workspace folders
-4. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
+1. **Package loads** when a solution is opened in Visual Studio (`ProvideAutoLoad`)
+2. **RPC server starts** on a named pipe, exposing VS services (DTE, diff, diagnostics)
+3. **MCP server process launches** as a separate net8.0 child process, connecting back to VS via RPC
+4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders
+5. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
 
 ## Getting Started
 
 ### Prerequisites
 
-- Visual Studio 2025 (v18.x) with the VisualStudio.Extensibility workload
+- Visual Studio 2022 (v17.x) or Visual Studio 2025/2026 (v18.x)
 - [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) installed
 - An active Copilot subscription
+- .NET 8.0 SDK (for the MCP server process)
 
 ### Build & Install
 
@@ -36,10 +42,13 @@ Visual Studio                          Copilot CLI
 # Clone and build
 git clone <repo-url>
 cd vsext
-dotnet build
+
+# Build both the VSSDK package and the MCP server
+dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj
+dotnet build src/CopilotCliIde/CopilotCliIde.csproj -p:DeployExtension=false
 
 # The .vsix is produced at:
-# src/CopilotCliIde/bin/Debug/net8.0-windows8.0/CopilotCliIde.vsix
+# src/CopilotCliIde/bin/Debug/CopilotCliIde.vsix
 ```
 
 Double-click the `.vsix` to install, or use F5 in Visual Studio to debug in the experimental instance.
@@ -59,10 +68,10 @@ $ copilot
 Once connected, the agent can:
 
 - **Query solution info** — ask *"What solution is open?"*
-- **Read open file content** — including unsaved editor buffers
+- **Read file content** — from disk, with line range support
 - **See your selection** — ask *"What text do I have selected?"*
-- **Propose diffs** — the agent opens both original and proposed files in VS for comparison
-- **Check diagnostics** — ask *"Are there any build errors?"*
+- **Propose diffs** — the agent opens a real VS diff view using `IVsDifferenceService`
+- **Check diagnostics** — get errors and warnings from the VS Error List
 
 ## MCP Tools
 
@@ -70,11 +79,11 @@ The extension exposes 7 MCP tools to the Copilot CLI agent:
 
 | Tool | Description |
 |------|-------------|
-| `get_vs_info` | Solution path, name, project list, open documents |
+| `get_vs_info` | Solution path, name, project list |
 | `get_selection` | Active editor selection: text, file path, line/column range |
-| `get_diagnostics` | Open files with dirty status and line counts |
-| `read_file` | Read file content via VS document API (supports line ranges) |
-| `open_diff` | Open original + proposed content side-by-side in VS |
+| `get_diagnostics` | Errors and warnings from the VS Error List |
+| `read_file` | Read file content from disk (supports line ranges) |
+| `open_diff` | Open a real VS diff view comparing original with proposed changes |
 | `close_diff` | Accept (apply changes) or reject (discard) a proposed diff |
 | `update_session_name` | Set the CLI session display name |
 
@@ -87,29 +96,46 @@ Returns information about the current Visual Studio instance:
   "ideName": "Visual Studio",
   "solutionPath": "C:\\Dev\\myproject\\MyProject.sln",
   "solutionName": "MyProject",
-  "solutionDirectory": "C:\\Dev\\myproject\\",
-  "projects": [{ "name": "MyProject", "path": "..." }],
-  "openDocuments": ["C:\\Dev\\myproject\\Program.cs", "..."]
+  "solutionDirectory": "C:\\Dev\\myproject",
+  "projects": [{ "name": "MyProject", "fullName": "..." }],
+  "processId": 12345
 }
 ```
 
 #### `get_selection`
-Returns the current editor selection, tracked in real-time via `ITextViewChangedListener`:
+Returns the current editor selection, read on-demand from DTE:
 ```json
 {
   "current": true,
   "filePath": "C:\\Dev\\myproject\\Program.cs",
-  "text": "Console.WriteLine(\"Hello\");",
-  "selection": {
-    "start": { "line": 10, "character": 8 },
-    "end": { "line": 10, "character": 35 },
-    "isEmpty": false
-  }
+  "selectedText": "Console.WriteLine(\"Hello\");",
+  "startLine": 10,
+  "startColumn": 8,
+  "endLine": 10,
+  "endColumn": 35,
+  "isEmpty": false
+}
+```
+
+#### `get_diagnostics`
+Returns errors and warnings from the Visual Studio Error List:
+```json
+{
+  "diagnostics": [
+    {
+      "severity": "vsBuildErrorLevelHigh",
+      "message": "The name 'x' does not exist in the current context.",
+      "file": "C:\\Dev\\myproject\\Program.cs",
+      "line": 12,
+      "column": 5,
+      "project": "MyProject"
+    }
+  ]
 }
 ```
 
 #### `read_file`
-Reads file content through the VS document API, including unsaved changes:
+Reads file content from disk with optional line range:
 ```json
 {
   "filePath": "C:\\Dev\\myproject\\Program.cs",
@@ -123,21 +149,33 @@ Reads file content through the VS document API, including unsaved changes:
 #### `open_diff` / `close_diff`
 The diff workflow lets the agent propose changes that you review in VS:
 
-1. Agent calls `open_diff` → both original and proposed files open in VS
-2. You compare the files side-by-side
+1. Agent calls `open_diff` → a real VS diff view opens via `IVsDifferenceService`
+2. You review the changes in the native diff viewer
 3. Agent calls `close_diff` with `action: "accept"` to apply changes, or `"reject"` to discard
 
 ## Architecture
 
+### Two-Process Design
+
+The extension uses a two-process architecture to avoid assembly version conflicts between the MCP SDK (which requires modern `Microsoft.Extensions.*` packages) and Visual Studio's AppDomain:
+
+- **VSSDK Package** (`CopilotCliIde`, net472) — runs in-proc in `devenv.exe`, provides access to VS services via DTE and COM interfaces
+- **MCP Server** (`CopilotCliIde.Server`, net8.0) — runs as a separate child process, hosts the MCP protocol over named pipes
+
+The two processes communicate via **StreamJsonRpc** over a named pipe. The MCP server calls back to VS for operations like opening diff views, reading the error list, or querying the active selection.
+
 ### Protocol Stack
 
 ```
-Copilot CLI  ←→  HTTP/1.1 over Named Pipe  ←→  MCP Streamable HTTP  ←→  VS Extension
+Copilot CLI  ←→  HTTP/1.1 over Named Pipe  ←→  MCP (JSON-RPC/SSE)  ←→  MCP Server Process
+                                                                            │
+                                                                     RPC (StreamJsonRpc)
+                                                                            │
+                                                                     VS Package (DTE, IVsDifferenceService)
 ```
 
-- **Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`)
-- **Protocol**: HTTP/1.1 with Nonce authentication
-- **MCP**: Streamable HTTP transport (JSON-RPC 2.0 over SSE)
+- **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with HTTP/1.1 + Nonce auth
+- **RPC Transport**: Windows named pipe (`\\.\pipe\copilot-cli-rpc-{uuid}`) with StreamJsonRpc
 - **Discovery**: Lock files in `~/.copilot/ide/{uuid}.lock`
 
 ### Lock File Format
@@ -155,53 +193,59 @@ Copilot CLI  ←→  HTTP/1.1 over Named Pipe  ←→  MCP Streamable HTTP  ←�
 }
 ```
 
-### VS Extensibility APIs Used
+### VS APIs Used
 
-- **`VisualStudioExtensibility.Workspaces()`** — solution/project queries via Project Query API
-- **`VisualStudioExtensibility.Documents()`** — open/read/close documents
-- **`ITextViewChangedListener`** — real-time editor selection tracking
-- **`LoadedWhen = SolutionState.Exists`** — auto-activation on solution load
+- **`DTE2`** — solution/project queries, active document, selection
+- **`IVsDifferenceService`** — native diff view (`OpenComparisonWindow2`)
+- **`ErrorList.ErrorItems`** — build diagnostics from the Error List
+- **`ProvideAutoLoad`** — auto-activation when a solution is loaded
 
 ### Dependencies
 
-- `Microsoft.VisualStudio.Extensibility.Sdk` 17.14 — VS out-of-proc extension model
-- `ModelContextProtocol` 0.8.0 — MCP SDK (StreamableHttpServerTransport, McpServerTool)
-
-## Limitations
-
-- **Diagnostics**: Full Error List access requires in-process hosting (`DiagnosticViewerService`). The extension reports open file status; for build errors, use `dotnet build` in the terminal.
-- **Diff viewer**: VS Extensibility out-of-proc doesn't expose `IVsDifferenceService`. The extension opens original and proposed files side-by-side as a workaround.
-- **Selection**: Tracked via `ITextViewChangedListener` events. The selection is cached and returned on the next tool call — it's not a live snapshot at the exact moment of the call.
+- `Microsoft.VisualStudio.SDK` 17.14 + `Microsoft.VSSDK.BuildTools` — legacy VSSDK extension model
+- `StreamJsonRpc` 2.24 — inter-process RPC communication
+- `ModelContextProtocol` 0.8.0 — MCP SDK (in the server process only)
 
 ## Development
 
 ### Project Structure
 
 ```
-src/CopilotCliIde/
-├── CopilotCliIdeExtension.cs      # Extension entry point
-├── SelectionTracker.cs            # Real-time editor selection tracking
-├── Server/
-│   ├── McpPipeServer.cs           # Named pipe HTTP server + MCP routing
-│   └── IdeDiscovery.cs            # Lock file management
-└── Tools/
-    ├── GetVsInfoTool.cs           # Solution/project info
-    ├── GetSelectionTool.cs        # Editor selection
-    ├── GetDiagnosticsTool.cs      # Build diagnostics
-    ├── ReadFileTool.cs            # File content reading
-    ├── OpenDiffTool.cs            # Diff proposal
-    ├── CloseDiffTool.cs           # Diff accept/reject
-    └── UpdateSessionNameTool.cs   # Session naming
+src/
+├── CopilotCliIde/                    # VSSDK Package (net472, in-proc)
+│   ├── CopilotCliIdePackage.cs       # AsyncPackage entry point
+│   ├── VsServiceRpc.cs              # IVsServiceRpc implementation (DTE, diff, diagnostics)
+│   ├── ServerProcessManager.cs       # Manages MCP server child process
+│   ├── Server/
+│   │   └── IdeDiscovery.cs           # Lock file management
+│   └── source.extension.vsixmanifest
+│
+├── CopilotCliIde.Server/            # MCP Server (net8.0, child process)
+│   ├── Program.cs                    # Entry point
+│   ├── McpPipeServer.cs             # Named pipe HTTP server + MCP routing
+│   ├── RpcClient.cs                 # StreamJsonRpc client to VS
+│   └── Tools/                        # MCP tool implementations
+│       ├── OpenDiffTool.cs
+│       ├── CloseDiffTool.cs
+│       ├── GetVsInfoTool.cs
+│       ├── GetSelectionTool.cs
+│       ├── GetDiagnosticsTool.cs
+│       ├── ReadFileTool.cs
+│       └── UpdateSessionNameTool.cs
+│
+└── CopilotCliIde.Shared/            # Shared contracts (netstandard2.0)
+    └── Contracts.cs                  # IVsServiceRpc interface + DTOs
 ```
 
 ### Debugging
 
 1. Set `CopilotCliIde` as the startup project
-2. F5 launches the VS experimental instance
+2. F5 launches the VS experimental instance with the extension deployed
 3. Open a solution in the experimental instance
 4. Run `copilot` in a terminal, then `/ide` to connect
 5. Check `~/.copilot/ide/vs-error.log` if the extension fails to start
-6. Check `~/.copilot/ide/vs-connection.log` for connection-level errors
+6. Check `~/.copilot/ide/vs-connection.log` for MCP connection-level errors
+7. Attach a second debugger to the `CopilotCliIde.Server` process for MCP/tool debugging
 
 ## License
 

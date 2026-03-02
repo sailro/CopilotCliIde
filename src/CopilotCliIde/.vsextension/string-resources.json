@@ -1,4 +1,0 @@
-{
-  "CopilotCliIde.CopilotCliIdeExtension.DisplayName": "Copilot CLI IDE Bridge",
-  "CopilotCliIde.CopilotCliIdeExtension.Description": "Enables GitHub Copilot CLI to interact with Visual Studio via the /ide command"
-}

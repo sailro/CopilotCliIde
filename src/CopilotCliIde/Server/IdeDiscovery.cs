@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace CopilotCliIde;
+namespace CopilotCliIde.Server;
 
 /// <summary>
 /// Manages lock files in ~/.copilot/ide/ so Copilot CLI can discover this VS instance.
@@ -19,7 +19,7 @@ public sealed class IdeDiscovery : IDisposable
         return basePath;
     }
 
-    public async Task WriteLockFileAsync(string pipeName, string nonce, IReadOnlyList<string> workspaceFolders)
+    public Task WriteLockFileAsync(string pipeName, string nonce, IReadOnlyList<string> workspaceFolders)
     {
         var ideDir = GetIdeDirectory();
         Directory.CreateDirectory(ideDir);
@@ -32,7 +32,7 @@ public sealed class IdeDiscovery : IDisposable
             socketPath = $@"\\.\pipe\{pipeName}",
             scheme = "pipe",
             headers = new Dictionary<string, string> { ["Authorization"] = $"Nonce {nonce}" },
-            pid = Environment.ProcessId,
+            pid = Process.GetCurrentProcess().Id,
             ideName = "Visual Studio",
             timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             workspaceFolders,
@@ -40,15 +40,16 @@ public sealed class IdeDiscovery : IDisposable
         };
 
         var json = JsonSerializer.Serialize(lockData, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(_lockFilePath, json);
+        File.WriteAllText(_lockFilePath, json);
+        return Task.CompletedTask;
     }
 
-    public async Task UpdateWorkspaceFoldersAsync(IReadOnlyList<string> workspaceFolders)
+    public Task UpdateWorkspaceFoldersAsync(IReadOnlyList<string> workspaceFolders)
     {
         if (_lockFilePath == null || !File.Exists(_lockFilePath))
-            return;
+            return Task.CompletedTask;
 
-        var json = await File.ReadAllTextAsync(_lockFilePath);
+        var json = File.ReadAllText(_lockFilePath);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
@@ -58,21 +59,22 @@ public sealed class IdeDiscovery : IDisposable
         dict["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         var updated = JsonSerializer.Serialize(dict, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(_lockFilePath, updated);
+        File.WriteAllText(_lockFilePath, updated);
+        return Task.CompletedTask;
     }
 
-    public async Task CleanStaleLockFilesAsync()
+    public Task CleanStaleLockFilesAsync()
     {
         var ideDir = GetIdeDirectory();
         if (!Directory.Exists(ideDir))
-            return;
+            return Task.CompletedTask;
 
         var lockFiles = Directory.GetFiles(ideDir, "*.lock");
         foreach (var file in lockFiles)
         {
             try
             {
-                var json = await File.ReadAllTextAsync(file);
+                var json = File.ReadAllText(file);
                 using var doc = JsonDocument.Parse(json);
                 if (doc.RootElement.TryGetProperty("pid", out var pidProp))
                 {
@@ -95,6 +97,7 @@ public sealed class IdeDiscovery : IDisposable
                 try { File.Delete(file); } catch { }
             }
         }
+        return Task.CompletedTask;
     }
 
     public void RemoveLockFile()
