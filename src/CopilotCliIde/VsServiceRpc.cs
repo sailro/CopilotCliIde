@@ -34,15 +34,19 @@ public class VsServiceRpc : IVsServiceRpc
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             IVsWindowFrame? frame = null;
-            if (Package.GetGlobalService(typeof(SVsDifferenceService)) is IVsDifferenceService diffService)
+            var diffSvc = Package.GetGlobalService(typeof(SVsDifferenceService));
+            if (diffSvc is IVsDifferenceService diffService)
             {
                 frame = diffService.OpenComparisonWindow2(
                     originalFilePath, tempFile,
                     $"{tabName} (Proposed Changes)",
-                    $"Comparing {Path.GetFileName(originalFilePath)} with proposed changes",
+                    "",
                     Path.GetFileName(originalFilePath),
                     $"{Path.GetFileName(originalFilePath)} (Proposed)",
-                    null, null, 0);
+                    "",
+                    "",
+                    0);
+                frame?.Show();
             }
 
             _activeDiffs[diffId] = new DiffState
@@ -55,7 +59,7 @@ public class VsServiceRpc : IVsServiceRpc
             {
                 Success = true, DiffId = diffId, OriginalFilePath = originalFilePath,
                 ProposedFilePath = tempFile, TabName = tabName,
-                Message = $"Diff view opened. Use 'close_diff' with diffId='{diffId}' and action='accept' to apply, or 'reject' to discard."
+                Message = $"Diff view opened (service={diffSvc?.GetType().Name}, frame={frame != null}). Use 'close_diff' with diffId='{diffId}' and action='accept' to apply, or 'reject' to discard."
             };
         }
         catch (Exception ex)
