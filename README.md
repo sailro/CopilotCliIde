@@ -2,6 +2,8 @@
 
 A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) to interact with Visual Studio via the `/ide` command — the same way it works with VS Code.
 
+<img alt="copilot" src="https://github.com/user-attachments/assets/7f1c42ce-235b-4179-a40e-ba8758a6c6fe" />
+
 ## How It Works
 
 1. **Package loads** when a solution is opened in Visual Studio (`ProvideAutoLoad`)
