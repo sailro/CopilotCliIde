@@ -217,7 +217,7 @@ public sealed class McpPipeServer : IAsyncDisposable
             {
                 var logPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".copilot", "ide", "vs-connection.log");
+                    ".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
                 await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n", ct);
             }
             catch { }
@@ -399,7 +399,7 @@ public sealed class McpPipeServer : IAsyncDisposable
         {
             var logPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".copilot", "ide", "vs-connection.log");
+                ".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
             await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n");
         }
         catch { }

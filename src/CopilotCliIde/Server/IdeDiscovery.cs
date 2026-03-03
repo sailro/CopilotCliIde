@@ -63,7 +63,7 @@ public sealed class IdeDiscovery : IDisposable
         return Task.CompletedTask;
     }
 
-    public Task CleanStaleLockFilesAsync()
+    public Task CleanStaleFilesAsync()
     {
         var ideDir = GetIdeDirectory();
         if (!Directory.Exists(ideDir))
@@ -97,6 +97,28 @@ public sealed class IdeDiscovery : IDisposable
                 try { File.Delete(file); } catch { }
             }
         }
+
+        // Clean stale PID-based log files (vs-error-{pid}.log, vs-connection-{pid}.log)
+        foreach (var file in Directory.GetFiles(ideDir, "vs-*.log"))
+        {
+            try
+            {
+                var name = Path.GetFileNameWithoutExtension(file);
+                var lastDash = name.LastIndexOf('-');
+                if (lastDash < 0) continue;
+                if (!int.TryParse(name.Substring(lastDash + 1), out var pid)) continue;
+                try
+                {
+                    Process.GetProcessById(pid);
+                }
+                catch (ArgumentException)
+                {
+                    try { File.Delete(file); } catch { }
+                }
+            }
+            catch { }
+        }
+
         return Task.CompletedTask;
     }
 

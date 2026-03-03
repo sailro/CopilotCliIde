@@ -9,6 +9,8 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 3. **MCP server process launches** as a separate net10.0 child process, connecting back to VS via RPC
 4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders
 5. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
+6. **Solution changes tracked** — when you close/open solutions, the lock file's workspace folders update automatically
+7. **Stale files cleaned** — on startup, lock files and log files from dead processes are removed
 
 ## Getting Started
 
@@ -143,6 +145,7 @@ The diff workflow lets the agent propose changes that you review in VS:
 - **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with HTTP/1.1 + Nonce auth
 - **RPC Transport**: Windows named pipe (`\\.\pipe\copilot-cli-rpc-{uuid}`) with StreamJsonRpc
 - **Discovery**: Lock files in `~/.copilot/ide/{uuid}.lock`
+- **Diagnostics**: Per-process log files in `~/.copilot/ide/` (`vs-error-{pid}.log`, `vs-connection-{pid}.log`)
 
 ### Lock File Format
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using CopilotCliIde.Server;
@@ -18,6 +19,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
     private ServerProcessManager? _processManager;
     private NamedPipeServerStream? _rpcPipe;
     private JsonRpc? _rpc;
+    private EnvDTE.SolutionEvents? _solutionEvents;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
@@ -27,7 +29,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
         try
         {
             _discovery = new IdeDiscovery();
-            await _discovery.CleanStaleLockFilesAsync();
+            await _discovery.CleanStaleFilesAsync();
 
             var rpcPipeName = $"copilot-cli-rpc-{Guid.NewGuid()}";
             var mcpPipeName = $"mcp-{Guid.NewGuid()}.sock";
@@ -43,12 +45,18 @@ public sealed class CopilotCliIdePackage : AsyncPackage
             // Write lock file for Copilot CLI discovery
             var workspaceFolders = GetWorkspaceFolders();
             await _discovery.WriteLockFileAsync(mcpPipeName, nonce, workspaceFolders);
+
+            // Subscribe to solution events to keep lock file in sync
+            var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
+            _solutionEvents = dte.Events.SolutionEvents;
+            _solutionEvents.Opened += OnSolutionOpened;
+            _solutionEvents.AfterClosing += OnSolutionAfterClosing;
         }
         catch (Exception ex)
         {
             var diagPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".copilot", "ide", "vs-error.log");
+                ".copilot", "ide", $"vs-error-{Process.GetCurrentProcess().Id}.log");
             Directory.CreateDirectory(Path.GetDirectoryName(diagPath)!);
             File.WriteAllText(diagPath, $"{DateTime.UtcNow:O}\n{ex}");
         }
@@ -81,10 +89,31 @@ public sealed class CopilotCliIdePackage : AsyncPackage
         return new List<string> { Directory.GetCurrentDirectory() }.AsReadOnly();
     }
 
+    private void OnSolutionOpened()
+    {
+        _ = JoinableTaskFactory.RunAsync(async () =>
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            var folders = GetWorkspaceFolders();
+            if (_discovery != null)
+                await _discovery.UpdateWorkspaceFoldersAsync(folders);
+        });
+    }
+
+    private void OnSolutionAfterClosing()
+    {
+        _ = JoinableTaskFactory.RunAsync(async () =>
+        {
+            if (_discovery != null)
+                await _discovery.UpdateWorkspaceFoldersAsync(new List<string>().AsReadOnly());
+        });
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            _solutionEvents = null;
             _processManager?.Dispose();
             _rpc?.Dispose();
             _rpcPipe?.Dispose();
