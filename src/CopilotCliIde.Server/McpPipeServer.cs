@@ -14,394 +14,394 @@ namespace CopilotCliIde.Server;
 /// </summary>
 public sealed class McpPipeServer : IAsyncDisposable
 {
-    private string? _pipeName;
-    private string? _nonce;
-    private CancellationTokenSource? _cts;
-    private McpServerOptions? _serverOptions;
-    private RpcClient? _rpcClient;
+	private string? _pipeName;
+	private string? _nonce;
+	private CancellationTokenSource? _cts;
+	private McpServerOptions? _serverOptions;
+	private RpcClient? _rpcClient;
 
-    public string? PipeName => _pipeName;
+	public string? PipeName => _pipeName;
 
-    public async Task StartAsync(RpcClient rpcClient, string pipeName, string nonce, CancellationToken ct)
-    {
-        _rpcClient = rpcClient;
-        _pipeName = pipeName;
-        _nonce = nonce;
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+	public async Task StartAsync(RpcClient rpcClient, string pipeName, string nonce, CancellationToken ct)
+	{
+		_rpcClient = rpcClient;
+		_pipeName = pipeName;
+		_nonce = nonce;
+		_cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        _serverOptions = new McpServerOptions
-        {
-            ServerInfo = new Implementation { Name = "Visual Studio", Version = "1.0.0" },
-            Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
-            ToolCollection = [],
-        };
+		_serverOptions = new McpServerOptions
+		{
+			ServerInfo = new Implementation { Name = "Visual Studio", Version = "1.0.0" },
+			Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
+			ToolCollection = [],
+		};
 
-        // Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
-        var services = new SingletonServiceProvider(rpcClient);
-        var toolOptions = new McpServerToolCreateOptions { Services = services };
-        var assembly = typeof(McpPipeServer).Assembly;
-        foreach (var type in assembly.GetTypes())
-        {
-            if (type.GetCustomAttribute<McpServerToolTypeAttribute>() == null)
-                continue;
+		// Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
+		var services = new SingletonServiceProvider(rpcClient);
+		var toolOptions = new McpServerToolCreateOptions { Services = services };
+		var assembly = typeof(McpPipeServer).Assembly;
+		foreach (var type in assembly.GetTypes())
+		{
+			if (type.GetCustomAttribute<McpServerToolTypeAttribute>() == null)
+				continue;
 
-            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic))
-            {
-                if (method.GetCustomAttribute<McpServerToolAttribute>() == null)
-                    continue;
+			foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic))
+			{
+				if (method.GetCustomAttribute<McpServerToolAttribute>() == null)
+					continue;
 
-                try
-                {
-                    var tool = McpServerTool.Create(method, options: toolOptions);
-                    _serverOptions.ToolCollection.Add(tool);
-                }
-                catch (Exception ex)
-                {
-                    await LogAsync($"Failed to register tool {type.Name}.{method.Name}: {ex.Message}");
-                }
-            }
-        }
+				try
+				{
+					var tool = McpServerTool.Create(method, options: toolOptions);
+					_serverOptions.ToolCollection.Add(tool);
+				}
+				catch (Exception ex)
+				{
+					await LogAsync($"Failed to register tool {type.Name}.{method.Name}: {ex.Message}");
+				}
+			}
+		}
 
-        // Start accepting connections in background
-        _ = Task.Run(() => AcceptConnectionsAsync(_cts.Token), ct);
+		// Start accepting connections in background
+		_ = Task.Run(() => AcceptConnectionsAsync(_cts.Token), ct);
 
-        // Wait briefly for pipe to be created
-        await Task.Delay(200, ct);
-    }
+		// Wait briefly for pipe to be created
+		await Task.Delay(200, ct);
+	}
 
-    private async Task AcceptConnectionsAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            var pipe = new NamedPipeServerStream(
-                _pipeName!,
-                PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous);
+	private async Task AcceptConnectionsAsync(CancellationToken ct)
+	{
+		while (!ct.IsCancellationRequested)
+		{
+			var pipe = new NamedPipeServerStream(
+				_pipeName!,
+				PipeDirection.InOut,
+				NamedPipeServerStream.MaxAllowedServerInstances,
+				PipeTransmissionMode.Byte,
+				PipeOptions.Asynchronous);
 
-            try
-            {
-                await pipe.WaitForConnectionAsync(ct);
-                _ = Task.Run(() => HandleConnectionAsync(pipe, ct), ct);
-            }
-            catch (OperationCanceledException)
-            {
-                pipe.Dispose();
-                break;
-            }
-            catch
-            {
-                pipe.Dispose();
-            }
-        }
-    }
+			try
+			{
+				await pipe.WaitForConnectionAsync(ct);
+				_ = Task.Run(() => HandleConnectionAsync(pipe, ct), ct);
+			}
+			catch (OperationCanceledException)
+			{
+				await pipe.DisposeAsync();
+				break;
+			}
+			catch
+			{
+				await pipe.DisposeAsync();
+			}
+		}
+	}
 
-    /// <summary>
-    /// Handles a single pipe connection. The CLI sends HTTP requests (Streamable HTTP MCP transport)
-    /// over the pipe. We use StreamableHttpServerTransport to handle the MCP session properly.
-    /// </summary>
-    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
-    {
-        StreamableHttpServerTransport? transport = null;
-        McpServer? server = null;
+	/// <summary>
+	/// Handles a single pipe connection. The CLI sends HTTP requests (Streamable HTTP MCP transport)
+	/// over the pipe. We use StreamableHttpServerTransport to handle the MCP session properly.
+	/// </summary>
+	private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
+	{
+		StreamableHttpServerTransport? transport = null;
+		McpServer? server = null;
 
-        try
-        {
-            var serviceProvider = new SingletonServiceProvider(_rpcClient!);
-            transport = new StreamableHttpServerTransport { SessionId = $"vs-{Guid.NewGuid():N}" };
-            server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
-            _ = server.RunAsync(ct);
+		try
+		{
+			var serviceProvider = new SingletonServiceProvider(_rpcClient!);
+			transport = new StreamableHttpServerTransport { SessionId = $"vs-{Guid.NewGuid():N}" };
+			server = McpServer.Create(transport, _serverOptions!, serviceProvider: serviceProvider);
+			_ = server.RunAsync(ct);
 
-            while (pipe.IsConnected && !ct.IsCancellationRequested)
-            {
-                var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct);
-                if (method == null) break;
+			while (pipe.IsConnected && !ct.IsCancellationRequested)
+			{
+				var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct);
+				if (method == null) break;
 
-                headers.TryGetValue("authorization", out var auth);
-                if (auth != $"Nonce {_nonce}")
-                {
-                    await WriteHttpResponseAsync(pipe, 401, "Unauthorized", ct);
-                    continue;
-                }
+				headers.TryGetValue("authorization", out var auth);
+				if (auth != $"Nonce {_nonce}")
+				{
+					await WriteHttpResponseAsync(pipe, 401, "Unauthorized", ct);
+					continue;
+				}
 
-                if (method == "POST" && (path == "/mcp" || path == "/"))
-                {
-                    if (string.IsNullOrWhiteSpace(body))
-                    {
-                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct);
-                        continue;
-                    }
+				if (method == "POST" && (path == "/mcp" || path == "/"))
+				{
+					if (string.IsNullOrWhiteSpace(body))
+					{
+						await WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct);
+						continue;
+					}
 
-                    JsonRpcMessage? message;
-                    try
-                    {
-                        message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
-                    }
-                    catch (JsonException ex)
-                    {
-                        await LogAsync($"JSON parse error: {ex.Message} body='{body}'");
-                        await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct);
-                        continue;
-                    }
+					JsonRpcMessage? message;
+					try
+					{
+						message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
+					}
+					catch (JsonException ex)
+					{
+						await LogAsync($"JSON parse error: {ex.Message} body='{body}'");
+						await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct);
+						continue;
+					}
 
-                    if (message == null)
-                    {
-                        await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct);
-                        continue;
-                    }
+					if (message == null)
+					{
+						await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct);
+						continue;
+					}
 
-                    var responseStream = new MemoryStream();
+					var responseStream = new MemoryStream();
 
-                    // HandlePostRequestAsync writes SSE events to the stream and returns
-                    // true if there's a response to send back, false for notifications (202)
-                    using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    postCts.CancelAfter(TimeSpan.FromSeconds(30));
+					// HandlePostRequestAsync writes SSE events to the stream and returns
+					// true if there's a response to send back, false for notifications (202)
+					using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+					postCts.CancelAfter(TimeSpan.FromSeconds(30));
 
-                    bool hasResponse;
-                    try
-                    {
-                        await LogAsync($"HandlePostRequest start: {body?[..Math.Min(body.Length, 200)]}");
-                        hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token);
-                        await LogAsync($"HandlePostRequest done: hasResponse={hasResponse} streamLen={responseStream.Length}");
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        await LogAsync("HandlePostRequest TIMEOUT after 30s");
-                        await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
-                        continue;
-                    }
-                    catch (Exception ex)
-                    {
-                        await LogAsync($"HandlePostRequest ERROR: {ex}");
-                        await WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
-                        continue;
-                    }
+					bool hasResponse;
+					try
+					{
+						await LogAsync($"HandlePostRequest start: {body?[..Math.Min(body.Length, 200)]}");
+						hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token);
+						await LogAsync($"HandlePostRequest done: hasResponse={hasResponse} streamLen={responseStream.Length}");
+					}
+					catch (OperationCanceledException)
+					{
+						await LogAsync("HandlePostRequest TIMEOUT after 30s");
+						await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
+						continue;
+					}
+					catch (Exception ex)
+					{
+						await LogAsync($"HandlePostRequest ERROR: {ex}");
+						await WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
+						continue;
+					}
 
-                    if (hasResponse && responseStream.Length > 0)
-                    {
-                        responseStream.Position = 0;
-                        var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
-                        await WriteHttpResponseAsync(pipe, 200, responseBody, ct,
-                            contentType: "text/event-stream",
-                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
-                    }
-                    else
-                    {
-                        await WriteHttpResponseAsync(pipe, 202, "", ct,
-                            extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
-                    }
-                    continue;
-                }
+					if (hasResponse && responseStream.Length > 0)
+					{
+						responseStream.Position = 0;
+						var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
+						await WriteHttpResponseAsync(pipe, 200, responseBody, ct,
+							contentType: "text/event-stream",
+							extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
+					}
+					else
+					{
+						await WriteHttpResponseAsync(pipe, 202, "", ct,
+							extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
+					}
+					continue;
+				}
 
-                if (method == "GET" && (path == "/mcp" || path == "/"))
-                {
-                    await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct);
-                    continue;
-                }
+				if (method == "GET" && path is "/mcp" or "/")
+				{
+					await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct);
+					continue;
+				}
 
-                if (method == "DELETE" && (path == "/mcp" || path == "/"))
-                {
-                    await WriteHttpResponseAsync(pipe, 200, "", ct);
-                    break;
-                }
+				if (method == "DELETE" && path is "/mcp" or "/")
+				{
+					await WriteHttpResponseAsync(pipe, 200, "", ct);
+					break;
+				}
 
-                await WriteHttpResponseAsync(pipe, 404, "Not Found", ct);
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            // Log connection-level errors
-            try
-            {
-                var logPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
-                await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n", ct);
-            }
-            catch { }
-        }
-        finally
-        {
-            if (transport != null) await transport.DisposeAsync();
-            if (server != null) await server.DisposeAsync();
-            pipe.Dispose();
-        }
-    }
+				await WriteHttpResponseAsync(pipe, 404, "Not Found", ct);
+			}
+		}
+		catch (OperationCanceledException) { }
+		catch (Exception ex)
+		{
+			// Log connection-level errors
+			try
+			{
+				var logPath = Path.Combine(
+					Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+					".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
+				await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n", ct);
+			}
+			catch { /* Ignore */ }
+		}
+		finally
+		{
+			if (transport != null) await transport.DisposeAsync();
+			if (server != null) await server.DisposeAsync();
+			await pipe.DisposeAsync();
+		}
+	}
 
-    private static async Task<(string? method, string? path, Dictionary<string, string> headers, string body)> ReadHttpRequestAsync(Stream stream, CancellationToken ct)
-    {
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var sb = new StringBuilder();
-        var buffer = new byte[1];
-        var headerComplete = false;
+	private static async Task<(string? method, string? path, Dictionary<string, string> headers, string body)> ReadHttpRequestAsync(Stream stream, CancellationToken ct)
+	{
+		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		var sb = new StringBuilder();
+		var buffer = new byte[1];
+		var headerComplete = false;
 
-        // Read headers byte by byte until \r\n\r\n
-        while (!headerComplete && !ct.IsCancellationRequested)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(0, 1), ct);
-            if (read == 0) return (null, null, headers, "");
+		// Read headers byte by byte until \r\n\r\n
+		while (!headerComplete && !ct.IsCancellationRequested)
+		{
+			var read = await stream.ReadAsync(buffer.AsMemory(0, 1), ct);
+			if (read == 0) return (null, null, headers, "");
 
-            sb.Append((char)buffer[0]);
-            if (sb.Length >= 4 && sb.ToString(sb.Length - 4, 4) == "\r\n\r\n")
-                headerComplete = true;
-        }
+			sb.Append((char)buffer[0]);
+			if (sb.Length >= 4 && sb.ToString(sb.Length - 4, 4) == "\r\n\r\n")
+				headerComplete = true;
+		}
 
-        var headerText = sb.ToString();
-        var lines = headerText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
-        if (lines.Length == 0) return (null, null, headers, "");
+		var headerText = sb.ToString();
+		var lines = headerText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
+		if (lines.Length == 0) return (null, null, headers, "");
 
-        // Parse request line
-        var parts = lines[0].Split(' ');
-        var method = parts.Length > 0 ? parts[0] : null;
-        var path = parts.Length > 1 ? parts[1] : null;
+		// Parse request line
+		var parts = lines[0].Split(' ');
+		var method = parts.Length > 0 ? parts[0] : null;
+		var path = parts.Length > 1 ? parts[1] : null;
 
-        // Parse headers
-        for (int i = 1; i < lines.Length; i++)
-        {
-            var colonIdx = lines[i].IndexOf(':');
-            if (colonIdx > 0)
-            {
-                var key = lines[i][..colonIdx].Trim();
-                var value = lines[i][(colonIdx + 1)..].Trim();
-                headers[key] = value;
-            }
-        }
+		// Parse headers
+		for (int i = 1; i < lines.Length; i++)
+		{
+			var colonIdx = lines[i].IndexOf(':');
+			if (colonIdx > 0)
+			{
+				var key = lines[i][..colonIdx].Trim();
+				var value = lines[i][(colonIdx + 1)..].Trim();
+				headers[key] = value;
+			}
+		}
 
-        // Read body
-        var body = "";
-        if (headers.TryGetValue("content-length", out var clStr) && int.TryParse(clStr, out var contentLength) && contentLength > 0)
-        {
-            var bodyBuffer = new byte[contentLength];
-            var totalRead = 0;
-            while (totalRead < contentLength)
-            {
-                var read = await stream.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct);
-                if (read == 0) break;
-                totalRead += read;
-            }
-            body = Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
-        }
-        else if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
-        {
-            // Read chunked transfer encoding
-            body = await ReadChunkedBodyAsync(stream, ct);
-        }
+		// Read body
+		var body = "";
+		if (headers.TryGetValue("content-length", out var clStr) && int.TryParse(clStr, out var contentLength) && contentLength > 0)
+		{
+			var bodyBuffer = new byte[contentLength];
+			var totalRead = 0;
+			while (totalRead < contentLength)
+			{
+				var read = await stream.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct);
+				if (read == 0) break;
+				totalRead += read;
+			}
+			body = Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
+		}
+		else if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
+		{
+			// Read chunked transfer encoding
+			body = await ReadChunkedBodyAsync(stream, ct);
+		}
 
-        return (method, path, headers, body);
-    }
+		return (method, path, headers, body);
+	}
 
-    private static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
-    {
-        var result = new StringBuilder();
-        var lineBuf = new StringBuilder();
+	private static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
+	{
+		var result = new StringBuilder();
+		var lineBuf = new StringBuilder();
 
-        while (true)
-        {
-            // Read chunk size line (hex\r\n)
-            lineBuf.Clear();
-            while (true)
-            {
-                var b = new byte[1];
-                var read = await stream.ReadAsync(b.AsMemory(0, 1), ct);
-                if (read == 0) return result.ToString();
-                lineBuf.Append((char)b[0]);
-                if (lineBuf.Length >= 2 && lineBuf[^2] == '\r' && lineBuf[^1] == '\n')
-                    break;
-            }
+		while (true)
+		{
+			// Read chunk size line (hex\r\n)
+			lineBuf.Clear();
+			while (true)
+			{
+				var b = new byte[1];
+				var read = await stream.ReadAsync(b.AsMemory(0, 1), ct);
+				if (read == 0) return result.ToString();
+				lineBuf.Append((char)b[0]);
+				if (lineBuf is [.., '\r', '\n'])
+					break;
+			}
 
-            var sizeLine = lineBuf.ToString().TrimEnd('\r', '\n').Trim();
-            // Strip chunk extensions if any
-            var semiIdx = sizeLine.IndexOf(';');
-            if (semiIdx >= 0) sizeLine = sizeLine[..semiIdx];
+			var sizeLine = lineBuf.ToString().TrimEnd('\r', '\n').Trim();
+			// Strip chunk extensions if any
+			var semiIdx = sizeLine.IndexOf(';');
+			if (semiIdx >= 0) sizeLine = sizeLine[..semiIdx];
 
-            if (!int.TryParse(sizeLine, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                break;
+			if (!int.TryParse(sizeLine, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
+				break;
 
-            // Read chunk data
-            var chunkBuf = new byte[chunkSize];
-            var totalRead = 0;
-            while (totalRead < chunkSize)
-            {
-                var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct);
-                if (read == 0) break;
-                totalRead += read;
-            }
-            result.Append(Encoding.UTF8.GetString(chunkBuf, 0, totalRead));
+			// Read chunk data
+			var chunkBuf = new byte[chunkSize];
+			var totalRead = 0;
+			while (totalRead < chunkSize)
+			{
+				var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct);
+				if (read == 0) break;
+				totalRead += read;
+			}
+			result.Append(Encoding.UTF8.GetString(chunkBuf, 0, totalRead));
 
-            // Read trailing \r\n after chunk data
-            var trail = new byte[2];
-            await stream.ReadExactlyAsync(trail.AsMemory(0, 2), ct);
-        }
+			// Read trailing \r\n after chunk data
+			var trail = new byte[2];
+			await stream.ReadExactlyAsync(trail.AsMemory(0, 2), ct);
+		}
 
-        // Read trailing headers/\r\n after the final 0-size chunk
-        var trailBuf = new byte[2];
-        await stream.ReadExactlyAsync(trailBuf.AsMemory(0, 2), ct);
+		// Read trailing headers/\r\n after the final 0-size chunk
+		var trailBuf = new byte[2];
+		await stream.ReadExactlyAsync(trailBuf.AsMemory(0, 2), ct);
 
-        return result.ToString();
-    }
+		return result.ToString();
+	}
 
-    private static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
-        string contentType = "text/plain", string extraHeaders = "")
-    {
-        var statusText = statusCode switch
-        {
-            200 => "OK",
-            202 => "Accepted",
-            400 => "Bad Request",
-            401 => "Unauthorized",
-            404 => "Not Found",
-            405 => "Method Not Allowed",
-            504 => "Gateway Timeout",
-            _ => "Error"
-        };
+	private static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
+		string contentType = "text/plain", string extraHeaders = "")
+	{
+		var statusText = statusCode switch
+		{
+			200 => "OK",
+			202 => "Accepted",
+			400 => "Bad Request",
+			401 => "Unauthorized",
+			404 => "Not Found",
+			405 => "Method Not Allowed",
+			504 => "Gateway Timeout",
+			_ => "Error"
+		};
 
-        var bodyBytes = Encoding.UTF8.GetBytes(body);
-        var response = $"HTTP/1.1 {statusCode} {statusText}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n{extraHeaders}\r\n";
-        var headerBytes = Encoding.UTF8.GetBytes(response);
+		var bodyBytes = Encoding.UTF8.GetBytes(body);
+		var response = $"HTTP/1.1 {statusCode} {statusText}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n{extraHeaders}\r\n";
+		var headerBytes = Encoding.UTF8.GetBytes(response);
 
-        await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), ct);
-        await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
-        await stream.FlushAsync(ct);
-    }
+		await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), ct);
+		await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
+		await stream.FlushAsync(ct);
+	}
 
-    public ValueTask DisposeAsync()
-    {
-        if (_cts != null)
-        {
-            _cts.Cancel();
-            _cts.Dispose();
-        }
-        return ValueTask.CompletedTask;
-    }
+	public ValueTask DisposeAsync()
+	{
+		if (_cts != null)
+		{
+			_cts.Cancel();
+			_cts.Dispose();
+		}
+		return ValueTask.CompletedTask;
+	}
 
-    private sealed class SingletonServiceProvider(RpcClient rpcClient) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
-    {
-        public object? GetService(Type serviceType)
-        {
-            if (serviceType == typeof(RpcClient))
-                return rpcClient;
-            if (serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService))
-                return this;
-            return null;
-        }
+	private sealed class SingletonServiceProvider(RpcClient rpcClient) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
+	{
+		public object? GetService(Type serviceType)
+		{
+			if (serviceType == typeof(RpcClient))
+				return rpcClient;
+			if (serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService))
+				return this;
+			return null;
+		}
 
-        public bool IsService(Type serviceType)
-        {
-            return serviceType == typeof(RpcClient);
-        }
-    }
+		public bool IsService(Type serviceType)
+		{
+			return serviceType == typeof(RpcClient);
+		}
+	}
 
-    private static async Task LogAsync(string message)
-    {
-        try
-        {
-            var logPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
-            await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n");
-        }
-        catch { }
-    }
+	private static async Task LogAsync(string message)
+	{
+		try
+		{
+			var logPath = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+				".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
+			await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n");
+		}
+		catch { /* Ignore */ }
+	}
 }

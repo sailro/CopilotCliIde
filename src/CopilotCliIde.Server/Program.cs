@@ -6,8 +6,8 @@ var nonce = args.SkipWhile(a => a != "--nonce").Skip(1).FirstOrDefault();
 
 if (rpcPipe == null || mcpPipe == null || nonce == null)
 {
-    Console.Error.WriteLine("Usage: --rpc-pipe <name> --mcp-pipe <name> --nonce <nonce>");
-    return 1;
+	Console.Error.WriteLine("Usage: --rpc-pipe <name> --mcp-pipe <name> --nonce <nonce>");
+	return 1;
 }
 
 var rpcClient = new RpcClient();
@@ -24,9 +24,9 @@ AppDomain.CurrentDomain.ProcessExit += (_, _) => tcs.TrySetResult(0);
 // Also monitor stdin - if parent closes it, exit
 _ = Task.Run(async () =>
 {
-    try { while (Console.In.ReadLine() != null) { } }
-    catch { }
-    tcs.TrySetResult(0);
+	try { while (Console.In.ReadLine() != null) { } }
+	catch { }
+	tcs.TrySetResult(0);
 });
 
 await tcs.Task;
