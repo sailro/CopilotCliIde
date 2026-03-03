@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq;
 using CopilotCliIde.Shared;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -74,16 +75,17 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 	}
 
-	public async Task<CloseDiffResult> CloseDiffAsync(string diffId, string action)
+	public async Task<CloseDiffResult> CloseDiffByTabNameAsync(string tabName)
 	{
-		if (!_activeDiffs.TryRemove(diffId, out var diff))
-			return new CloseDiffResult { Success = false, Message = $"No active diff found with ID: {diffId}." };
+		var entry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
+		if (entry.Key == null)
+			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
+
+		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
+			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 
 		try
 		{
-			if (action.Equals("accept", StringComparison.OrdinalIgnoreCase))
-				File.WriteAllText(diff.OriginalPath, diff.NewContent);
-
 			if (diff.Frame != null)
 			{
 				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -95,17 +97,14 @@ public class VsServiceRpc : IVsServiceRpc
 			return new CloseDiffResult
 			{
 				Success = true,
-				Action = action,
-				DiffId = diffId,
 				TabName = diff.TabName,
 				OriginalFilePath = diff.OriginalPath,
-				Message = action.Equals("accept", StringComparison.OrdinalIgnoreCase)
-					? $"Changes applied to {diff.OriginalPath}" : $"Changes discarded for {diff.OriginalPath}"
+				Message = $"Diff \"{tabName}\" closed successfully"
 			};
 		}
 		catch (Exception ex)
 		{
-			return new CloseDiffResult { Success = false, Error = ex.Message, DiffId = diffId };
+			return new CloseDiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}
 
@@ -172,11 +171,18 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 	}
 
-	public async Task<DiagnosticsResult> GetDiagnosticsAsync(string? filePath)
+	public async Task<DiagnosticsResult> GetDiagnosticsAsync(string? uri)
 	{
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
+			// Convert URI to file path if provided
+			string? filePath = null;
+			if (uri != null)
+			{
+				try { filePath = new System.Uri(uri).LocalPath; }
+				catch { filePath = uri; }
+			}
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
 			var errorItems = dte?.ToolWindows.ErrorList.ErrorItems;
 			var results = new List<DiagnosticInfo>();

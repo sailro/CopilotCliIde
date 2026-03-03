@@ -6,7 +6,7 @@ namespace CopilotCliIde.Server.Tools;
 [McpServerToolType]
 public sealed class OpenDiffTool
 {
-	[McpServerTool(Name = "open_diff"), Description("Opens proposed file changes in Visual Studio diff view for review.")]
+	[McpServerTool(Name = "open_diff"), Description("Opens a diff view comparing original file content with new content. Blocks until user accepts, rejects, or closes the diff.")]
 	public static async Task<object> OpenDiffAsync(
 		RpcClient rpcClient,
 		[Description("Path to the original file")] string original_file_path,

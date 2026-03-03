@@ -11,10 +11,10 @@ namespace CopilotCliIde.Shared;
 public partial interface IVsServiceRpc
 {
 	Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName);
-	Task<CloseDiffResult> CloseDiffAsync(string diffId, string action);
+	Task<CloseDiffResult> CloseDiffByTabNameAsync(string tabName);
 	Task<VsInfoResult> GetVsInfoAsync();
 	Task<SelectionResult> GetSelectionAsync();
-	Task<DiagnosticsResult> GetDiagnosticsAsync(string? filePath);
+	Task<DiagnosticsResult> GetDiagnosticsAsync(string? uri);
 	Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines);
 }
 
@@ -32,9 +32,8 @@ public class DiffResult
 public class CloseDiffResult
 {
 	public bool Success { get; set; }
+	public bool AlreadyClosed { get; set; }
 	public string? Error { get; set; }
-	public string? Action { get; set; }
-	public string? DiffId { get; set; }
 	public string? TabName { get; set; }
 	public string? OriginalFilePath { get; set; }
 	public string? Message { get; set; }

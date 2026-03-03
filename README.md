@@ -65,17 +65,17 @@ The extension exposes 7 MCP tools to the Copilot CLI agent:
 
 | Tool | Description |
 |------|-------------|
-| `get_vs_info` | Solution path, name, project list |
+| `get_vscode_info` | Solution path, name, project list |
 | `get_selection` | Active editor selection: text, file path, line/column range |
-| `get_diagnostics` | Errors and warnings from the VS Error List |
+| `get_diagnostics` | Errors and warnings from the VS Error List (filterable by URI) |
 | `read_file` | Read file content from disk (supports line ranges) |
-| `open_diff` | Open a real VS diff view comparing original with proposed changes |
-| `close_diff` | Accept (apply changes) or reject (discard) a proposed diff |
+| `open_diff` | Open a real VS diff view comparing original with proposed changes. Blocks until user acts. |
+| `close_diff` | Close a diff tab by its tab name |
 | `update_session_name` | Set the CLI session display name |
 
 ### Tool Details
 
-#### `get_vs_info`
+#### `get_vscode_info`
 Returns information about the current Visual Studio instance:
 ```json
 {
@@ -104,7 +104,7 @@ Returns the current editor selection, read on-demand from DTE:
 ```
 
 #### `get_diagnostics`
-Returns errors and warnings from the Visual Studio Error List:
+Returns errors and warnings from the Visual Studio Error List. Accepts an optional `uri` parameter to filter by file:
 ```json
 {
   "diagnostics": [
@@ -135,9 +135,11 @@ Reads file content from disk with optional line range:
 #### `open_diff` / `close_diff`
 The diff workflow lets the agent propose changes that you review in VS:
 
-1. Agent calls `open_diff` → a real VS diff view opens via `IVsDifferenceService`
+1. Agent calls `open_diff` with `original_file_path`, `new_file_contents`, and `tab_name` → a real VS diff view opens via `IVsDifferenceService`
 2. You review the changes in the native diff viewer
-3. Agent calls `close_diff` with `action: "accept"` to apply changes, or `"reject"` to discard
+3. Agent calls `close_diff` with the same `tab_name` to close the diff tab
+
+> **Note**: Tool names and schemas match VS Code's Copilot Chat extension exactly (`get_vscode_info`, `get_selection`, `open_diff`, `close_diff`, `get_diagnostics`, `update_session_name`) to ensure full compatibility with the Copilot CLI `/ide` protocol.
 
 ## Architecture
 

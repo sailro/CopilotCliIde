@@ -6,11 +6,11 @@ namespace CopilotCliIde.Server.Tools;
 [McpServerToolType]
 public sealed class GetDiagnosticsTool
 {
-	[McpServerTool(Name = "get_diagnostics"), Description("Get build diagnostics (errors, warnings) from Visual Studio.")]
+	[McpServerTool(Name = "get_diagnostics"), Description("Gets language diagnostics (errors, warnings, hints) from VS Code")]
 	public static async Task<object> GetDiagnosticsAsync(
 		RpcClient rpcClient,
-		[Description("Optional file path to filter diagnostics")] string? filePath = null)
+		[Description("File URI to get diagnostics for. Optional. If not provided, returns diagnostics for all files.")] string? uri = null)
 	{
-		return await rpcClient.VsServices!.GetDiagnosticsAsync(filePath);
+		return await rpcClient.VsServices!.GetDiagnosticsAsync(uri);
 	}
 }
