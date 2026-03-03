@@ -2,6 +2,8 @@
 
 A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) to interact with Visual Studio via the `/ide` command — the same way it works with VS Code.
 
+<img alt="copilot" src="https://github.com/user-attachments/assets/7f1c42ce-235b-4179-a40e-ba8758a6c6fe" />
+
 ## How It Works
 
 1. **Package loads** when a solution is opened in Visual Studio (`ProvideAutoLoad`)
@@ -16,7 +18,7 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 
 ### Prerequisites
 
-- Visual Studio 2022 (v17.x) or Visual Studio 2025/2026 (v18.x)
+- Visual Studio 2022 (v17.x) or Visual Studio 2026 (v18.x)
 - [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) installed
 - An active Copilot subscription
 - .NET 10.0 SDK (for the MCP server process)
@@ -26,7 +28,6 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 ```bash
 # Clone and build
 git clone https://github.com/sailro/CopilotCliIde
-cd vsext
 
 # Build both the VSSDK package and the MCP server
 dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj
