@@ -6,13 +6,14 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 
 ## How It Works
 
-1. **Package loads** when a solution is openedin Visual Studio (`ProvideAutoLoad`)
+1. **Package loads** when a solution is opened in Visual Studio (`ProvideAutoLoad`)
 2. **RPC server starts** on a named pipe, exposing VS services (DTE, diff, diagnostics)
-3. **MCP server process launches** as a separate net10.0 child process, connecting back to VS via RPC
+3. **MCP server process launches** as a separate net10.0 child process, connecting back to VS via bidirectional RPC
 4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders
 5. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
-6. **Solution changes tracked** — when you close/open solutions, the lock file's workspace folders update automatically
-7. **Stale files cleaned** — on startup, lock files and log files from dead processes are removed
+6. **Real-time selection events** — when you switch files or move your cursor, the CLI is notified via SSE
+7. **Solution changes tracked** — when you close/open solutions, the lock file's workspace folders update automatically
+8. **Stale files cleaned** — on startup, lock files and log files from dead processes are removed
 
 ## Getting Started
 
@@ -29,13 +30,17 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 # Clone and build
 git clone https://github.com/sailro/CopilotCliIde
 
-# Build both the VSSDK package and the MCP server
+# Build the MCP server (dotnet)
 dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj
-dotnet build src/CopilotCliIde/CopilotCliIde.csproj
+
+# Build the VS extension (requires MSBuild from VS)
+msbuild src/CopilotCliIde/CopilotCliIde.csproj /p:Configuration=Debug
 
 # The .vsix is produced at:
 # src/CopilotCliIde/bin/Debug/CopilotCliIde.vsix
 ```
+
+> **Note**: The VSIX project must be built with MSBuild (`msbuild`), not `dotnet build`.
 
 Double-click the `.vsix` to install, or use F5 in Visual Studio to debug in the experimental instance.
 
@@ -55,8 +60,8 @@ Once connected, the agent can:
 
 - **Query solution info** — ask *"What solution is open?"*
 - **Read file content** — from disk, with line range support
-- **See your selection** — ask *"What text do I have selected?"*
-- **Propose diffs** — the agent opens a real VS diff view using `IVsDifferenceService`
+- **See your selection** — the CLI receives real-time selection change notifications
+- **Propose diffs** — opens a VS diff view with Accept/Reject buttons; blocks until you act
 - **Check diagnostics** — get errors and warnings from the VS Error List
 
 ## MCP Tools
@@ -69,9 +74,11 @@ The extension exposes 7 MCP tools to the Copilot CLI agent:
 | `get_selection` | Active editor selection: text, file path, line/column range |
 | `get_diagnostics` | Errors and warnings from the VS Error List (filterable by URI) |
 | `read_file` | Read file content from disk (supports line ranges) |
-| `open_diff` | Open a real VS diff view comparing original with proposed changes. Blocks until user acts. |
+| `open_diff` | Open a VS diff view with Accept/Reject InfoBar. Blocks until user acts. |
 | `close_diff` | Close a diff tab by its tab name |
 | `update_session_name` | Set the CLI session display name |
+
+All tools include `execution.taskSupport: "forbidden"` metadata, matching VS Code's protocol.
 
 ### Tool Details
 
@@ -135,18 +142,62 @@ Reads file content from disk with optional line range:
 #### `open_diff` / `close_diff`
 The diff workflow lets the agent propose changes that you review in VS:
 
-1. Agent calls `open_diff` with `original_file_path`, `new_file_contents`, and `tab_name` → a real VS diff view opens via `IVsDifferenceService`
-2. You review the changes in the native diff viewer
-3. Agent calls `close_diff` with the same `tab_name` to close the diff tab
+1. Agent calls `open_diff` with `original_file_path`, `new_file_contents`, and `tab_name`
+2. VS opens a native diff view via `IVsDifferenceService` with an Accept/Reject InfoBar
+3. The MCP call **blocks** until you click Accept, Reject, or close the diff tab
+4. The result (`"accepted"` or `"rejected"`) is returned to the agent
+5. Agent can call `close_diff` with the same `tab_name` to programmatically close the diff
 
 > **Note**: Tool names and schemas match VS Code's Copilot Chat extension exactly (`get_vscode_info`, `get_selection`, `open_diff`, `close_diff`, `get_diagnostics`, `update_session_name`) to ensure full compatibility with the Copilot CLI `/ide` protocol.
 
+## Real-time Notifications
+
+The MCP server supports a **GET /mcp** SSE (Server-Sent Events) stream for server-to-client push notifications:
+
+### `selection_changed`
+Pushed when the user switches files or moves the cursor in VS:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "selection_changed",
+  "params": {
+    "text": "",
+    "filePath": "c:\\Dev\\myproject\\Program.cs",
+    "fileUrl": "file:///c%3A/Dev/myproject/Program.cs",
+    "selection": {
+      "start": { "line": 10, "character": 0 },
+      "end": { "line": 10, "character": 0 },
+      "isEmpty": true
+    }
+  }
+}
+```
+
+Notifications are debounced (150ms for window activation, 50ms for cursor movement) and deduplicated to avoid flooding.
+
 ## Architecture
+
+```
+┌─────────────┐        Named Pipe (HTTP/MCP)        ┌──────────────────┐
+│ Copilot CLI  │ ◄─────────────────────────────────► │  McpPipeServer   │
+│   (/ide)     │    POST /mcp (tools/call)           │  (net10.0)       │
+│              │    GET /mcp (SSE notifications)      │                  │
+└─────────────┘                                      └────────┬─────────┘
+                                                              │
+                                                   Named Pipe (StreamJsonRpc)
+                                                              │
+                                                     ┌────────▼─────────┐
+                                                     │  VsServiceRpc    │
+                                                     │  (VS Extension)  │
+                                                     │  net472 / VSIX   │
+                                                     └──────────────────┘
+```
 
 ### Protocol Stack
 
-- **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with HTTP/1.1 + Nonce auth
-- **RPC Transport**: Windows named pipe (`\\.\pipe\copilot-cli-rpc-{uuid}`) with StreamJsonRpc
+- **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with Streamable HTTP + Nonce auth
+- **RPC Transport**: Windows named pipe (`\\.\pipe\copilot-cli-rpc-{uuid}`) with bidirectional StreamJsonRpc
+- **SSE Stream**: Chunked transfer encoding over GET /mcp for `selection_changed` notifications
 - **Discovery**: Lock files in `~/.copilot/ide/{uuid}.lock`
 - **Diagnostics**: Per-process log files in `~/.copilot/ide/` (`vs-error-{pid}.log`, `vs-connection-{pid}.log`)
 
@@ -164,6 +215,20 @@ The diff workflow lets the agent propose changes that you review in VS:
   "isTrusted": true
 }
 ```
+
+### VS Code Compatibility
+
+The extension aligns with VS Code's Copilot CLI MCP server protocol:
+
+| Feature | VS Code | This Extension |
+|---------|---------|----------------|
+| `serverInfo.name` | `vscode-copilot-cli` | `vscode-copilot-cli` |
+| `serverInfo.title` | `VS Code Copilot CLI` | `VS Code Copilot CLI` |
+| Tool `execution` | `{ taskSupport: "forbidden" }` | `{ taskSupport: "forbidden" }` |
+| `capabilities.tools` | `{ listChanged: true }` | `{ listChanged: true }` |
+| SSE notifications | `selection_changed` | `selection_changed` |
+| File URI format | `file:///c%3A/path` | `file:///c%3A/path` |
+
 ## License
 
 MIT
