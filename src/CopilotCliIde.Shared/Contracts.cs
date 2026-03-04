@@ -22,7 +22,8 @@ public partial interface IVsServiceRpc
 /// Callback interface the VS extension calls on the MCP server process
 /// to push real-time notifications (e.g., selection changes).
 /// </summary>
-public interface IMcpServerCallbacks
+[JsonRpcContract]
+public partial interface IMcpServerCallbacks
 {
 	Task OnSelectionChangedAsync(SelectionNotification notification);
 }

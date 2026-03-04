@@ -286,12 +286,11 @@ public class VsServiceRpc : IVsServiceRpc
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 
-		var factory = Package.GetGlobalService(typeof(SVsInfoBarUIFactory)) as IVsInfoBarUIFactory;
-		if (factory == null) return;
+		if (Package.GetGlobalService(typeof(SVsInfoBarUIFactory)) is not IVsInfoBarUIFactory factory) return;
 
 		var model = new InfoBarModel(
 			"Copilot CLI: review proposed changes",
-			new IVsInfoBarActionItem[] { new InfoBarButton("Accept"), new InfoBarButton("Reject") },
+			[new InfoBarButton("Accept"), new InfoBarButton("Reject")],
 			KnownMonikers.StatusInformation,
 			isCloseButtonVisible: true);
 
@@ -341,35 +340,29 @@ public class VsServiceRpc : IVsServiceRpc
 		catch { }
 	}
 
-	private sealed class DiffInfoBarEvents : IVsInfoBarUIEvents
+	private sealed class DiffInfoBarEvents(TaskCompletionSource<string> tcs) : IVsInfoBarUIEvents
 	{
-		private readonly TaskCompletionSource<string> _tcs;
-		public DiffInfoBarEvents(TaskCompletionSource<string> tcs) => _tcs = tcs;
-
 		public void OnActionItemClicked(IVsInfoBarUIElement infoBarUIElement, IVsInfoBarActionItem actionItem)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
 			if (actionItem.Text.Contains("Accept"))
-				_tcs.TrySetResult("accepted");
+				tcs.TrySetResult("accepted");
 			else if (actionItem.Text.Contains("Reject"))
-				_tcs.TrySetResult("rejected");
+				tcs.TrySetResult("rejected");
 		}
 
 		public void OnClosed(IVsInfoBarUIElement infoBarUIElement)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
-			_tcs.TrySetResult("rejected");
+			tcs.TrySetResult("rejected");
 		}
 	}
 
-	private sealed class FrameCloseNotify : IVsWindowFrameNotify3
+	private sealed class FrameCloseNotify(TaskCompletionSource<string> tcs) : IVsWindowFrameNotify3
 	{
-		private readonly TaskCompletionSource<string> _tcs;
-		public FrameCloseNotify(TaskCompletionSource<string> tcs) => _tcs = tcs;
-
 		public int OnClose(ref uint pgrfSaveOptions)
 		{
-			_tcs.TrySetResult("rejected");
+			tcs.TrySetResult("rejected");
 			return VSConstants.S_OK;
 		}
 
