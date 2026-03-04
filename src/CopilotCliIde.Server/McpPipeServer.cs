@@ -174,7 +174,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 							isOpenDiff = true;
 						}
 					}
-					catch { }
+					catch { /* Ignore */ }
 
 					using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 					if (!isOpenDiff)

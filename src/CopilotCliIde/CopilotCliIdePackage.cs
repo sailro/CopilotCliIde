@@ -66,9 +66,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 		catch (Exception ex)
 		{
-			var diagPath = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-				".copilot", "ide", $"vs-error-{Process.GetCurrentProcess().Id}.log");
+			var diagPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot", "ide", $"vs-error-{Process.GetCurrentProcess().Id}.log");
 			Directory.CreateDirectory(Path.GetDirectoryName(diagPath)!);
 			File.WriteAllText(diagPath, $"{DateTime.UtcNow:O}\n{ex}");
 		}
@@ -152,10 +150,10 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 					await PushSelectionAsync(ct);
 				}
 				catch (OperationCanceledException) { }
-				catch { }
+				catch { /* Ignore */ }
 			});
 		}
-		catch { }
+		catch { /* Ignore */ }
 	}
 
 	private async Task PushSelectionAsync(CancellationToken ct)
@@ -220,7 +218,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				try { await _mcpCallbacks.OnSelectionChangedAsync(notification); }
 				catch { _mcpCallbacks = null; }
-			});
+			}, ct);
 		}
 		catch (OperationCanceledException) { throw; }
 		catch { /* Don't crash VS on notification failure */ }

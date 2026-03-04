@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Linq;
 using CopilotCliIde.Shared;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Imaging;
@@ -15,12 +14,12 @@ public class VsServiceRpc : IVsServiceRpc
 
 	private class DiffState
 	{
-		public string OriginalPath { get; set; } = "";
-		public string TempNewPath { get; set; } = "";
+		public string OriginalPath { get; init; } = "";
+		public string TempNewPath { get; init; } = "";
 		public string NewContent { get; set; } = "";
-		public string TabName { get; set; } = "";
-		public IVsWindowFrame? Frame { get; set; }
-		public TaskCompletionSource<string>? Completion { get; set; }
+		public string TabName { get; init; } = "";
+		public IVsWindowFrame? Frame { get; init; }
+		public TaskCompletionSource<string>? Completion { get; init; }
 		public IVsInfoBarUIElement? InfoBarElement { get; set; }
 		public uint InfoBarCookie { get; set; }
 	}
@@ -132,15 +131,15 @@ public class VsServiceRpc : IVsServiceRpc
 
 			if (diff.InfoBarElement != null)
 			{
-				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { }
+				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { /* Ignore */ }
 			}
 
 			if (diff.Frame != null)
 			{
-				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { }
+				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { /* Ignore */ }
 			}
 
-			try { File.Delete(diff.TempNewPath); } catch { }
+			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
 
 			return new CloseDiffResult
 			{
@@ -228,7 +227,7 @@ public class VsServiceRpc : IVsServiceRpc
 			string? filePath = null;
 			if (uri != null)
 			{
-				try { filePath = new System.Uri(uri).LocalPath; }
+				try { filePath = new Uri(uri).LocalPath; }
 				catch { filePath = uri; }
 			}
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
@@ -327,17 +326,17 @@ public class VsServiceRpc : IVsServiceRpc
 
 			if (diff.InfoBarElement != null)
 			{
-				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { }
+				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { /* Ignore */ }
 			}
 
 			if (diff.Frame != null)
 			{
-				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { }
+				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { /* Ignore */ }
 			}
 
-			try { File.Delete(diff.TempNewPath); } catch { }
+			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
 		}
-		catch { }
+		catch { /* Ignore */ }
 	}
 
 	private sealed class DiffInfoBarEvents(TaskCompletionSource<string> tcs) : IVsInfoBarUIEvents
