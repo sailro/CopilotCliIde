@@ -175,24 +175,6 @@ Pushed when the user switches files or moves the cursor in VS:
 
 Notifications are debounced (150ms for window activation, 50ms for cursor movement) and deduplicated to avoid flooding.
 
-## Architecture
-
-```
-┌─────────────┐        Named Pipe (HTTP/MCP)        ┌──────────────────┐
-│ Copilot CLI  │ ◄─────────────────────────────────► │  McpPipeServer   │
-│   (/ide)     │    POST /mcp (tools/call)           │  (net10.0)       │
-│              │    GET /mcp (SSE notifications)      │                  │
-└─────────────┘                                      └────────┬─────────┘
-                                                              │
-                                                   Named Pipe (StreamJsonRpc)
-                                                              │
-                                                     ┌────────▼─────────┐
-                                                     │  VsServiceRpc    │
-                                                     │  (VS Extension)  │
-                                                     │  net472 / VSIX   │
-                                                     └──────────────────┘
-```
-
 ### Protocol Stack
 
 - **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with Streamable HTTP + Nonce auth
@@ -215,19 +197,6 @@ Notifications are debounced (150ms for window activation, 50ms for cursor moveme
   "isTrusted": true
 }
 ```
-
-### VS Code Compatibility
-
-The extension aligns with VS Code's Copilot CLI MCP server protocol:
-
-| Feature | VS Code | This Extension |
-|---------|---------|----------------|
-| `serverInfo.name` | `vscode-copilot-cli` | `vscode-copilot-cli` |
-| `serverInfo.title` | `VS Code Copilot CLI` | `VS Code Copilot CLI` |
-| Tool `execution` | `{ taskSupport: "forbidden" }` | `{ taskSupport: "forbidden" }` |
-| `capabilities.tools` | `{ listChanged: true }` | `{ listChanged: true }` |
-| SSE notifications | `selection_changed` | `selection_changed` |
-| File URI format | `file:///c%3A/path` | `file:///c%3A/path` |
 
 ## License
 
