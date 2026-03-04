@@ -6,7 +6,7 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 
 ## How It Works
 
-1. **Package loads** when a solution is opened in Visual Studio (`ProvideAutoLoad`)
+1. **Package loads** when a solution is openedin Visual Studio (`ProvideAutoLoad`)
 2. **RPC server starts** on a named pipe, exposing VS services (DTE, diff, diagnostics)
 3. **MCP server process launches** as a separate net10.0 child process, connecting back to VS via RPC
 4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders

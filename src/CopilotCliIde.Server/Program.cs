@@ -16,6 +16,23 @@ await rpcClient.ConnectAsync(rpcPipe);
 var mcpServer = new McpPipeServer();
 await mcpServer.StartAsync(rpcClient, mcpPipe, nonce, CancellationToken.None);
 
+// Forward selection changes from VS to all connected CLI clients
+rpcClient.SelectionChanged += async notification =>
+{
+	await mcpServer.PushNotificationAsync("selection_changed", new
+	{
+		text = notification.Text ?? "",
+		filePath = notification.FilePath,
+		fileUrl = notification.FileUrl,
+		selection = notification.Selection == null ? null : new
+		{
+			start = new { line = notification.Selection.Start?.Line ?? 0, character = notification.Selection.Start?.Character ?? 0 },
+			end = new { line = notification.Selection.End?.Line ?? 0, character = notification.Selection.End?.Character ?? 0 },
+			isEmpty = notification.Selection.IsEmpty
+		}
+	});
+};
+
 // Keep running until stdin closes (parent process dies) or cancellation
 var tcs = new TaskCompletionSource<int>();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; tcs.TrySetResult(0); };

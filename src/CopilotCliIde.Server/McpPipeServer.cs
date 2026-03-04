@@ -19,6 +19,8 @@ public sealed class McpPipeServer : IAsyncDisposable
 	private CancellationTokenSource? _cts;
 	private McpServerOptions? _serverOptions;
 	private RpcClient? _rpcClient;
+	private readonly List<SseClient> _sseClients = [];
+	private readonly Lock _sseClientsLock = new();
 
 	public string? PipeName => _pipeName;
 
@@ -31,8 +33,8 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 		_serverOptions = new McpServerOptions
 		{
-			ServerInfo = new Implementation { Name = "Visual Studio", Version = "1.0.0" },
-			Capabilities = new ServerCapabilities { Tools = new ToolsCapability() },
+			ServerInfo = new Implementation { Name = "vscode-copilot-cli", Version = "1.0.0", Title = "VS Code Copilot CLI" },
+			Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = true } },
 			ToolCollection = [],
 		};
 
@@ -53,6 +55,9 @@ public sealed class McpPipeServer : IAsyncDisposable
 				try
 				{
 					var tool = McpServerTool.Create(method, options: toolOptions);
+#pragma warning disable MCPEXP001
+					tool.ProtocolTool.Execution = new ToolExecution { TaskSupport = ToolTaskSupport.Forbidden };
+#pragma warning restore MCPEXP001
 					_serverOptions.ToolCollection.Add(tool);
 				}
 				catch (Exception ex)
@@ -155,8 +160,25 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 					// HandlePostRequestAsync writes SSE events to the stream and returns
 					// true if there's a response to send back, false for notifications (202)
+					// Determine timeout — open_diff blocks until user accepts/rejects
+					var isOpenDiff = false;
+					try
+					{
+						using var jsonDoc = JsonDocument.Parse(body);
+						if (jsonDoc.RootElement.TryGetProperty("method", out var m) &&
+							m.GetString() == "tools/call" &&
+							jsonDoc.RootElement.TryGetProperty("params", out var p) &&
+							p.TryGetProperty("name", out var n) &&
+							n.GetString() == "open_diff")
+						{
+							isOpenDiff = true;
+						}
+					}
+					catch { }
+
 					using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-					postCts.CancelAfter(TimeSpan.FromSeconds(30));
+					if (!isOpenDiff)
+						postCts.CancelAfter(TimeSpan.FromSeconds(30));
 
 					bool hasResponse;
 					try
@@ -167,7 +189,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 					}
 					catch (OperationCanceledException)
 					{
-						await LogAsync("HandlePostRequest TIMEOUT after 30s");
+						await LogAsync($"HandlePostRequest TIMEOUT{(isOpenDiff ? " (open_diff)" : " after 30s")}");
 						await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
 						continue;
 					}
@@ -196,8 +218,24 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 				if (method == "GET" && path is "/mcp" or "/")
 				{
-					await WriteHttpResponseAsync(pipe, 405, "Method Not Allowed", ct);
-					continue;
+					// SSE stream for server-to-client notifications
+					headers.TryGetValue("mcp-session-id", out var sseSessionId);
+					var sseHeaders = $"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache, no-transform\r\nConnection: keep-alive\r\nMcp-Session-Id: {sseSessionId ?? transport?.SessionId ?? "none"}\r\nTransfer-Encoding: chunked\r\n\r\n";
+					await pipe.WriteAsync(Encoding.UTF8.GetBytes(sseHeaders), ct);
+					await pipe.FlushAsync(ct);
+
+					var sseClient = new SseClient(pipe);
+					lock (_sseClientsLock) { _sseClients.Add(sseClient); }
+					try
+					{
+						// Keep connection alive until cancelled or pipe breaks
+						await sseClient.WaitAsync(ct);
+					}
+					finally
+					{
+						lock (_sseClientsLock) { _sseClients.Remove(sseClient); }
+					}
+					break;
 				}
 
 				if (method == "DELETE" && path is "/mcp" or "/")
@@ -376,6 +414,49 @@ public sealed class McpPipeServer : IAsyncDisposable
 		return ValueTask.CompletedTask;
 	}
 
+	/// <summary>
+	/// Pushes a JSON-RPC notification to all connected SSE clients.
+	/// Used for selection_changed events from VS.
+	/// </summary>
+	public async Task PushNotificationAsync(string method, object? @params)
+	{
+		var notification = JsonSerializer.Serialize(new { jsonrpc = "2.0", method, @params });
+		var sseEvent = $"event: message\ndata: {notification}\n\n";
+		var chunkData = Encoding.UTF8.GetBytes(sseEvent);
+		var chunk = Encoding.UTF8.GetBytes($"{chunkData.Length:x}\r\n");
+		var chunkEnd = Encoding.UTF8.GetBytes("\r\n");
+
+		SseClient[] clients;
+		lock (_sseClientsLock) { clients = [.. _sseClients]; }
+
+		foreach (var client in clients)
+		{
+			try
+			{
+				await client.Pipe.WriteAsync(chunk);
+				await client.Pipe.WriteAsync(chunkData);
+				await client.Pipe.WriteAsync(chunkEnd);
+				await client.Pipe.FlushAsync();
+			}
+			catch
+			{
+				client.Close();
+			}
+		}
+	}
+
+	private sealed class SseClient(NamedPipeServerStream pipe)
+	{
+		private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		public NamedPipeServerStream Pipe => pipe;
+		public Task WaitAsync(CancellationToken ct)
+		{
+			ct.Register(() => _done.TrySetResult());
+			return _done.Task;
+		}
+		public void Close() => _done.TrySetResult();
+	}
+
 	private sealed class SingletonServiceProvider(RpcClient rpcClient) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
 	{
 		public object? GetService(Type serviceType)
@@ -405,3 +486,4 @@ public sealed class McpPipeServer : IAsyncDisposable
 		catch { /* Ignore */ }
 	}
 }
+

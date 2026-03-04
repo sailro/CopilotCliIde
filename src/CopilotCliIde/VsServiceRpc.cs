@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
 using CopilotCliIde.Shared;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 
@@ -18,12 +20,24 @@ public class VsServiceRpc : IVsServiceRpc
 		public string NewContent { get; set; } = "";
 		public string TabName { get; set; } = "";
 		public IVsWindowFrame? Frame { get; set; }
+		public TaskCompletionSource<string>? Completion { get; set; }
+		public IVsInfoBarUIElement? InfoBarElement { get; set; }
+		public uint InfoBarCookie { get; set; }
 	}
 
 	public async Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName)
 	{
 		try
 		{
+			// Close any existing diff with the same tab name
+			var existingEntry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
+			if (existingEntry.Key != null)
+			{
+				existingEntry.Value.Completion?.TrySetResult("rejected");
+				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+				CleanupDiff(existingEntry.Key);
+			}
+
 			var ext = Path.GetExtension(originalFilePath);
 			var tempDir = Path.Combine(Path.GetTempPath(), "copilot-cli-diffs");
 			Directory.CreateDirectory(tempDir);
@@ -31,6 +45,11 @@ public class VsServiceRpc : IVsServiceRpc
 			File.WriteAllText(tempFile, newFileContents);
 
 			var diffId = $"{DateTime.UtcNow.Ticks}-{tabName}";
+			var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+			// Ultimate fallback: 1-hour timeout so we never block forever
+			var timeoutCts = new CancellationTokenSource(TimeSpan.FromHours(1));
+			timeoutCts.Token.Register(() => tcs.TrySetResult("rejected"), useSynchronizationContext: false);
 
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -50,14 +69,31 @@ public class VsServiceRpc : IVsServiceRpc
 				frame?.Show();
 			}
 
-			_activeDiffs[diffId] = new DiffState
+			var state = new DiffState
 			{
 				OriginalPath = originalFilePath,
 				TempNewPath = tempFile,
 				NewContent = newFileContents,
 				TabName = tabName,
-				Frame = frame
+				Frame = frame,
+				Completion = tcs
 			};
+			_activeDiffs[diffId] = state;
+
+			// Add InfoBar with Accept/Reject buttons
+			if (frame != null)
+			{
+				try { AddDiffInfoBar(frame, state); } catch { /* InfoBar is optional */ }
+				try { MonitorFrameClose(frame, tcs); } catch { /* Frame monitoring is optional */ }
+			}
+
+			// Block until user accepts, rejects, or closes the diff
+			var action = await tcs.Task.ConfigureAwait(false);
+
+			// Clean up
+			timeoutCts.Dispose();
+			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+			CleanupDiff(diffId);
 
 			return new DiffResult
 			{
@@ -66,7 +102,10 @@ public class VsServiceRpc : IVsServiceRpc
 				OriginalFilePath = originalFilePath,
 				ProposedFilePath = tempFile,
 				TabName = tabName,
-				Message = $"Diff view opened (service={diffSvc?.GetType().Name}, frame={frame != null}). Use 'close_diff' with diffId='{diffId}' and action='accept' to apply, or 'reject' to discard."
+				UserAction = action,
+				Message = action == "accepted"
+					? $"Changes accepted for {Path.GetFileName(originalFilePath)}"
+					: $"Changes rejected for {Path.GetFileName(originalFilePath)}"
 			};
 		}
 		catch (Exception ex)
@@ -81,25 +120,34 @@ public class VsServiceRpc : IVsServiceRpc
 		if (entry.Key == null)
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 
+		// Signal rejection to unblock OpenDiffAsync if it's waiting
+		entry.Value.Completion?.TrySetResult("rejected");
+
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 
 		try
 		{
-			if (diff.Frame != null)
+			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+			if (diff.InfoBarElement != null)
 			{
-				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { /* Ignore */ }
+				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { }
 			}
 
-			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
+			if (diff.Frame != null)
+			{
+				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { }
+			}
+
+			try { File.Delete(diff.TempNewPath); } catch { }
 
 			return new CloseDiffResult
 			{
 				Success = true,
 				TabName = diff.TabName,
 				OriginalFilePath = diff.OriginalPath,
-				Message = $"Diff \"{tabName}\" closed successfully"
+				Message = $"Diff \"{tabName}\" closed and changes rejected"
 			};
 		}
 		catch (Exception ex)
@@ -232,5 +280,100 @@ public class VsServiceRpc : IVsServiceRpc
 			});
 		}
 		catch (Exception ex) { return Task.FromResult(new ReadFileResult { Error = ex.Message, FilePath = filePath }); }
+	}
+
+	private void AddDiffInfoBar(IVsWindowFrame frame, DiffState state)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+
+		var factory = Package.GetGlobalService(typeof(SVsInfoBarUIFactory)) as IVsInfoBarUIFactory;
+		if (factory == null) return;
+
+		var model = new InfoBarModel(
+			"Copilot CLI: review proposed changes",
+			new IVsInfoBarActionItem[] { new InfoBarButton("Accept"), new InfoBarButton("Reject") },
+			KnownMonikers.StatusInformation,
+			isCloseButtonVisible: true);
+
+		var uiElement = factory.CreateInfoBar(model);
+		if (uiElement == null) return;
+
+		var handler = new DiffInfoBarEvents(state.Completion!);
+		uiElement.Advise(handler, out var cookie);
+
+		if (ErrorHandler.Succeeded(frame.GetProperty((int)__VSFPROPID7.VSFPROPID_InfoBarHost, out var hostObj))
+			&& hostObj is IVsInfoBarHost host)
+		{
+			host.AddInfoBar(uiElement);
+		}
+
+		state.InfoBarElement = uiElement;
+		state.InfoBarCookie = cookie;
+	}
+
+	private static void MonitorFrameClose(IVsWindowFrame frame, TaskCompletionSource<string> tcs)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		frame.SetProperty((int)__VSFPROPID.VSFPROPID_ViewHelper, new FrameCloseNotify(tcs));
+	}
+
+	private void CleanupDiff(string diffId)
+	{
+		if (!_activeDiffs.TryRemove(diffId, out var diff))
+			return;
+
+		try
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+
+			if (diff.InfoBarElement != null)
+			{
+				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { }
+			}
+
+			if (diff.Frame != null)
+			{
+				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { }
+			}
+
+			try { File.Delete(diff.TempNewPath); } catch { }
+		}
+		catch { }
+	}
+
+	private sealed class DiffInfoBarEvents : IVsInfoBarUIEvents
+	{
+		private readonly TaskCompletionSource<string> _tcs;
+		public DiffInfoBarEvents(TaskCompletionSource<string> tcs) => _tcs = tcs;
+
+		public void OnActionItemClicked(IVsInfoBarUIElement infoBarUIElement, IVsInfoBarActionItem actionItem)
+		{
+			if (actionItem.Text.Contains("Accept"))
+				_tcs.TrySetResult("accepted");
+			else if (actionItem.Text.Contains("Reject"))
+				_tcs.TrySetResult("rejected");
+		}
+
+		public void OnClosed(IVsInfoBarUIElement infoBarUIElement)
+		{
+			_tcs.TrySetResult("rejected");
+		}
+	}
+
+	private sealed class FrameCloseNotify : IVsWindowFrameNotify3
+	{
+		private readonly TaskCompletionSource<string> _tcs;
+		public FrameCloseNotify(TaskCompletionSource<string> tcs) => _tcs = tcs;
+
+		public int OnClose(ref uint pgrfSaveOptions)
+		{
+			_tcs.TrySetResult("rejected");
+			return VSConstants.S_OK;
+		}
+
+		public int OnShow(int fShow) => VSConstants.S_OK;
+		public int OnMove(int x, int y, int w, int h) => VSConstants.S_OK;
+		public int OnSize(int x, int y, int w, int h) => VSConstants.S_OK;
+		public int OnDockableChange(int fDockable, int x, int y, int w, int h) => VSConstants.S_OK;
 	}
 }

@@ -18,6 +18,36 @@ public partial interface IVsServiceRpc
 	Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines);
 }
 
+/// <summary>
+/// Callback interface the VS extension calls on the MCP server process
+/// to push real-time notifications (e.g., selection changes).
+/// </summary>
+public interface IMcpServerCallbacks
+{
+	Task OnSelectionChangedAsync(SelectionNotification notification);
+}
+
+public class SelectionNotification
+{
+	public string? Text { get; set; }
+	public string? FilePath { get; set; }
+	public string? FileUrl { get; set; }
+	public SelectionRange? Selection { get; set; }
+}
+
+public class SelectionRange
+{
+	public SelectionPosition? Start { get; set; }
+	public SelectionPosition? End { get; set; }
+	public bool IsEmpty { get; set; }
+}
+
+public class SelectionPosition
+{
+	public int Line { get; set; }
+	public int Character { get; set; }
+}
+
 public class DiffResult
 {
 	public bool Success { get; set; }
@@ -27,6 +57,7 @@ public class DiffResult
 	public string? ProposedFilePath { get; set; }
 	public string? TabName { get; set; }
 	public string? Message { get; set; }
+	public string? UserAction { get; set; }
 }
 
 public class CloseDiffResult
