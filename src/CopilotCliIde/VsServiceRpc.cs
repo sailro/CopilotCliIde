@@ -348,6 +348,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 		public void OnActionItemClicked(IVsInfoBarUIElement infoBarUIElement, IVsInfoBarActionItem actionItem)
 		{
+			ThreadHelper.ThrowIfNotOnUIThread();
 			if (actionItem.Text.Contains("Accept"))
 				_tcs.TrySetResult("accepted");
 			else if (actionItem.Text.Contains("Reject"))
@@ -356,6 +357,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 		public void OnClosed(IVsInfoBarUIElement infoBarUIElement)
 		{
+			ThreadHelper.ThrowIfNotOnUIThread();
 			_tcs.TrySetResult("rejected");
 		}
 	}
