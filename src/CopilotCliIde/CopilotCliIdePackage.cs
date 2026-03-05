@@ -32,6 +32,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private IWpfTextView? _trackedView;
 	private uint _selectionMonitorCookie;
 	private string? _lastSelectionKey;
+	private volatile int _notificationVersion;
 	private CancellationTokenSource? _connectionCts;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -101,6 +102,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void StopConnection()
 	{
 		_lastSelectionKey = null;
+		_notificationVersion = 0;
 		_mcpCallbacks = null;
 
 		_connectionCts?.Cancel();
@@ -284,10 +286,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				}
 			};
 
-			// Send off the UI thread so we never block VS
+			// Send off the UI thread — version check ensures only the latest notification sends
+			var version = ++_notificationVersion;
 			var callbacks = _mcpCallbacks;
 			_ = Task.Run(async () =>
 			{
+				if (version != _notificationVersion) return;
 				try { await callbacks.OnSelectionChangedAsync(notification); }
 				catch { _mcpCallbacks = null; }
 			});
