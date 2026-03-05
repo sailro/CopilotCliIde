@@ -226,6 +226,12 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 					var sseClient = new SseClient(pipe);
 					lock (_sseClientsLock) { _sseClients.Add(sseClient); }
+
+					// Push the current selection so copilot-cli shows the right
+					// file immediately (the VS extension may have pushed earlier
+					// when no SSE clients were connected yet)
+					_ = Task.Run(async () => await PushCurrentSelectionAsync(), ct);
+
 					try
 					{
 						// Keep connection alive until cancelled or pipe breaks
@@ -412,6 +418,34 @@ public sealed class McpPipeServer : IAsyncDisposable
 			_cts.Dispose();
 		}
 		return ValueTask.CompletedTask;
+	}
+
+	/// <summary>
+	/// Fetches the current selection from VS via RPC and pushes it to all
+	/// connected SSE clients. Called when a new SSE client connects so
+	/// copilot-cli immediately shows the active file.
+	/// </summary>
+	private async Task PushCurrentSelectionAsync()
+	{
+		try
+		{
+			var sel = await _rpcClient!.VsServices!.GetSelectionAsync();
+			if (string.IsNullOrEmpty(sel.FilePath)) return;
+
+			await PushNotificationAsync("selection_changed", new
+			{
+				text = sel.SelectedText ?? "",
+				filePath = sel.FilePath,
+				fileUrl = sel.FileUri,
+				selection = new
+				{
+					start = new { line = sel.StartLine, character = sel.StartColumn },
+					end = new { line = sel.EndLine, character = sel.EndColumn },
+					isEmpty = sel.IsEmpty
+				}
+			});
+		}
+		catch { /* VS not ready or no active editor — nothing to push */ }
 	}
 
 	/// <summary>
