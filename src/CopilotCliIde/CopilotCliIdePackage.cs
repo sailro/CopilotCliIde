@@ -126,6 +126,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			await _rpcPipe.WaitForConnectionAsync(ct);
 			_rpc = JsonRpc.Attach(_rpcPipe, new VsServiceRpc());
 			_mcpCallbacks = _rpc.Attach<IMcpServerCallbacks>();
+
+			// Connection is ready — push the current selection that was missed
+			// during lazy load (TrackActiveView ran before _mcpCallbacks was set)
+			await JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+			PushCurrentSelection();
+
 #pragma warning disable VSTHRD003 // Completion is a long-running task representing the RPC lifetime
 			await _rpc.Completion;
 #pragma warning restore VSTHRD003
@@ -208,8 +214,15 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 		var wpfView = vsTextView != null ? _editorAdaptersFactory.GetWpfTextView(vsTextView) : null;
 
-		// No text view (e.g., tool window) — keep tracking the current one
-		if (wpfView == null) return;
+		if (wpfView == null)
+		{
+			// Switched to a non-editor window (e.g., Solution Explorer, tool window)
+			// or all tabs closed — untrack and clear selection
+			UntrackView();
+			PushEmptySelection();
+			return;
+		}
+
 		if (wpfView == _trackedView) return;
 
 		UntrackView();
@@ -233,7 +246,11 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	private void OnEditorSelectionChanged(object? sender, EventArgs e) => PushCurrentSelection();
 
-	private void OnViewClosed(object? sender, EventArgs e) => UntrackView();
+	private void OnViewClosed(object? sender, EventArgs e)
+	{
+		UntrackView();
+		PushEmptySelection();
+	}
 
 	/// <summary>
 	/// Reads the current selection from the tracked IWpfTextView and pushes it
@@ -252,7 +269,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			string? filePath = null;
 			if (view.TextBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc))
 				filePath = textDoc?.FilePath;
-			if (string.IsNullOrEmpty(filePath)) return;
+			if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
 
 			var isEmpty = selection.IsEmpty;
 			var startLine = snapshot.GetLineFromPosition(selection.Start.Position);
@@ -294,6 +311,39 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			});
 		}
 		catch { /* Don't crash VS */ }
+	}
+
+	/// <summary>
+	/// Notifies Copilot CLI that no file is currently selected (all tabs closed
+	/// or focus moved to a non-editor window).
+	/// </summary>
+	private void PushEmptySelection()
+	{
+		if (_mcpCallbacks == null) return;
+
+		const string key = ":empty:";
+		if (key == _lastSelectionKey) return;
+		_lastSelectionKey = key;
+
+		var notification = new SelectionNotification
+		{
+			Text = "",
+			FilePath = "",
+			FileUrl = "",
+			Selection = new SelectionRange
+			{
+				Start = new SelectionPosition { Line = 0, Character = 0 },
+				End = new SelectionPosition { Line = 0, Character = 0 },
+				IsEmpty = true
+			}
+		};
+
+		var callbacks = _mcpCallbacks;
+		_ = Task.Run(async () =>
+		{
+			try { await callbacks.OnSelectionChangedAsync(notification); }
+			catch { _mcpCallbacks = null; }
+		});
 	}
 
 	/// <summary>
