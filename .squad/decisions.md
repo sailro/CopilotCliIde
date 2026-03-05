@@ -2,6 +2,21 @@
 
 ## Active Decisions
 
+### xUnit v3 Migration
+
+**Author:** Hudson (Tester)
+**Date:** 2026-03-05
+
+Migrated test project from xUnit v2 (2.9.3) to xUnit v3 (3.2.2).
+
+**Key Points:**
+- Updated `Directory.Packages.props`: `xunit` → `xunit.v3` (2.9.3 → 3.2.2)
+- Updated `CopilotCliIde.Server.Tests.csproj`: PackageReference, added `<OutputType>Exe</OutputType>`
+- All 94 tests passed without code changes — basic xUnit features (attributes, assertions) are fully compatible
+- Test infrastructure unchanged; `xunit.runner.visualstudio` (3.1.4) handles discovery and execution
+
+**Impact:** Team should run `dotnet restore` to fetch xunit.v3. No impact on test authoring or CI/CD.
+
 ### Server Test Project Structure
 
 **Author:** Hudson (Tester)
