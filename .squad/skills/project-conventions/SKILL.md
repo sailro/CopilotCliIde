@@ -25,10 +25,12 @@ Describe a key convention or practice used in this codebase. Be specific about w
 
 ### Testing
 
-<!-- Example: What test framework? Where do tests live? How to run them? -->
-<!-- - Test framework: Jest/Vitest/node:test/etc. -->
-<!-- - Test location: test/, __tests__/, *.test.ts, etc. -->
-<!-- - Run command: npm test, etc. -->
+- Test framework: xUnit 2.9.3 with Microsoft.NET.Test.Sdk
+- Test location: `src/CopilotCliIde.Server.Tests/`
+- Run command: `dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj`
+- Mocking: NSubstitute 5.3.0
+- Server project exposes internals to test project via `InternalsVisibleTo`
+- Tool name compatibility is enforced by `ToolDiscoveryTests` — never rename MCP tools without checking VS Code parity
 
 ### Code Style
 
