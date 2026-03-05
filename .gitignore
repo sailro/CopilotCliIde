@@ -1,7 +1,11 @@
 bin/
 obj/
+node_modules/
 .vs/
 *.user
 *.suo
 *.vsix
 *.nupkg
+# Squad: ignore generated logs
+.squad/orchestration-log/
+.squad/log/
