@@ -58,10 +58,18 @@ The VSIX build target automatically runs `dotnet publish` on the server project 
 
 ### Threading in VS Extension
 
-- Always use `ThreadHelper.ThrowIfNotOnUIThread()` or `await JoinableTaskFactory.SwitchToMainThreadAsync()` before accessing DTE or any VS COM service.
+- Always use `ThreadHelper.ThrowIfNotOnUIThread()` or `await JoinableTaskFactory.SwitchToMainThreadAsync()` before accessing DTE or any VS service.
 - Use `JoinableTaskFactory.RunAsync()` to bridge sync event handlers (like `SolutionEvents.Opened`) into async code.
-- Selection notifications are read synchronously on the UI thread (fast DTE reads) and pushed via `Task.Run` off the UI thread. No debouncing or `Task.Delay` — deduplication prevents redundant sends.
 - Errors in background tasks should be caught and logged (via `LogError`), never crash VS.
+
+### Selection Tracking
+
+Selection notifications use **native VS editor APIs**, not DTE COM interop:
+- **`IVsMonitorSelection`** (`SEID_WindowFrame`) detects active window changes — replaces `WindowEvents.WindowActivated`.
+- **`IWpfTextView.Selection.SelectionChanged`** and **`Caret.PositionChanged`** detect cursor/selection changes — replaces `TextEditorEvents.LineChanged`.
+- **`ITextDocument.FilePath`** and **`ITextSelection`** read the selection state — replaces `DTE.ActiveDocument` + `TextDocument.Selection`.
+
+`TrackActiveView()` subscribes to the current text view's events and unsubscribes when switching documents or when the view closes. The RPC push runs via `Task.Run` off the UI thread. Deduplication via `_lastSelectionKey` prevents redundant sends.
 
 ### MCP Tool Registration
 
