@@ -4,7 +4,13 @@ using System.Runtime.InteropServices;
 using CopilotCliIde.Server;
 using CopilotCliIde.Shared;
 using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.ComponentModelHost;
+using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Text;
+using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.TextManager.Interop;
 using StreamJsonRpc;
 using Task = System.Threading.Tasks.Task;
 
@@ -22,8 +28,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private JsonRpc? _rpc;
 	private IMcpServerCallbacks? _mcpCallbacks;
 	private EnvDTE.SolutionEvents? _solutionEvents;
-	private EnvDTE.WindowEvents? _windowEvents;
-	private EnvDTE.TextEditorEvents? _textEditorEvents;
+	private IVsEditorAdaptersFactoryService? _editorAdaptersFactory;
+	private IWpfTextView? _trackedView;
+	private uint _selectionMonitorCookie;
 	private string? _lastSelectionKey;
 	private CancellationTokenSource? _connectionCts;
 
@@ -45,11 +52,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_solutionEvents.Opened += OnSolutionOpened;
 			_solutionEvents.AfterClosing += OnSolutionAfterClosing;
 
-			// Subscribe to editor events to push selection changes to CLI
-			_windowEvents = dte.Events.WindowEvents;
-			_windowEvents.WindowActivated += OnWindowActivated;
-			_textEditorEvents = dte.Events.TextEditorEvents;
-			_textEditorEvents.LineChanged += OnLineChanged;
+			// Track active editor via native VS APIs (no DTE / COM interop)
+			var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
+			_editorAdaptersFactory = componentModel.GetService<IVsEditorAdaptersFactoryService>();
+			var monitorSelection = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
+			monitorSelection.AdviseSelectionEvents(new SelectionEventSink(this), out _selectionMonitorCookie);
+			TrackActiveView();
 		}
 		catch (Exception ex)
 		{
@@ -177,59 +185,93 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		});
 	}
 
-	private void OnWindowActivated(EnvDTE.Window gotFocus, EnvDTE.Window lostFocus)
+	/// <summary>
+	/// Checks the active text view and subscribes to its selection/caret events.
+	/// Called when the active window frame changes and on initial load.
+	/// </summary>
+	private void TrackActiveView()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
-		PushSelectionFireAndForget();
+		if (_editorAdaptersFactory == null) return;
+
+		var textManager = (IVsTextManager)GetGlobalService(typeof(SVsTextManager));
+		if (textManager == null) return;
+
+		textManager.GetActiveView(1, null, out var vsTextView);
+		var wpfView = vsTextView != null ? _editorAdaptersFactory.GetWpfTextView(vsTextView) : null;
+
+		// No text view has focus (e.g., tool window) — keep tracking the current one
+		if (wpfView == null) return;
+		if (wpfView == _trackedView) return;
+
+		UntrackView();
+
+		_trackedView = wpfView;
+		_trackedView.Selection.SelectionChanged += OnEditorSelectionChanged;
+		_trackedView.Caret.PositionChanged += OnEditorCaretChanged;
+		_trackedView.Closed += OnViewClosed;
+
+		PushCurrentSelection();
 	}
 
-	private void OnLineChanged(EnvDTE.TextPoint startPoint, EnvDTE.TextPoint endPoint, int hint)
+	private void UntrackView()
 	{
-		ThreadHelper.ThrowIfNotOnUIThread();
-		PushSelectionFireAndForget();
+		if (_trackedView != null)
+		{
+			_trackedView.Selection.SelectionChanged -= OnEditorSelectionChanged;
+			_trackedView.Caret.PositionChanged -= OnEditorCaretChanged;
+			_trackedView.Closed -= OnViewClosed;
+			_trackedView = null;
+		}
 	}
+
+	private void OnEditorSelectionChanged(object? sender, EventArgs e) => PushCurrentSelection();
+
+	private void OnEditorCaretChanged(object? sender, CaretPositionChangedEventArgs e) => PushCurrentSelection();
+
+	private void OnViewClosed(object? sender, EventArgs e) => UntrackView();
 
 	/// <summary>
-	/// Reads the current selection on the UI thread and pushes it to Copilot CLI
-	/// in the background. No debouncing — the event handlers fire, we read
-	/// immediately, and deduplication prevents redundant sends.
-	/// If the document isn't ready yet (COMException on tab activation), we skip
-	/// silently — the next LineChanged will pick it up once the editor is loaded.
+	/// Reads the current selection from the tracked IWpfTextView (managed VS API)
+	/// and pushes it to Copilot CLI off the UI thread. Deduplication prevents
+	/// redundant sends. No COM interop — no COMExceptions.
 	/// </summary>
-	private void PushSelectionFireAndForget()
+	private void PushCurrentSelection()
 	{
-		if (_mcpCallbacks == null) return;
+		if (_mcpCallbacks == null || _trackedView == null) return;
 
 		try
 		{
-			ThreadHelper.ThrowIfNotOnUIThread();
+			var view = _trackedView;
+			var selection = view.Selection;
+			var snapshot = view.TextSnapshot;
 
-			var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
-			var doc = dte?.ActiveDocument;
-			if (doc == null) return;
+			string? filePath = null;
+			if (view.TextBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc))
+				filePath = textDoc?.FilePath;
+			if (string.IsNullOrEmpty(filePath)) return;
 
-			if (doc.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
-				return;
+			var isEmpty = selection.IsEmpty;
+			var selectedText = isEmpty ? "" : selection.StreamSelectionSpan.SnapshotSpan.GetText();
+			if (selectedText.Length > 10_000) selectedText = selectedText.Substring(0, 10_000);
 
-			var sel = textDoc.Selection;
-			var isEmpty = sel.IsEmpty;
-			var selectedText = isEmpty ? "" : sel.Text;
-			if (selectedText?.Length > 10_000) selectedText = selectedText.Substring(0, 10_000);
-			var startLine = sel.TopPoint.Line - 1;
-			var startCol = sel.TopPoint.DisplayColumn - 1;
-			var endLine = sel.BottomPoint.Line - 1;
-			var endCol = sel.BottomPoint.DisplayColumn - 1;
+			var startPos = selection.Start.Position.Position;
+			var endPos = selection.End.Position.Position;
+			var startLine = snapshot.GetLineNumberFromPosition(startPos);
+			var startCol = startPos - snapshot.GetLineFromLineNumber(startLine).Start.Position;
+			var endLine = snapshot.GetLineNumberFromPosition(endPos);
+			var endCol = endPos - snapshot.GetLineFromLineNumber(endLine).Start.Position;
 
 			// Deduplicate — don't push if nothing changed
-			var key = $"{doc.FullName}:{startLine}:{startCol}:{endLine}:{endCol}:{isEmpty}";
+			var key = $"{filePath}:{startLine}:{startCol}:{endLine}:{endCol}:{isEmpty}";
 			if (key == _lastSelectionKey) return;
 			_lastSelectionKey = key;
 
 			var notification = new SelectionNotification
 			{
-				Text = selectedText ?? "",
-				FilePath = ToLowerDriveLetter(doc.FullName),
-				FileUrl = ToVsCodeFileUrl(doc.FullName),
+				Text = selectedText,
+				FilePath = ToLowerDriveLetter(filePath!),
+				FileUrl = ToVsCodeFileUrl(filePath!),
 				Selection = new SelectionRange
 				{
 					Start = new SelectionPosition { Line = startLine, Character = startCol },
@@ -246,8 +288,27 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				catch { _mcpCallbacks = null; }
 			});
 		}
-		catch (COMException) { /* Document not ready yet — next event will catch it */ }
 		catch { /* Don't crash VS */ }
+	}
+
+	/// <summary>
+	/// Receives IVsMonitorSelection callbacks when the active window frame changes.
+	/// Triggers TrackActiveView to subscribe to the new editor's events.
+	/// </summary>
+	private sealed class SelectionEventSink(CopilotCliIdePackage owner) : IVsSelectionEvents
+	{
+		public int OnSelectionChanged(IVsHierarchy pHierOld, uint itemidOld, IVsMultiItemSelect pMISOld, ISelectionContainer pSCOld,
+			IVsHierarchy pHierNew, uint itemidNew, IVsMultiItemSelect pMISNew, ISelectionContainer pSCNew) => VSConstants.S_OK;
+
+		public int OnElementValueChanged(uint elementid, object varValueOld, object varValueNew)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			if (elementid == (uint)VSConstants.VSSELELEMID.SEID_WindowFrame)
+				owner.TrackActiveView();
+			return VSConstants.S_OK;
+		}
+
+		public int OnCmdUIContextChanged(uint dwCmdUICookie, int fActive) => VSConstants.S_OK;
 	}
 
 	/// <summary>
@@ -271,13 +332,23 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	protected override void Dispose(bool disposing)
 	{
+		ThreadHelper.ThrowIfNotOnUIThread();
 		if (disposing)
 		{
+			UntrackView();
 			_solutionEvents = null;
-			_windowEvents = null;
-			_textEditorEvents = null;
 			StopConnection();
 			_discovery?.Dispose();
+
+			if (_selectionMonitorCookie != 0)
+			{
+				try
+				{
+					var monSel = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
+					monSel?.UnadviseSelectionEvents(_selectionMonitorCookie);
+				}
+				catch { /* Ignore */ }
+			}
 		}
 		base.Dispose(disposing);
 	}
