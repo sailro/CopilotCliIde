@@ -26,6 +26,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private EnvDTE.TextEditorEvents? _textEditorEvents;
 	private string? _lastSelectionKey;
 	private CancellationTokenSource? _selectionCts;
+	private CancellationTokenSource? _connectionCts;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
@@ -37,22 +38,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_discovery = new IdeDiscovery();
 			await _discovery.CleanStaleFilesAsync();
 
-			var rpcPipeName = $"copilot-cli-rpc-{Guid.NewGuid()}";
-			var mcpPipeName = $"mcp-{Guid.NewGuid()}.sock";
-			var nonce = Guid.NewGuid().ToString();
+			await StartConnectionAsync();
 
-			// Start RPC server for VS services
-			_ = JoinableTaskFactory.RunAsync(() => StartRpcServerAsync(rpcPipeName, cancellationToken));
-
-			// Start MCP server process
-			_processManager = new ServerProcessManager();
-			await _processManager.StartAsync(rpcPipeName, mcpPipeName, nonce);
-
-			// Write lock file for Copilot CLI discovery
-			var workspaceFolders = GetWorkspaceFolders();
-			await _discovery.WriteLockFileAsync(mcpPipeName, nonce, workspaceFolders);
-
-			// Subscribe to solution events to keep lock file in sync
+			// Subscribe to solution events to restart connection on solution switch
 			var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
 			_solutionEvents = dte.Events.SolutionEvents;
 			_solutionEvents.Opened += OnSolutionOpened;
@@ -72,15 +60,76 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 	}
 
+	/// <summary>
+	/// Creates new pipes, starts the MCP server process, and writes a lock file
+	/// so Copilot CLI can discover this VS instance. Called on first load and
+	/// each time a solution is opened.
+	/// </summary>
+	private async Task StartConnectionAsync()
+	{
+		await JoinableTaskFactory.SwitchToMainThreadAsync();
+		StopConnection();
+
+		_connectionCts = new CancellationTokenSource();
+
+		var rpcPipeName = $"copilot-cli-rpc-{Guid.NewGuid()}";
+		var mcpPipeName = $"mcp-{Guid.NewGuid()}.sock";
+		var nonce = Guid.NewGuid().ToString();
+
+		// Start RPC server for VS services
+		_ = JoinableTaskFactory.RunAsync(() => StartRpcServerAsync(rpcPipeName, _connectionCts.Token));
+
+		// Start MCP server process
+		_processManager = new ServerProcessManager();
+		await _processManager.StartAsync(rpcPipeName, mcpPipeName, nonce);
+
+		// Write lock file for Copilot CLI discovery
+		var workspaceFolders = GetWorkspaceFolders();
+		await _discovery!.WriteLockFileAsync(mcpPipeName, nonce, workspaceFolders);
+	}
+
+	/// <summary>
+	/// Tears down the current connection: removes the lock file, kills the MCP
+	/// server process, and disposes the RPC pipe. Copilot CLI will see the lock
+	/// file disappear and disconnect — matching VS Code's close-folder behavior.
+	/// </summary>
+	private void StopConnection()
+	{
+		_selectionCts?.Cancel();
+		_selectionCts?.Dispose();
+		_selectionCts = null;
+		_lastSelectionKey = null;
+		_mcpCallbacks = null;
+
+		_connectionCts?.Cancel();
+		_connectionCts?.Dispose();
+		_connectionCts = null;
+
+		_rpc?.Dispose();
+		_rpc = null;
+		_rpcPipe?.Dispose();
+		_rpcPipe = null;
+
+		_processManager?.Dispose();
+		_processManager = null;
+
+		_discovery?.RemoveLockFile();
+	}
+
 	private async Task StartRpcServerAsync(string pipeName, CancellationToken ct)
 	{
-		_rpcPipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-		await _rpcPipe.WaitForConnectionAsync(ct);
-		_rpc = JsonRpc.Attach(_rpcPipe, new VsServiceRpc());
-		_mcpCallbacks = _rpc.Attach<IMcpServerCallbacks>();
+		try
+		{
+			_rpcPipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+			await _rpcPipe.WaitForConnectionAsync(ct);
+			_rpc = JsonRpc.Attach(_rpcPipe, new VsServiceRpc());
+			_mcpCallbacks = _rpc.Attach<IMcpServerCallbacks>();
 #pragma warning disable VSTHRD003 // Completion is a long-running task representing the RPC lifetime
-		await _rpc.Completion;
+			await _rpc.Completion;
 #pragma warning restore VSTHRD003
+		}
+		catch (OperationCanceledException) { }
+		catch (ObjectDisposedException) { }
 	}
 
 	private static IReadOnlyList<string> GetWorkspaceFolders()
@@ -104,10 +153,15 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		_ = JoinableTaskFactory.RunAsync(async () =>
 		{
-			await JoinableTaskFactory.SwitchToMainThreadAsync();
-			var folders = GetWorkspaceFolders();
-			if (_discovery != null)
-				await _discovery.UpdateWorkspaceFoldersAsync(folders);
+			try
+			{
+				await JoinableTaskFactory.SwitchToMainThreadAsync();
+				await StartConnectionAsync();
+			}
+			catch (Exception ex)
+			{
+				LogError(ex);
+			}
 		});
 	}
 
@@ -115,8 +169,15 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		_ = JoinableTaskFactory.RunAsync(async () =>
 		{
-			if (_discovery != null)
-				await _discovery.UpdateWorkspaceFoldersAsync(new List<string>().AsReadOnly());
+			try
+			{
+				await JoinableTaskFactory.SwitchToMainThreadAsync();
+				StopConnection();
+			}
+			catch (Exception ex)
+			{
+				LogError(ex);
+			}
 		});
 	}
 
@@ -247,16 +308,23 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		if (disposing)
 		{
-			_selectionCts?.Cancel();
-			_selectionCts?.Dispose();
 			_solutionEvents = null;
 			_windowEvents = null;
 			_textEditorEvents = null;
-			_processManager?.Dispose();
-			_rpc?.Dispose();
-			_rpcPipe?.Dispose();
+			StopConnection();
 			_discovery?.Dispose();
 		}
 		base.Dispose(disposing);
+	}
+
+	private static void LogError(Exception ex)
+	{
+		try
+		{
+			var diagPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot", "ide", $"vs-error-{Process.GetCurrentProcess().Id}.log");
+			Directory.CreateDirectory(Path.GetDirectoryName(diagPath)!);
+			File.AppendAllText(diagPath, $"{DateTime.UtcNow:O}\n{ex}\n\n");
+		}
+		catch { /* Ignore */ }
 	}
 }

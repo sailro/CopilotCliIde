@@ -40,23 +40,6 @@ public sealed class IdeDiscovery : IDisposable
 		return Task.CompletedTask;
 	}
 
-	public Task UpdateWorkspaceFoldersAsync(IReadOnlyList<string> workspaceFolders)
-	{
-		if (_lockFilePath == null || !File.Exists(_lockFilePath))
-			return Task.CompletedTask;
-
-		var json = File.ReadAllText(_lockFilePath);
-
-		// Rewrite with updated workspaceFolders and timestamp
-		var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(json)!;
-		dict["workspaceFolders"] = workspaceFolders;
-		dict["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-		var updated = JsonSerializer.Serialize(dict, new JsonSerializerOptions { WriteIndented = true });
-		File.WriteAllText(_lockFilePath, updated);
-		return Task.CompletedTask;
-	}
-
 	public Task CleanStaleFilesAsync()
 	{
 		var ideDir = GetIdeDirectory();
