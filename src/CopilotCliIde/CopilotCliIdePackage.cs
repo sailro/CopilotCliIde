@@ -186,19 +186,29 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	/// <summary>
 	/// Checks the active text view and subscribes to its selection/caret events.
 	/// Called when the active window frame changes and on initial load.
+	/// When a frame is provided, the text view is obtained directly from it
+	/// (avoids IVsTextManager timing issues where GetActiveView hasn't updated yet).
 	/// </summary>
-	private void TrackActiveView()
+	private void TrackActiveView(IVsWindowFrame? frame = null)
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 		if (_editorAdaptersFactory == null) return;
 
-		var textManager = (IVsTextManager)GetGlobalService(typeof(SVsTextManager));
-		if (textManager == null) return;
+		IVsTextView? vsTextView = null;
 
-		textManager.GetActiveView(1, null, out var vsTextView);
+		if (frame != null)
+		{
+			vsTextView = VsShellUtilities.GetTextView(frame);
+		}
+		else
+		{
+			var textManager = (IVsTextManager)GetGlobalService(typeof(SVsTextManager));
+			textManager?.GetActiveView(0, null, out vsTextView);
+		}
+
 		var wpfView = vsTextView != null ? _editorAdaptersFactory.GetWpfTextView(vsTextView) : null;
 
-		// No text view has focus (e.g., tool window) — keep tracking the current one
+		// No text view (e.g., tool window) — keep tracking the current one
 		if (wpfView == null) return;
 		if (wpfView == _trackedView) return;
 
@@ -302,7 +312,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
 			if (elementid == (uint)VSConstants.VSSELELEMID.SEID_WindowFrame)
-				owner.TrackActiveView();
+				owner.TrackActiveView(varValueNew as IVsWindowFrame);
 			return VSConstants.S_OK;
 		}
 
