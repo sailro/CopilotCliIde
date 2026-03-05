@@ -25,7 +25,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private EnvDTE.WindowEvents? _windowEvents;
 	private EnvDTE.TextEditorEvents? _textEditorEvents;
 	private string? _lastSelectionKey;
-	private CancellationTokenSource? _selectionCts;
 	private CancellationTokenSource? _connectionCts;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -95,9 +94,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	/// </summary>
 	private void StopConnection()
 	{
-		_selectionCts?.Cancel();
-		_selectionCts?.Dispose();
-		_selectionCts = null;
 		_lastSelectionKey = null;
 		_mcpCallbacks = null;
 
@@ -183,79 +179,46 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	private void OnWindowActivated(EnvDTE.Window gotFocus, EnvDTE.Window lostFocus)
 	{
-		SchedulePushSelection(debounceMs: 150);
+		ThreadHelper.ThrowIfNotOnUIThread();
+		PushSelectionFireAndForget();
 	}
 
 	private void OnLineChanged(EnvDTE.TextPoint startPoint, EnvDTE.TextPoint endPoint, int hint)
 	{
-		SchedulePushSelection(debounceMs: 50);
+		ThreadHelper.ThrowIfNotOnUIThread();
+		PushSelectionFireAndForget();
 	}
 
 	/// <summary>
-	/// Debounces selection pushes — cancels any pending push and schedules a new one.
-	/// The delay gives the document time to fully load after tab activation.
+	/// Reads the current selection on the UI thread and pushes it to Copilot CLI
+	/// in the background. No debouncing — the event handlers fire, we read
+	/// immediately, and deduplication prevents redundant sends.
+	/// If the document isn't ready yet (COMException on tab activation), we skip
+	/// silently — the next LineChanged will pick it up once the editor is loaded.
 	/// </summary>
-	private void SchedulePushSelection(int debounceMs)
-	{
-		try
-		{
-			_selectionCts?.Cancel();
-			_selectionCts = new CancellationTokenSource();
-			var ct = _selectionCts.Token;
-
-			_ = JoinableTaskFactory.RunAsync(async () =>
-			{
-				try
-				{
-					await Task.Delay(debounceMs, ct);
-					await PushSelectionAsync(ct);
-				}
-				catch (OperationCanceledException) { }
-				catch { /* Ignore */ }
-			});
-		}
-		catch { /* Ignore */ }
-	}
-
-	private async Task PushSelectionAsync(CancellationToken ct)
+	private void PushSelectionFireAndForget()
 	{
 		if (_mcpCallbacks == null) return;
 
 		try
 		{
-			await JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+			ThreadHelper.ThrowIfNotOnUIThread();
+
 			var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
 			var doc = dte?.ActiveDocument;
 			if (doc == null) return;
 
-			string? selectedText = null;
-			int startLine = 0, startCol = 0, endLine = 0, endCol = 0;
-			bool isEmpty = true;
+			if (doc.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
+				return;
 
-			// Retry with backoff — the document may not be ready immediately after tab activation
-			for (int attempt = 0; attempt < 3; attempt++)
-			{
-				ct.ThrowIfCancellationRequested();
-				try
-				{
-					if (doc.Object("TextDocument") is EnvDTE.TextDocument textDoc)
-					{
-						var sel = textDoc.Selection;
-						isEmpty = sel.IsEmpty;
-						selectedText = isEmpty ? "" : sel.Text;
-						if (selectedText?.Length > 10_000) selectedText = selectedText.Substring(0, 10_000);
-						startLine = sel.TopPoint.Line - 1;
-						startCol = sel.TopPoint.DisplayColumn - 1;
-						endLine = sel.BottomPoint.Line - 1;
-						endCol = sel.BottomPoint.DisplayColumn - 1;
-					}
-					break; // success
-				}
-				catch (COMException) when (attempt < 2)
-				{
-					await Task.Delay(150 * (attempt + 1), ct);
-				}
-			}
+			var sel = textDoc.Selection;
+			var isEmpty = sel.IsEmpty;
+			var selectedText = isEmpty ? "" : sel.Text;
+			if (selectedText?.Length > 10_000) selectedText = selectedText.Substring(0, 10_000);
+			var startLine = sel.TopPoint.Line - 1;
+			var startCol = sel.TopPoint.DisplayColumn - 1;
+			var endLine = sel.BottomPoint.Line - 1;
+			var endCol = sel.BottomPoint.DisplayColumn - 1;
 
 			// Deduplicate — don't push if nothing changed
 			var key = $"{doc.FullName}:{startLine}:{startCol}:{endLine}:{endCol}:{isEmpty}";
@@ -275,14 +238,16 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				}
 			};
 
-			await Task.Run(async () =>
+			// Send off the UI thread so we never block VS
+			var callbacks = _mcpCallbacks;
+			_ = Task.Run(async () =>
 			{
-				try { await _mcpCallbacks.OnSelectionChangedAsync(notification); }
+				try { await callbacks.OnSelectionChangedAsync(notification); }
 				catch { _mcpCallbacks = null; }
-			}, ct);
+			});
 		}
-		catch (OperationCanceledException) { throw; }
-		catch { /* Don't crash VS on notification failure */ }
+		catch (COMException) { /* Document not ready yet — next event will catch it */ }
+		catch { /* Don't crash VS */ }
 	}
 
 	/// <summary>

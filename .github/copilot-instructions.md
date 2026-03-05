@@ -60,6 +60,7 @@ The VSIX build target automatically runs `dotnet publish` on the server project 
 
 - Always use `ThreadHelper.ThrowIfNotOnUIThread()` or `await JoinableTaskFactory.SwitchToMainThreadAsync()` before accessing DTE or any VS COM service.
 - Use `JoinableTaskFactory.RunAsync()` to bridge sync event handlers (like `SolutionEvents.Opened`) into async code.
+- Selection notifications are read synchronously on the UI thread (fast DTE reads) and pushed via `Task.Run` off the UI thread. No debouncing or `Task.Delay` — deduplication prevents redundant sends.
 - Errors in background tasks should be caught and logged (via `LogError`), never crash VS.
 
 ### MCP Tool Registration

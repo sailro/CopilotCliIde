@@ -173,7 +173,7 @@ Pushed when the user switches files or moves the cursor in VS:
 }
 ```
 
-Notifications are debounced (150ms for window activation, 50ms for cursor movement) and deduplicated to avoid flooding.
+Notifications are pushed immediately on editor events and deduplicated — if the selection hasn't changed, no notification is sent. The RPC call runs off the UI thread to keep VS responsive.
 
 ### Protocol Stack
 
