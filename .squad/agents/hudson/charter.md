@@ -37,7 +37,7 @@
 
 ## Model
 
-- **Preferred:** claude-opus-4.6
+- **Preferred:** claude-opus-4.6-1m
 - **Rationale:** User preference — premium model for all agents
 - **Fallback:** Premium chain — the coordinator handles fallback automatically
 
