@@ -1,0 +1,36 @@
+{
+  "agents": {
+    "ripley": {
+      "persistent_name": "Ripley",
+      "universe": "Alien",
+      "role": "Lead",
+      "created_at": "2026-03-05T16:59:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "hicks": {
+      "persistent_name": "Hicks",
+      "universe": "Alien",
+      "role": "Extension Dev",
+      "created_at": "2026-03-05T16:59:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "bishop": {
+      "persistent_name": "Bishop",
+      "universe": "Alien",
+      "role": "Server Dev",
+      "created_at": "2026-03-05T16:59:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "hudson": {
+      "persistent_name": "Hudson",
+      "universe": "Alien",
+      "role": "Tester",
+      "created_at": "2026-03-05T16:59:00Z",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}

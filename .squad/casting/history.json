@@ -1,0 +1,22 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Alien",
+      "repo": "vsext",
+      "assigned_at": "2026-03-05T16:59:00Z"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "vsext-2026-03-05": {
+      "assignment_id": "vsext-2026-03-05",
+      "universe": "Alien",
+      "timestamp": "2026-03-05T16:59:00Z",
+      "agents": {
+        "ripley": "Lead",
+        "hicks": "Extension Dev",
+        "bishop": "Server Dev",
+        "hudson": "Tester"
+      }
+    }
+  }
+}
