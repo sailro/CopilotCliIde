@@ -37,9 +37,9 @@
 
 ## Model
 
-- **Preferred:** auto
-- **Rationale:** Coordinator selects the best model based on task type — cost first unless writing code
-- **Fallback:** Standard chain — the coordinator handles fallback automatically
+- **Preferred:** claude-opus-4.6
+- **Rationale:** User preference — premium model for all agents
+- **Fallback:** Premium chain — the coordinator handles fallback automatically
 
 ## Collaboration
 
