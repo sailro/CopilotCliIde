@@ -61,9 +61,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 		catch (Exception ex)
 		{
-			var diagPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot", "ide", $"vs-error-{Process.GetCurrentProcess().Id}.log");
-			Directory.CreateDirectory(Path.GetDirectoryName(diagPath)!);
-			File.WriteAllText(diagPath, $"{DateTime.UtcNow:O}\n{ex}");
+			LogError(ex);
 		}
 	}
 
