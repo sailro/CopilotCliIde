@@ -66,10 +66,16 @@ The VSIX build target automatically runs `dotnet publish` on the server project 
 
 Selection notifications use **native VS editor APIs**, not DTE COM interop:
 - **`IVsMonitorSelection`** (`SEID_WindowFrame`) detects active window changes — replaces `WindowEvents.WindowActivated`.
-- **`IWpfTextView.Selection.SelectionChanged`** and **`Caret.PositionChanged`** detect cursor/selection changes — replaces `TextEditorEvents.LineChanged`.
-- **`ITextDocument.FilePath`** and **`ITextSelection`** read the selection state — replaces `DTE.ActiveDocument` + `TextDocument.Selection`.
+- **`IWpfTextView.Selection.SelectionChanged`** detects cursor/selection changes — replaces `TextEditorEvents.LineChanged`.
+- File path is read from `view.TextBuffer.Properties[typeof(ITextDocument)]`. Positions are read directly from `IWpfTextView.Selection` and `view.TextSnapshot`.
 
-`TrackActiveView()` subscribes to the current text view's events and unsubscribes when switching documents or when the view closes. The RPC push runs via `Task.Run` off the UI thread. Deduplication via `_lastSelectionKey` prevents redundant sends.
+`TrackActiveView()` subscribes to the current text view's events and unsubscribes when switching documents or when the view closes. When the active frame is a non-editor window (tool window, start page, all tabs closed), the view is untracked. Temp buffers (file paths that don't exist on disk) are filtered out via `File.Exists`.
+
+The RPC push runs via `Task.Run` off the UI thread. Deduplication via `_lastSelectionKey` prevents redundant sends.
+
+### Initial Selection on Connect
+
+The VS extension may push selection events before Copilot CLI connects. To avoid a stale initial display, the **MCP server** (`McpPipeServer.PushCurrentSelectionAsync`) fetches the current selection from VS via RPC when a new SSE client connects and pushes it immediately.
 
 ### MCP Tool Registration
 

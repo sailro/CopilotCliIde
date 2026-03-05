@@ -14,6 +14,11 @@
 - Every `NamedPipeServerStream` or `NamedPipeClientStream` must be disposed on all code paths (including cancellation and exceptions).
 - The MCP server process monitors stdin — when the parent (VS) closes stdin, the server exits. Verify this contract is maintained.
 
+### Selection Push Reliability
+- `PushCurrentSelection()` must filter temp buffers via `File.Exists` to avoid pushing VS internal buffers (e.g., `Temp.txt`).
+- The MCP server pushes the current selection when a new SSE client connects (`PushCurrentSelectionAsync`). This is the only reliable point to ensure Copilot CLI has the correct initial state — the extension-side push may fire before any SSE client exists.
+- `TrackActiveView()` must untrack when the new frame has no text view (all tabs closed, tool window focused).
+
 ### MCP Protocol Compatibility
 - Tool names, parameter names, and response shapes must match VS Code's Copilot Chat extension exactly. Breaking these breaks the Copilot CLI `/ide` protocol.
 - All tools must include `execution.taskSupport: "forbidden"` metadata.

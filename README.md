@@ -11,7 +11,7 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 3. **MCP server process launches** as a separate net10.0 child process, connecting back to VS via bidirectional RPC
 4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders
 5. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
-6. **Real-time selection events** — when you switch files or move your cursor, the CLI is notified via SSE
+6. **Real-time selection events** — when you switch files or move your cursor, the CLI is notified via SSE. When Copilot CLI first connects, the MCP server pushes the current selection immediately so the display is correct from the start.
 7. **Solution lifecycle** — closing a solution tears down the connection (removes lock file, kills MCP server process); opening a new solution creates a fresh connection with new pipes and lock file — matching VS Code's close-folder behavior
 8. **Stale files cleaned** — on startup, lock files and log files from dead processes are removed
 
@@ -173,7 +173,9 @@ Pushed when the user switches files or moves the cursor in VS:
 }
 ```
 
-Notifications are pushed immediately on editor events and deduplicated — if the selection hasn't changed, no notification is sent. The RPC call runs off the UI thread to keep VS responsive.
+Notifications are pushed immediately on editor events and deduplicated — if the selection hasn't changed, no notification is sent. The RPC call runs off the UI thread to keep VS responsive. Temp buffers (paths that don't exist on disk) are filtered out.
+
+When Copilot CLI first connects to the SSE stream, the MCP server fetches the current selection from VS via RPC and pushes it immediately — ensuring the display is correct even if the extension loaded before Copilot CLI was running.
 
 ### Protocol Stack
 
