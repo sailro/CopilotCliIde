@@ -1,16 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
-    <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
     <VSSDKTargetPlatformRegRootSuffix>Exp</VSSDKTargetPlatformRegRootSuffix>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CustomAfterMicrosoftCSharpTargets Condition="$(VsSDKInstall) != ''">$(VsSDKInstall)\Microsoft.VsSDK.targets</CustomAfterMicrosoftCSharpTargets>
     <RootNamespace>CopilotCliIde</RootNamespace>
     <AssemblyName>CopilotCliIde</AssemblyName>
-    <AssemblyVersion>1.0.5.0</AssemblyVersion>
   </PropertyGroup>
   
   <ItemGroup>
@@ -43,12 +40,6 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Update="VSPackage.resx">
-      <MergeWithCTO>true</MergeWithCTO>
-      <ManifestResourceName>VSPackage</ManifestResourceName>
-    </EmbeddedResource>
-  </ItemGroup>
 
   <ItemGroup>
     <None Remove="../../LICENSE" />
@@ -78,7 +69,12 @@
     <Exec Command="dotnet publish ..\CopilotCliIde.Server\CopilotCliIde.Server.csproj -c $(Configuration) -o $(OutputPath)\CopilotCliIde.Server --no-self-contained" />
   </Target>
 
-  <!-- Re-add server dependencies that VSSDK incorrectly suppresses -->
+  <!-- Re-add server dependencies that VSSDK incorrectly suppresses
+       
+       StreamJsonRpc transitively depends on both Microsoft.VisualStudio.Threading and Microsoft.VisualStudio.Validation. The FixServerDeps target is
+       necessary because the VSSDK's RemoveVSSDKAssemblies strips any Microsoft.VisualStudio.* DLLs from the VSIX, assuming VS provides them — but the MCP server is a standalone
+       .NET 10 process that needs its own copies.
+  -->
   <Target Name="FixServerDeps" AfterTargets="RemoveVSSDKAssemblies" DependsOnTargets="PublishServerBeforeBuild">
     <ItemGroup>
       <VSIXSourceItem Include="$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Validation.dll" Condition="Exists('$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Validation.dll')">
