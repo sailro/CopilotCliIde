@@ -25,7 +25,7 @@ Describe a key convention or practice used in this codebase. Be specific about w
 
 ### Testing
 
-- Test framework: xUnit 2.9.3 with Microsoft.NET.Test.Sdk
+- Test framework: xUnit v3 (3.2.2) with Microsoft.NET.Test.Sdk
 - Test location: `src/CopilotCliIde.Server.Tests/`
 - Run command: `dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj`
 - Mocking: NSubstitute 5.3.0
