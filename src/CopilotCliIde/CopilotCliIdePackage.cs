@@ -233,14 +233,25 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 	}
 
-	private void OnEditorSelectionChanged(object? sender, EventArgs e) => PushCurrentSelection();
+	private void OnEditorSelectionChanged(object? sender, EventArgs e)
+	{
+		PushCurrentSelection();
+		// Re-read after input processing completes to capture the final state
+		// after mouse-up (SelectionChanged may fire with intermediate data during drags)
+		_ = JoinableTaskFactory.RunAsync(async () =>
+		{
+			await Task.Yield();
+			PushCurrentSelection();
+		});
+	}
 
 	private void OnViewClosed(object? sender, EventArgs e) => UntrackView();
 
 	/// <summary>
-	/// Reads the current selection from the tracked IWpfTextView (managed VS API)
-	/// and pushes it to Copilot CLI off the UI thread. Deduplication prevents
-	/// redundant sends. No COM interop — no COMExceptions.
+	/// Reads the current selection from the tracked IWpfTextView and pushes it
+	/// to Copilot CLI off the UI thread. Positions are mapped through the
+	/// BufferGraph to the document buffer so they match the source file
+	/// regardless of any projection/elision view buffers.
 	/// </summary>
 	private void PushCurrentSelection()
 	{
@@ -250,26 +261,40 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			var view = _trackedView;
 			var selection = view.Selection;
-			var snapshot = view.TextSnapshot;
+
+			// Use the document buffer for canonical positions (not the view buffer
+			// which may be a projection/elision buffer from code folding)
+			var documentBuffer = view.TextViewModel.DataModel.DocumentBuffer;
+			var documentSnapshot = documentBuffer.CurrentSnapshot;
 
 			string? filePath = null;
-			if (view.TextBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc))
+			if (documentBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc))
 				filePath = textDoc?.FilePath;
 			if (string.IsNullOrEmpty(filePath)) return;
 
 			var isEmpty = selection.IsEmpty;
-			var selectedText = isEmpty ? "" : selection.StreamSelectionSpan.SnapshotSpan.GetText();
+
+			// Map selection positions from view buffer to document buffer
+			var mappedStart = view.BufferGraph.MapDownToBuffer(
+				selection.Start.Position, PointTrackingMode.Positive, documentBuffer, PositionAffinity.Successor);
+			var mappedEnd = view.BufferGraph.MapDownToBuffer(
+				selection.End.Position, PointTrackingMode.Positive, documentBuffer, PositionAffinity.Successor);
+			if (mappedStart == null || mappedEnd == null) return;
+
+			var startLine = mappedStart.Value.GetContainingLine();
+			var endLine = mappedEnd.Value.GetContainingLine();
+			var startLineNumber = startLine.LineNumber;
+			var startCol = mappedStart.Value.Position - startLine.Start.Position;
+			var endLineNumber = endLine.LineNumber;
+			var endCol = mappedEnd.Value.Position - endLine.Start.Position;
+
+			var selectedText = isEmpty
+				? ""
+				: documentSnapshot.GetText(mappedStart.Value.Position, mappedEnd.Value.Position - mappedStart.Value.Position);
 			if (selectedText.Length > 10_000) selectedText = selectedText.Substring(0, 10_000);
 
-			var startPos = selection.Start.Position.Position;
-			var endPos = selection.End.Position.Position;
-			var startLine = snapshot.GetLineNumberFromPosition(startPos);
-			var startCol = startPos - snapshot.GetLineFromLineNumber(startLine).Start.Position;
-			var endLine = snapshot.GetLineNumberFromPosition(endPos);
-			var endCol = endPos - snapshot.GetLineFromLineNumber(endLine).Start.Position;
-
 			// Deduplicate — don't push if nothing changed
-			var key = $"{filePath}:{startLine}:{startCol}:{endLine}:{endCol}:{isEmpty}";
+			var key = $"{filePath}:{startLineNumber}:{startCol}:{endLineNumber}:{endCol}:{isEmpty}";
 			if (key == _lastSelectionKey) return;
 			_lastSelectionKey = key;
 
@@ -280,8 +305,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				FileUrl = ToVsCodeFileUrl(filePath!),
 				Selection = new SelectionRange
 				{
-					Start = new SelectionPosition { Line = startLine, Character = startCol },
-					End = new SelectionPosition { Line = endLine, Character = endCol },
+					Start = new SelectionPosition { Line = startLineNumber, Character = startCol },
+					End = new SelectionPosition { Line = endLineNumber, Character = endCol },
 					IsEmpty = isEmpty
 				}
 			};
