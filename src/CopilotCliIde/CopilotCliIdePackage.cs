@@ -216,7 +216,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 		_trackedView = wpfView;
 		_trackedView.Selection.SelectionChanged += OnEditorSelectionChanged;
-		_trackedView.Caret.PositionChanged += OnEditorCaretChanged;
 		_trackedView.Closed += OnViewClosed;
 
 		PushCurrentSelection();
@@ -227,15 +226,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		if (_trackedView != null)
 		{
 			_trackedView.Selection.SelectionChanged -= OnEditorSelectionChanged;
-			_trackedView.Caret.PositionChanged -= OnEditorCaretChanged;
 			_trackedView.Closed -= OnViewClosed;
 			_trackedView = null;
 		}
 	}
 
 	private void OnEditorSelectionChanged(object? sender, EventArgs e) => PushCurrentSelection();
-
-	private void OnEditorCaretChanged(object? sender, CaretPositionChangedEventArgs e) => PushCurrentSelection();
 
 	private void OnViewClosed(object? sender, EventArgs e) => UntrackView();
 
