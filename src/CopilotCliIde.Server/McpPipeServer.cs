@@ -274,7 +274,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		}
 	}
 
-	private static async Task<(string? method, string? path, Dictionary<string, string> headers, string body)> ReadHttpRequestAsync(Stream stream, CancellationToken ct)
+	internal static async Task<(string? method, string? path, Dictionary<string, string> headers, string body)> ReadHttpRequestAsync(Stream stream, CancellationToken ct)
 	{
 		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		var sb = new StringBuilder();
@@ -336,7 +336,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		return (method, path, headers, body);
 	}
 
-	private static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
+	internal static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
 	{
 		var result = new StringBuilder();
 		var lineBuf = new StringBuilder();
@@ -386,7 +386,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		return result.ToString();
 	}
 
-	private static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
+	internal static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
 		string contentType = "text/plain", string extraHeaders = "")
 	{
 		var statusText = statusCode switch
