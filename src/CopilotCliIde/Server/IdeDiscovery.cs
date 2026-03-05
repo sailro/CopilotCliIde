@@ -85,7 +85,7 @@ public sealed class IdeDiscovery : IDisposable
 			{
 				var json = File.ReadAllText(file);
 				using var doc = JsonDocument.Parse(json);
-				
+
 				if (!doc.RootElement.TryGetProperty("pid", out var pidProp))
 					continue;
 

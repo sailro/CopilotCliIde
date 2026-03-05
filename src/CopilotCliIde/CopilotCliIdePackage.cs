@@ -215,7 +215,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			return;
 		}
 
-		if (wpfView == _trackedView) return;
+		if (wpfView == _trackedView)
+			return;
 
 		UntrackView();
 
@@ -228,12 +229,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	private void UntrackView()
 	{
-		if (_trackedView != null)
-		{
-			_trackedView.Selection.SelectionChanged -= OnEditorSelectionChanged;
-			_trackedView.Closed -= OnViewClosed;
-			_trackedView = null;
-		}
+		if (_trackedView == null)
+			return;
+
+		_trackedView.Selection.SelectionChanged -= OnEditorSelectionChanged;
+		_trackedView.Closed -= OnViewClosed;
+		_trackedView = null;
 	}
 
 	private void OnEditorSelectionChanged(object? sender, EventArgs e) => PushCurrentSelection();
@@ -257,7 +258,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			string? filePath = null;
 			if (view.TextBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc))
 				filePath = textDoc?.FilePath;
-			if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
+
+			if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+				return;
 
 			var isEmpty = selection.IsEmpty;
 			var startLine = snapshot.GetLineFromPosition(selection.Start.Position);
