@@ -63,14 +63,8 @@ public sealed class IdeDiscovery : IDisposable
 				var lastDash = name.LastIndexOf('-');
 				if (lastDash < 0) continue;
 				if (!int.TryParse(name.Substring(lastDash + 1), out var pid)) continue;
-				try
-				{
-					Process.GetProcessById(pid);
-				}
-				catch (ArgumentException)
-				{
-					try { File.Delete(file); } catch { /* Ignore */ }
-				}
+				if (!IsProcessAlive(pid))
+					SafeDelete(file);
 			}
 			catch { /* Ignore */ }
 		}
@@ -90,23 +84,35 @@ public sealed class IdeDiscovery : IDisposable
 					continue;
 
 				var pid = pidProp.GetInt32();
-				try
-				{
-					Process.GetProcessById(pid);
-					// Process still alive, skip
-				}
-				catch (ArgumentException)
-				{
-					// Process dead, remove stale lock file
-					File.Delete(file);
-				}
+				if (!IsProcessAlive(pid))
+					SafeDelete(file);
 			}
 			catch
 			{
 				// Malformed lock file, remove it
-				try { File.Delete(file); } catch { /* Ignore */ }
+				SafeDelete(file);
 			}
 		}
+	}
+
+	[DebuggerNonUserCode]
+	private static bool IsProcessAlive(int pid)
+	{
+		try
+		{
+			Process.GetProcessById(pid);
+			return true;
+		}
+		catch (ArgumentException)
+		{
+			return false;
+		}
+	}
+
+	[DebuggerNonUserCode]
+	private static void SafeDelete(string path)
+	{
+		try { File.Delete(path); } catch { /* Ignore */ }
 	}
 
 	public void RemoveLockFile()
@@ -114,7 +120,7 @@ public sealed class IdeDiscovery : IDisposable
 		if (_lockFilePath == null)
 			return;
 
-		try { File.Delete(_lockFilePath); } catch { /* Ignore */ }
+		SafeDelete(_lockFilePath);
 		_lockFilePath = null;
 	}
 
