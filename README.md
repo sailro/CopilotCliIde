@@ -12,7 +12,7 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 4. **Lock file written** to `~/.copilot/ide/` with the MCP pipe path, auth nonce, and workspace folders
 5. **Copilot CLI discovers** the lock file via `/ide`, connects, and calls MCP tools to interact with VS
 6. **Real-time selection events** — when you switch files or move your cursor, the CLI is notified via SSE
-7. **Solution changes tracked** — when you close/open solutions, the lock file's workspace folders update automatically
+7. **Solution lifecycle** — closing a solution tears down the connection (removes lock file, kills MCP server process); opening a new solution creates a fresh connection with new pipes and lock file — matching VS Code's close-folder behavior
 8. **Stale files cleaned** — on startup, lock files and log files from dead processes are removed
 
 ## Getting Started
