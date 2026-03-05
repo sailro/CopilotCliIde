@@ -6,6 +6,6 @@
     <NoWarn>$(NoWarn);StreamJsonRpc0008</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="StreamJsonRpc" Version="2.24.84" />
+    <PackageReference Include="StreamJsonRpc" />
   </ItemGroup>
 </Project>

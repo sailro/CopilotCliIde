@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
-using CopilotCliIde.Server;
 using CopilotCliIde.Shared;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;

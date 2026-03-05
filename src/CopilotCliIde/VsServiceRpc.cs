@@ -14,12 +14,12 @@ public class VsServiceRpc : IVsServiceRpc
 
 	private class DiffState
 	{
-		public string OriginalPath { get; init; } = "";
-		public string TempNewPath { get; init; } = "";
+		public string OriginalPath { get; set; } = "";
+		public string TempNewPath { get; set; } = "";
 		public string NewContent { get; set; } = "";
-		public string TabName { get; init; } = "";
-		public IVsWindowFrame? Frame { get; init; }
-		public TaskCompletionSource<string>? Completion { get; init; }
+		public string TabName { get; set; } = "";
+		public IVsWindowFrame? Frame { get; set; }
+		public TaskCompletionSource<string>? Completion { get; set; }
 		public IVsInfoBarUIElement? InfoBarElement { get; set; }
 		public uint InfoBarCookie { get; set; }
 	}

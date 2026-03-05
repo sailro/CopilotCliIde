@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace CopilotCliIde.Server;
+namespace CopilotCliIde;
 
 /// <summary>
 /// Manages lock files in ~/.copilot/ide/ so Copilot CLI can discover this VS instance.
