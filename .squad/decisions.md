@@ -172,6 +172,82 @@ No action required; these are informational headers used for telemetry/debugging
 
 This directive overrides team defaults and applies to all future spawns.
 
+## Implementation Decisions (2026-03-06)
+
+### MCP Tool Schema Alignment with VS Code
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-06  
+**Status:** Implemented
+
+Aligned all MCP tool response schemas to match VS Code's Copilot Chat extension wire format. The goal is byte-level compatibility so Copilot CLI sees identical JSON shapes from both VS Code and Visual Studio.
+
+#### Key Design Choices
+
+**Snake_case via anonymous objects (not JSON attributes)**  
+For `open_diff` and `close_diff` responses, VS Code uses snake_case (`tab_name`, `already_closed`) while our RPC DTOs use PascalCase. Rather than adding `System.Text.Json` to the netstandard2.0 Shared project, the tool layer transforms DTOs to anonymous objects with the correct casing. This keeps the Shared project lean and avoids dual-serializer attribute conflicts (Newtonsoft for StreamJsonRpc vs System.Text.Json for MCP).
+
+**Diagnostics grouped by file**  
+`get_diagnostics` now returns a `List<FileDiagnostics>` array at root (not wrapped in an object), matching VS Code's format. Each file group has `uri`, `filePath`, and a `diagnostics` array with `range`, `message`, `severity`, `source`, `code`.
+
+**Severity mapping**  
+VS Error List's `vsBuildErrorLevel` enum maps to lowercase strings: High→"error", Medium→"warning", Low→"information". No "hint" mapping since VS Error List doesn't distinguish hints from information.
+
+#### Files Changed
+
+- `Contracts.cs` — SelectionResult, DiagnosticsResult, VsInfoResult, DiffResult, new DTO classes
+- `VsServiceRpc.cs` — Populate new structures
+- `OpenDiffTool.cs`, `CloseDiffTool.cs`, `GetDiagnosticsTool.cs` — Transform for MCP output
+- `McpPipeServer.cs` — Updated PushCurrentSelectionAsync
+- `RpcClient.cs` + `Program.cs` — diagnostics_changed push notification plumbing
+
+#### Impact
+
+Server compiles clean. VS extension side now includes diagnostics push subscriptions and timer-based selection debounce. Tests will need updates for new DTO structures (Hudson).
+
+---
+
+### Extension Alignment with VS Code
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-03-06  
+**Status:** Implemented
+
+Implemented three alignment changes to match VS Code's Copilot CLI /ide behavior.
+
+#### Changes
+
+**1. open_diff Resolution Values**
+
+Changed from lowercase strings to typed tuple `(Result, Trigger)`:
+- `"accepted"` → `Result: "SAVED"`, `Trigger: "accepted_via_button"`
+- `"rejected"` → `Result: "REJECTED"` with contextual trigger (`rejected_via_button`, `closed_via_tab`, `timeout`, `closed_via_tool`)
+- `UserAction` field kept for backward compat (mapped from Result)
+- Tab close still resolves as rejected (intentional divergence from VS Code which hangs)
+
+**2. 200ms Selection Debounce**
+
+- `System.Threading.Timer` resets on each selection change
+- Data captured eagerly on UI thread (volatile fields), pushed after quiet period
+- Existing `_lastSelectionKey` dedup kept as second filter
+- Prevents flooding named pipe during rapid cursor movement (arrow key hold)
+
+**3. Diagnostics Push Notifications**
+
+- Subscribes to `BuildEvents.OnBuildDone` + `DocumentEvents.DocumentSaved`
+- 200ms debounce, then collects Error List items grouped by URI
+- Pushes via `IMcpServerCallbacks.OnDiagnosticsChangedAsync`
+- Does NOT subscribe to real-time Roslyn analyzer changes (would need ITableManager/MEF — future enhancement)
+
+#### Impact
+
+- MCP server `RpcClient` updated to handle new `OnDiagnosticsChangedAsync` callback
+- DiffResult DTO has new `Result`/`Trigger` fields (additive, non-breaking)
+- Timer lifecycle tied to `StopConnection()`/`Dispose()` — no leaks
+- 97 tests pass
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

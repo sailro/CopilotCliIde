@@ -23,3 +23,39 @@ Reverse-engineered `github.copilot-chat-0.38.2026022303/dist/extension.js` (mini
 - **Custom headers** (from live proxy capture): Copilot CLI sends `X-Copilot-Session-Id`, `X-Copilot-PID`, `X-Copilot-Parent-PID` headers for session/process tracking.
 
 **Decisions merged:** `.squad/decisions.md` — "open_diff Implementation & Selection Tracking" and "Custom Headers in MCP Protocol" sections. Key decisions: uppercase resolution values (P0), add `diagnostics_changed` notification (P2), add 200ms debounce (P2).
+
+### 2026-03-06 — VS Extension Alignment Implementation
+
+Implemented three alignment changes to match VS Code behavior:
+
+**1. open_diff resolution values (VsServiceRpc.cs):**
+- Changed `TaskCompletionSource<string>` → `TaskCompletionSource<(string Result, string Trigger)>` for typed resolution.
+- Accept → `("SAVED", "accepted_via_button")`, Reject → `("REJECTED", "rejected_via_button")`, Tab close → `("REJECTED", "closed_via_tab")`, Timeout → `("REJECTED", "timeout")`, close_diff tool → `("REJECTED", "closed_via_tool")`.
+- Added `Result` and `Trigger` to `DiffResult` DTO; `UserAction` kept for backward compat.
+
+**2. 200ms selection debounce (CopilotCliIdePackage.cs):**
+- `System.Threading.Timer` captures data eagerly on UI thread (volatile fields), pushes after 200ms quiet period. Dedup kept as second filter.
+
+**3. Diagnostics push (CopilotCliIdePackage.cs):**
+- `BuildEvents.OnBuildDone` + `DocumentEvents.DocumentSaved` → 200ms debounce → collect Error List → push via `OnDiagnosticsChangedAsync`. Grouped by URI using Bishop's `DiagnosticsChangedUri` type.
+- Updated `RpcClient.McpServerCallbacks` + `IMcpServerCallbacks` contract.
+
+### 2026-03-06 — VS Extension Alignment Implementation
+
+Implemented three alignment changes to match VS Code behavior:
+
+**1. open_diff resolution values (VsServiceRpc.cs):**
+- Changed `TaskCompletionSource<string>` → `TaskCompletionSource<(string Result, string Trigger)>` for typed resolution.
+- Accept → `("SAVED", "accepted_via_button")`, Reject → `("REJECTED", "rejected_via_button")`, Tab close → `("REJECTED", "closed_via_tab")`, Timeout → `("REJECTED", "timeout")`, close_diff tool → `("REJECTED", "closed_via_tool")`.
+- Added `Result` and `Trigger` to `DiffResult` DTO; `UserAction` kept for backward compat.
+
+**2. 200ms selection debounce (CopilotCliIdePackage.cs):**
+- `System.Threading.Timer` captures data eagerly on UI thread (volatile fields), pushes after 200ms quiet period. Dedup kept as second filter.
+
+**3. Diagnostics push (CopilotCliIdePackage.cs):**
+- `BuildEvents.OnBuildDone` + `DocumentEvents.DocumentSaved` → 200ms debounce → collect Error List → push via `OnDiagnosticsChangedAsync`. Grouped by URI using Bishop's `DiagnosticsChangedUri` type.
+- Updated `RpcClient.McpServerCallbacks` + `IMcpServerCallbacks` contract.
+
+**Build:** Server + Shared compile clean. 97 tests pass (3 new).
+
+
