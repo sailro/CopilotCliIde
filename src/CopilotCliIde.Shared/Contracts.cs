@@ -26,8 +26,9 @@ public partial interface IVsServiceRpc
 public partial interface IMcpServerCallbacks
 {
 	Task OnSelectionChangedAsync(SelectionNotification notification);
+	Task OnDiagnosticsChangedAsync(DiagnosticsChangedNotification notification);
 }
-
+xczvcvxcvcxvxcxvxcvcxvxcvxcv
 public class SelectionNotification
 {
 	public string? Text { get; set; }
@@ -59,6 +60,14 @@ public class DiffResult
 	public string? TabName { get; set; }
 	public string? Message { get; set; }
 	public string? UserAction { get; set; }
+	/// <summary>
+	/// Resolution status aligned with VS Code: "SAVED" or "REJECTED".
+	/// </summary>
+	public string? Result { get; set; }
+	/// <summary>
+	/// What triggered the resolution (e.g. "accepted_via_button", "rejected_via_button", "closed_via_tab", "timeout").
+	/// </summary>
+	public string? Trigger { get; set; }
 }
 
 public class CloseDiffResult
@@ -74,6 +83,8 @@ public class CloseDiffResult
 public class VsInfoResult
 {
 	public string? IdeName { get; set; }
+	public string? AppName { get; set; }
+	public string? Version { get; set; }
 	public string? SolutionPath { get; set; }
 	public string? SolutionName { get; set; }
 	public string? SolutionDirectory { get; set; }
@@ -90,32 +101,38 @@ public class ProjectInfo
 public class SelectionResult
 {
 	public bool Current { get; set; }
-	public string? Message { get; set; }
 	public string? FilePath { get; set; }
-	public string? FileUri { get; set; }
-	public string? SelectedText { get; set; }
-	public bool IsEmpty { get; set; }
-	public int StartLine { get; set; }
-	public int StartColumn { get; set; }
-	public int EndLine { get; set; }
-	public int EndColumn { get; set; }
-	public string? Timestamp { get; set; }
+	public string? FileUrl { get; set; }
+	public string? Text { get; set; }
+	public SelectionRange? Selection { get; set; }
 }
 
 public class DiagnosticsResult
 {
-	public List<DiagnosticInfo>? Diagnostics { get; set; }
+	public List<FileDiagnostics>? Files { get; set; }
 	public string? Error { get; set; }
 }
 
-public class DiagnosticInfo
+public class FileDiagnostics
 {
-	public string? Severity { get; set; }
+	public string? Uri { get; set; }
+	public string? FilePath { get; set; }
+	public List<DiagnosticItem>? Diagnostics { get; set; }
+}
+
+public class DiagnosticItem
+{
 	public string? Message { get; set; }
-	public string? File { get; set; }
-	public int Line { get; set; }
-	public int Column { get; set; }
-	public string? Project { get; set; }
+	public string? Severity { get; set; }
+	public DiagnosticRange? Range { get; set; }
+	public string? Source { get; set; }
+	public string? Code { get; set; }
+}
+
+public class DiagnosticRange
+{
+	public SelectionPosition? Start { get; set; }
+	public SelectionPosition? End { get; set; }
 }
 
 public class ReadFileResult
@@ -126,4 +143,15 @@ public class ReadFileResult
 	public int TotalLines { get; set; }
 	public int StartLine { get; set; }
 	public int LinesReturned { get; set; }
+}
+
+public class DiagnosticsChangedNotification
+{
+	public List<DiagnosticsChangedUri>? Uris { get; set; }
+}
+
+public class DiagnosticsChangedUri
+{
+	public string? Uri { get; set; }
+	public List<DiagnosticItem>? Diagnostics { get; set; }
 }

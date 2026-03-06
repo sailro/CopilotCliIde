@@ -33,6 +33,29 @@ rpcClient.SelectionChanged += async notification =>
 	});
 };
 
+// Forward diagnostics changes from VS to all connected CLI clients
+rpcClient.DiagnosticsChanged += async notification =>
+{
+	await mcpServer.PushNotificationAsync("diagnostics_changed", new
+	{
+		uris = notification.Uris?.Select(u => new
+		{
+			uri = u.Uri,
+			diagnostics = u.Diagnostics?.Select(d => new
+			{
+				range = d.Range == null ? null : new
+				{
+					start = new { line = d.Range.Start?.Line ?? 0, character = d.Range.Start?.Character ?? 0 },
+					end = new { line = d.Range.End?.Line ?? 0, character = d.Range.End?.Character ?? 0 }
+				},
+				message = d.Message,
+				severity = d.Severity,
+				code = d.Code
+			})
+		})
+	});
+};
+
 // Keep running until stdin closes (parent process dies) or cancellation
 var tcs = new TaskCompletionSource<int>();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; tcs.TrySetResult(0); };

@@ -9,7 +9,7 @@ namespace CopilotCliIde.Server.Tests;
 /// </summary>
 public class DtoSerializationTests
 {
-	private static readonly JsonSerializerOptions JsonOptions = new()
+	private static readonly JsonSerializerOptions _jsonOptions = new()
 	{
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
 		WriteIndented = false,
@@ -21,31 +21,29 @@ public class DtoSerializationTests
 		var original = new SelectionResult
 		{
 			Current = true,
-			Message = "Active editor",
 			FilePath = @"C:\src\Program.cs",
-			FileUri = "file:///C:/src/Program.cs",
-			SelectedText = "var x = 42;",
-			IsEmpty = false,
-			StartLine = 10,
-			StartColumn = 4,
-			EndLine = 10,
-			EndColumn = 15,
-			Timestamp = "2025-01-15T10:30:00Z",
+			FileUrl = "file:///C:/src/Program.cs",
+			Text = "var x = 42;",
+			Selection = new SelectionRange
+			{
+				Start = new SelectionPosition { Line = 10, Character = 4 },
+				End = new SelectionPosition { Line = 10, Character = 15 },
+				IsEmpty = false,
+			},
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<SelectionResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<SelectionResult>(json, _jsonOptions)!;
 
 		Assert.Equal(original.Current, deserialized.Current);
 		Assert.Equal(original.FilePath, deserialized.FilePath);
-		Assert.Equal(original.FileUri, deserialized.FileUri);
-		Assert.Equal(original.SelectedText, deserialized.SelectedText);
-		Assert.Equal(original.IsEmpty, deserialized.IsEmpty);
-		Assert.Equal(original.StartLine, deserialized.StartLine);
-		Assert.Equal(original.StartColumn, deserialized.StartColumn);
-		Assert.Equal(original.EndLine, deserialized.EndLine);
-		Assert.Equal(original.EndColumn, deserialized.EndColumn);
-		Assert.Equal(original.Timestamp, deserialized.Timestamp);
+		Assert.Equal(original.FileUrl, deserialized.FileUrl);
+		Assert.Equal(original.Text, deserialized.Text);
+		Assert.False(deserialized.Selection!.IsEmpty);
+		Assert.Equal(10, deserialized.Selection.Start!.Line);
+		Assert.Equal(4, deserialized.Selection.Start.Character);
+		Assert.Equal(10, deserialized.Selection.End!.Line);
+		Assert.Equal(15, deserialized.Selection.End.Character);
 	}
 
 	[Fact]
@@ -54,16 +52,10 @@ public class DtoSerializationTests
 		var result = new SelectionResult();
 
 		Assert.False(result.Current);
-		Assert.Null(result.Message);
 		Assert.Null(result.FilePath);
-		Assert.Null(result.FileUri);
-		Assert.Null(result.SelectedText);
-		Assert.False(result.IsEmpty);
-		Assert.Equal(0, result.StartLine);
-		Assert.Equal(0, result.StartColumn);
-		Assert.Equal(0, result.EndLine);
-		Assert.Equal(0, result.EndColumn);
-		Assert.Null(result.Timestamp);
+		Assert.Null(result.FileUrl);
+		Assert.Null(result.Text);
+		Assert.Null(result.Selection);
 	}
 
 	[Fact]
@@ -80,8 +72,8 @@ public class DtoSerializationTests
 			UserAction = "accepted",
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<DiffResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<DiffResult>(json, _jsonOptions)!;
 
 		Assert.Equal(original.Success, deserialized.Success);
 		Assert.Equal(original.DiffId, deserialized.DiffId);
@@ -99,8 +91,8 @@ public class DtoSerializationTests
 			Error = "File not found",
 		};
 
-		var json = JsonSerializer.Serialize(result, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<DiffResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(result, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<DiffResult>(json, _jsonOptions)!;
 
 		Assert.False(deserialized.Success);
 		Assert.Equal("File not found", deserialized.Error);
@@ -119,8 +111,8 @@ public class DtoSerializationTests
 			Message = "Closed",
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<CloseDiffResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<CloseDiffResult>(json, _jsonOptions)!;
 
 		Assert.True(deserialized.Success);
 		Assert.False(deserialized.AlreadyClosed);
@@ -136,10 +128,10 @@ public class DtoSerializationTests
 			AlreadyClosed = true,
 		};
 
-		var json = JsonSerializer.Serialize(result, JsonOptions);
+		var json = JsonSerializer.Serialize(result, _jsonOptions);
 		Assert.Contains("true", json);
 
-		var deserialized = JsonSerializer.Deserialize<CloseDiffResult>(json, JsonOptions)!;
+		var deserialized = JsonSerializer.Deserialize<CloseDiffResult>(json, _jsonOptions)!;
 		Assert.True(deserialized.AlreadyClosed);
 	}
 
@@ -160,8 +152,8 @@ public class DtoSerializationTests
 			],
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<VsInfoResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<VsInfoResult>(json, _jsonOptions)!;
 
 		Assert.Equal("Visual Studio", deserialized.IdeName);
 		Assert.Equal(2, deserialized.Projects!.Count);
@@ -175,8 +167,8 @@ public class DtoSerializationTests
 	{
 		var result = new VsInfoResult { IdeName = "VS" };
 
-		var json = JsonSerializer.Serialize(result, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<VsInfoResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(result, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<VsInfoResult>(json, _jsonOptions)!;
 
 		Assert.Null(deserialized.Projects);
 	}
@@ -186,36 +178,58 @@ public class DtoSerializationTests
 	{
 		var original = new DiagnosticsResult
 		{
-			Diagnostics =
+			Files =
 			[
-				new DiagnosticInfo
+				new FileDiagnostics
 				{
-					Severity = "Error",
-					Message = "CS0103: The name 'x' does not exist",
-					File = @"C:\src\Program.cs",
-					Line = 42,
-					Column = 8,
-					Project = "WebApp",
+					Uri = "file:///C:/src/Program.cs",
+					FilePath = @"C:\src\Program.cs",
+					Diagnostics =
+					[
+						new DiagnosticItem
+						{
+							Severity = "Error",
+							Message = "CS0103: The name 'x' does not exist",
+							Source = "WebApp",
+							Code = "CS0103",
+							Range = new DiagnosticRange
+							{
+								Start = new SelectionPosition { Line = 42, Character = 8 },
+								End = new SelectionPosition { Line = 42, Character = 9 },
+							},
+						},
+					],
 				},
-				new DiagnosticInfo
+				new FileDiagnostics
 				{
-					Severity = "Warning",
-					Message = "CS0168: Variable declared but never used",
-					File = @"C:\src\Helpers.cs",
-					Line = 10,
-					Column = 12,
-					Project = "WebApp",
+					Uri = "file:///C:/src/Helpers.cs",
+					FilePath = @"C:\src\Helpers.cs",
+					Diagnostics =
+					[
+						new DiagnosticItem
+						{
+							Severity = "Warning",
+							Message = "CS0168: Variable declared but never used",
+							Source = "WebApp",
+							Code = "CS0168",
+							Range = new DiagnosticRange
+							{
+								Start = new SelectionPosition { Line = 10, Character = 12 },
+								End = new SelectionPosition { Line = 10, Character = 13 },
+							},
+						},
+					],
 				},
 			],
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<DiagnosticsResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<DiagnosticsResult>(json, _jsonOptions)!;
 
-		Assert.Equal(2, deserialized.Diagnostics!.Count);
-		Assert.Equal("Error", deserialized.Diagnostics[0].Severity);
-		Assert.Equal(42, deserialized.Diagnostics[0].Line);
-		Assert.Equal("Warning", deserialized.Diagnostics[1].Severity);
+		Assert.Equal(2, deserialized.Files!.Count);
+		Assert.Equal("Error", deserialized.Files[0].Diagnostics![0]!.Severity);
+		Assert.Equal(42, deserialized.Files[0].Diagnostics![0]!.Range!.Start!.Line);
+		Assert.Equal("Warning", deserialized.Files[1].Diagnostics![0]!.Severity);
 	}
 
 	[Fact]
@@ -223,10 +237,10 @@ public class DtoSerializationTests
 	{
 		var result = new DiagnosticsResult { Error = "Solution not loaded" };
 
-		var json = JsonSerializer.Serialize(result, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<DiagnosticsResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(result, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<DiagnosticsResult>(json, _jsonOptions)!;
 
-		Assert.Null(deserialized.Diagnostics);
+		Assert.Null(deserialized.Files);
 		Assert.Equal("Solution not loaded", deserialized.Error);
 	}
 
@@ -242,8 +256,8 @@ public class DtoSerializationTests
 			LinesReturned = 3,
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<ReadFileResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<ReadFileResult>(json, _jsonOptions)!;
 
 		Assert.Equal(original.FilePath, deserialized.FilePath);
 		Assert.Equal(original.Content, deserialized.Content);
@@ -257,8 +271,8 @@ public class DtoSerializationTests
 	{
 		var result = new ReadFileResult { Error = "Access denied" };
 
-		var json = JsonSerializer.Serialize(result, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<ReadFileResult>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(result, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<ReadFileResult>(json, _jsonOptions)!;
 
 		Assert.Equal("Access denied", deserialized.Error);
 		Assert.Null(deserialized.Content);
@@ -280,8 +294,8 @@ public class DtoSerializationTests
 			},
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<SelectionNotification>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<SelectionNotification>(json, _jsonOptions)!;
 
 		Assert.Equal(original.Text, deserialized.Text);
 		Assert.Equal(original.FilePath, deserialized.FilePath);
@@ -300,8 +314,8 @@ public class DtoSerializationTests
 			Selection = null,
 		};
 
-		var json = JsonSerializer.Serialize(notification, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<SelectionNotification>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(notification, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<SelectionNotification>(json, _jsonOptions)!;
 
 		Assert.Null(deserialized.Selection);
 	}
@@ -316,8 +330,8 @@ public class DtoSerializationTests
 			IsEmpty = true,
 		};
 
-		var json = JsonSerializer.Serialize(range, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<SelectionRange>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(range, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<SelectionRange>(json, _jsonOptions)!;
 
 		Assert.True(deserialized.IsEmpty);
 		Assert.Equal(deserialized.Start!.Line, deserialized.End!.Line);
@@ -333,8 +347,8 @@ public class DtoSerializationTests
 			FullName = @"C:\repos\MySolution\MyProject\MyProject.csproj",
 		};
 
-		var json = JsonSerializer.Serialize(original, JsonOptions);
-		var deserialized = JsonSerializer.Deserialize<ProjectInfo>(json, JsonOptions)!;
+		var json = JsonSerializer.Serialize(original, _jsonOptions);
+		var deserialized = JsonSerializer.Deserialize<ProjectInfo>(json, _jsonOptions)!;
 
 		Assert.Equal(original.Name, deserialized.Name);
 		Assert.Equal(original.FullName, deserialized.FullName);

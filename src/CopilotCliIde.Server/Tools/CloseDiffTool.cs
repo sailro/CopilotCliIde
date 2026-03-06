@@ -11,6 +11,14 @@ public sealed class CloseDiffTool
 		RpcClient rpcClient,
 		[Description("The tab name of the diff to close (must match the tab_name used when opening the diff)")] string tab_name)
 	{
-		return await rpcClient.VsServices!.CloseDiffByTabNameAsync(tab_name);
+		var result = await rpcClient.VsServices!.CloseDiffByTabNameAsync(tab_name);
+		return new
+		{
+			success = result.Success,
+			already_closed = result.AlreadyClosed,
+			tab_name = result.TabName,
+			message = result.Message,
+			error = result.Error
+		};
 	}
 }

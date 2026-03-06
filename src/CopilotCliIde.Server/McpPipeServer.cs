@@ -204,13 +204,13 @@ public sealed class McpPipeServer : IAsyncDisposable
 					{
 						responseStream.Position = 0;
 						var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
-						await WriteHttpResponseAsync(pipe, 200, responseBody, ct,
+						await WriteHttpResponseAsync(pipe, 200, responseBody, postCts.Token,
 							contentType: "text/event-stream",
 							extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
 					}
 					else
 					{
-						await WriteHttpResponseAsync(pipe, 202, "", ct,
+						await WriteHttpResponseAsync(pipe, 202, "", postCts.Token,
 							extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
 					}
 					continue;
@@ -434,14 +434,14 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 			await PushNotificationAsync("selection_changed", new
 			{
-				text = sel.SelectedText ?? "",
+				text = sel.Text ?? "",
 				filePath = sel.FilePath,
-				fileUrl = sel.FileUri,
-				selection = new
+				fileUrl = sel.FileUrl,
+				selection = sel.Selection == null ? null : new
 				{
-					start = new { line = sel.StartLine, character = sel.StartColumn },
-					end = new { line = sel.EndLine, character = sel.EndColumn },
-					isEmpty = sel.IsEmpty
+					start = new { line = sel.Selection.Start?.Line ?? 0, character = sel.Selection.Start?.Character ?? 0 },
+					end = new { line = sel.Selection.End?.Line ?? 0, character = sel.Selection.End?.Character ?? 0 },
+					isEmpty = sel.Selection.IsEmpty
 				}
 			});
 		}

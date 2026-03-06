@@ -15,7 +15,7 @@ public class ToolDiscoveryTests
 	/// The canonical set of MCP tool names that Copilot CLI expects.
 	/// These must match VS Code's Copilot Chat extension.
 	/// </summary>
-	private static readonly HashSet<string> ExpectedToolNames =
+	private static readonly HashSet<string> _expectedToolNames =
 	[
 		"get_vscode_info",
 		"get_selection",
@@ -51,7 +51,7 @@ public class ToolDiscoveryTests
 			.Select(m => m.GetCustomAttribute<McpServerToolAttribute>()!.Name!)
 			.ToHashSet();
 
-		Assert.Equal(ExpectedToolNames, actualNames);
+		Assert.Equal(_expectedToolNames, actualNames);
 	}
 
 	[Theory]

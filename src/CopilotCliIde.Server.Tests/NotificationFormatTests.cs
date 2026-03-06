@@ -117,4 +117,78 @@ public class NotificationFormatTests
 		Assert.True(sel.GetProperty("isEmpty").GetBoolean());
 		Assert.Equal(0, sel.GetProperty("start").GetProperty("line").GetInt32());
 	}
+
+	[Fact]
+	public void DiagnosticsChangedNotification_MatchesExpectedFormat()
+	{
+		var notification = new
+		{
+			uris = new[]
+			{
+				new
+				{
+					uri = "file:///C:/src/Program.cs",
+					diagnostics = new[]
+					{
+						new
+						{
+							message = "CS0103: The name 'x' does not exist",
+							severity = "error",
+							range = new
+							{
+								start = new { line = 41, character = 7 },
+								end = new { line = 41, character = 8 },
+							},
+							source = "WebApp",
+							code = "CS0103",
+						},
+					},
+				},
+			},
+		};
+
+		var jsonRpc = JsonSerializer.Serialize(new
+		{
+			jsonrpc = "2.0",
+			method = "diagnostics_changed",
+			@params = notification,
+		});
+
+		var doc = JsonDocument.Parse(jsonRpc);
+		var root = doc.RootElement;
+
+		Assert.Equal("2.0", root.GetProperty("jsonrpc").GetString());
+		Assert.Equal("diagnostics_changed", root.GetProperty("method").GetString());
+
+		var p = root.GetProperty("params");
+		var uris = p.GetProperty("uris");
+		Assert.Equal(1, uris.GetArrayLength());
+
+		var firstUri = uris[0];
+		Assert.Equal("file:///C:/src/Program.cs", firstUri.GetProperty("uri").GetString());
+
+		var diag = firstUri.GetProperty("diagnostics")[0];
+		Assert.Equal("error", diag.GetProperty("severity").GetString());
+		Assert.Equal("CS0103", diag.GetProperty("code").GetString());
+		Assert.Equal("WebApp", diag.GetProperty("source").GetString());
+
+		var range = diag.GetProperty("range");
+		Assert.Equal(41, range.GetProperty("start").GetProperty("line").GetInt32());
+		Assert.Equal(8, range.GetProperty("end").GetProperty("character").GetInt32());
+	}
+
+	[Fact]
+	public void DiagnosticsChangedNotification_EmptyUris()
+	{
+		var jsonRpc = JsonSerializer.Serialize(new
+		{
+			jsonrpc = "2.0",
+			method = "diagnostics_changed",
+			@params = new { uris = Array.Empty<object>() },
+		});
+
+		var doc = JsonDocument.Parse(jsonRpc);
+		var uris = doc.RootElement.GetProperty("params").GetProperty("uris");
+		Assert.Equal(0, uris.GetArrayLength());
+	}
 }

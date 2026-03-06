@@ -27,11 +27,17 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private JsonRpc? _rpc;
 	private IMcpServerCallbacks? _mcpCallbacks;
 	private EnvDTE.SolutionEvents? _solutionEvents;
+	private EnvDTE.BuildEvents? _buildEvents;
+	private EnvDTE.DocumentEvents? _documentEvents;
 	private IVsEditorAdaptersFactoryService? _editorAdaptersFactory;
 	private IWpfTextView? _trackedView;
 	private uint _selectionMonitorCookie;
 	private string? _lastSelectionKey;
 	private CancellationTokenSource? _connectionCts;
+	private Timer? _selectionDebounceTimer;
+	private Timer? _diagnosticsDebounceTimer;
+	private volatile SelectionNotification? _pendingSelectionNotification;
+	private volatile string? _pendingSelectionKey;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
@@ -50,6 +56,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_solutionEvents = dte.Events.SolutionEvents;
 			_solutionEvents.Opened += OnSolutionOpened;
 			_solutionEvents.AfterClosing += OnSolutionAfterClosing;
+
+			// Subscribe to build/save events for diagnostics push notifications
+			_buildEvents = dte.Events.BuildEvents;
+			_buildEvents.OnBuildDone += OnBuildDone;
+			_documentEvents = dte.Events.DocumentEvents;
+			_documentEvents.DocumentSaved += OnDocumentSaved;
 
 			// Track active editor via native VS APIs (no DTE / COM interop)
 			var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
@@ -100,7 +112,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void StopConnection()
 	{
 		_lastSelectionKey = null;
+		_pendingSelectionKey = null;
+		_pendingSelectionNotification = null;
 		_mcpCallbacks = null;
+
+		_selectionDebounceTimer?.Dispose();
+		_selectionDebounceTimer = null;
+		_diagnosticsDebounceTimer?.Dispose();
+		_diagnosticsDebounceTimer = null;
 
 		_connectionCts?.Cancel();
 		_connectionCts?.Dispose();
@@ -241,8 +260,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void OnViewClosed(object? sender, EventArgs e) => UntrackView();
 
 	/// <summary>
-	/// Reads the current selection from the tracked IWpfTextView and pushes it
-	/// to Copilot CLI off the UI thread.
+	/// Reads the current selection from the tracked IWpfTextView, captures
+	/// the data on the UI thread, and schedules a debounced push (200ms)
+	/// to Copilot CLI. Matches VS Code's 200ms selection debounce.
 	/// </summary>
 	private void PushCurrentSelection()
 	{
@@ -274,12 +294,11 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				: snapshot.GetText(selection.Start.Position, selection.End.Position - selection.Start.Position);
 			if (selectedText.Length > 10_000) selectedText = selectedText.Substring(0, 10_000);
 
-			// Deduplicate — don't push if nothing changed
 			var key = $"{filePath}:{startLineNumber}:{startCol}:{endLineNumber}:{endCol}:{isEmpty}";
-			if (key == _lastSelectionKey) return;
-			_lastSelectionKey = key;
 
-			var notification = new SelectionNotification
+			// Capture data for debounced send
+			_pendingSelectionKey = key;
+			_pendingSelectionNotification = new SelectionNotification
 			{
 				Text = selectedText,
 				FilePath = ToLowerDriveLetter(filePath!),
@@ -292,15 +311,129 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				}
 			};
 
-			// Send off the UI thread
-			var callbacks = _mcpCallbacks;
-			_ = Task.Run(async () =>
-			{
-				try { await callbacks.OnSelectionChangedAsync(notification); }
-				catch { _mcpCallbacks = null; }
-			});
+			// Reset 200ms debounce timer
+			if (_selectionDebounceTimer == null)
+				_selectionDebounceTimer = new Timer(OnSelectionDebounceElapsed, null, 200, Timeout.Infinite);
+			else
+				_selectionDebounceTimer.Change(200, Timeout.Infinite);
 		}
 		catch { /* Don't crash VS */ }
+	}
+
+	/// <summary>
+	/// Fires 200ms after the last selection change. Sends the captured
+	/// notification off the UI thread, with deduplication as a second filter.
+	/// </summary>
+	private void OnSelectionDebounceElapsed(object? state)
+	{
+		var notification = _pendingSelectionNotification;
+		var key = _pendingSelectionKey;
+		_pendingSelectionNotification = null;
+
+		if (notification == null || key == null) return;
+		if (key == _lastSelectionKey) return;
+		_lastSelectionKey = key;
+
+		var callbacks = _mcpCallbacks;
+		if (callbacks == null) return;
+
+		_ = Task.Run(async () =>
+		{
+			try { await callbacks.OnSelectionChangedAsync(notification); }
+			catch { _mcpCallbacks = null; }
+		});
+	}
+
+	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => ScheduleDiagnosticsPush();
+
+	private void OnDocumentSaved(EnvDTE.Document document) => ScheduleDiagnosticsPush();
+
+	/// <summary>
+	/// Schedules a diagnostics push with 200ms debounce (same as VS Code).
+	/// Called after builds complete and documents are saved.
+	/// </summary>
+	private void ScheduleDiagnosticsPush()
+	{
+		if (_mcpCallbacks == null) return;
+
+		if (_diagnosticsDebounceTimer == null)
+			_diagnosticsDebounceTimer = new Timer(OnDiagnosticsDebounceElapsed, null, 200, Timeout.Infinite);
+		else
+			_diagnosticsDebounceTimer.Change(200, Timeout.Infinite);
+	}
+
+	/// <summary>
+	/// Fires 200ms after the last diagnostics change trigger. Collects
+	/// current Error List items on the UI thread and pushes them to the CLI.
+	/// </summary>
+	private void OnDiagnosticsDebounceElapsed(object? state)
+	{
+		var callbacks = _mcpCallbacks;
+		if (callbacks == null) return;
+
+		_ = JoinableTaskFactory.RunAsync(async () =>
+		{
+			try
+			{
+				await JoinableTaskFactory.SwitchToMainThreadAsync();
+				var uris = CollectDiagnosticsGrouped();
+				var notification = new DiagnosticsChangedNotification { Uris = uris };
+
+				await Task.Run(async () =>
+				{
+					try { await callbacks.OnDiagnosticsChangedAsync(notification); }
+					catch { _mcpCallbacks = null; }
+				});
+			}
+			catch { /* Don't crash VS */ }
+		});
+	}
+
+	private static List<DiagnosticsChangedUri> CollectDiagnosticsGrouped()
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		var groups = new Dictionary<string, DiagnosticsChangedUri>(StringComparer.OrdinalIgnoreCase);
+		try
+		{
+			var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
+			var errorItems = dte?.ToolWindows.ErrorList.ErrorItems;
+			if (errorItems != null)
+			{
+				for (var i = 1; i <= Math.Min(errorItems.Count, 200); i++)
+				{
+					var item = errorItems.Item(i);
+					var fileName = item.FileName ?? "";
+
+					if (!groups.TryGetValue(fileName, out var group))
+					{
+						var uri = string.IsNullOrEmpty(fileName) ? "" : new Uri(fileName).ToString();
+						group = new DiagnosticsChangedUri { Uri = uri, Diagnostics = [] };
+						groups[fileName] = group;
+					}
+
+					var line = Math.Max(0, item.Line - 1);
+					var col = Math.Max(0, item.Column - 1);
+					group.Diagnostics!.Add(new DiagnosticItem
+					{
+						Message = item.Description,
+						Severity = item.ErrorLevel switch
+						{
+							EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelHigh => "error",
+							EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelMedium => "warning",
+							_ => "information"
+						},
+						Range = new DiagnosticRange
+						{
+							Start = new SelectionPosition { Line = line, Character = col },
+							End = new SelectionPosition { Line = line, Character = col }
+						},
+						Source = item.Project
+					});
+				}
+			}
+		}
+		catch { /* Ignore */ }
+		return [.. groups.Values];
 	}
 
 	/// <summary>
@@ -349,6 +482,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			UntrackView();
 			_solutionEvents = null;
+			_buildEvents = null;
+			_documentEvents = null;
 			StopConnection();
 			_discovery?.Dispose();
 

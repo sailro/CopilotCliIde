@@ -19,7 +19,7 @@ public class VsServiceRpc : IVsServiceRpc
 		public string NewContent { get; set; } = "";
 		public string TabName { get; set; } = "";
 		public IVsWindowFrame? Frame { get; set; }
-		public TaskCompletionSource<string>? Completion { get; set; }
+		public TaskCompletionSource<(string Result, string Trigger)>? Completion { get; set; }
 		public IVsInfoBarUIElement? InfoBarElement { get; set; }
 		public uint InfoBarCookie { get; set; }
 	}
@@ -32,7 +32,7 @@ public class VsServiceRpc : IVsServiceRpc
 			var existingEntry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 			if (existingEntry.Key != null)
 			{
-				existingEntry.Value.Completion?.TrySetResult("rejected");
+				existingEntry.Value.Completion?.TrySetResult(("REJECTED", "closed_via_tool"));
 				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 				CleanupDiff(existingEntry.Key);
 			}
@@ -44,11 +44,11 @@ public class VsServiceRpc : IVsServiceRpc
 			File.WriteAllText(tempFile, newFileContents);
 
 			var diffId = $"{DateTime.UtcNow.Ticks}-{tabName}";
-			var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+			var tcs = new TaskCompletionSource<(string Result, string Trigger)>(TaskCreationOptions.RunContinuationsAsynchronously);
 
 			// Ultimate fallback: 1-hour timeout so we never block forever
 			var timeoutCts = new CancellationTokenSource(TimeSpan.FromHours(1));
-			timeoutCts.Token.Register(() => tcs.TrySetResult("rejected"), useSynchronizationContext: false);
+			timeoutCts.Token.Register(() => tcs.TrySetResult(("REJECTED", "timeout")), useSynchronizationContext: false);
 
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -87,7 +87,7 @@ public class VsServiceRpc : IVsServiceRpc
 			}
 
 			// Block until user accepts, rejects, or closes the diff
-			var action = await tcs.Task.ConfigureAwait(false);
+			var (result, trigger) = await tcs.Task.ConfigureAwait(false);
 
 			// Clean up
 			timeoutCts.Dispose();
@@ -101,10 +101,12 @@ public class VsServiceRpc : IVsServiceRpc
 				OriginalFilePath = originalFilePath,
 				ProposedFilePath = tempFile,
 				TabName = tabName,
-				UserAction = action,
-				Message = action == "accepted"
-					? $"Changes accepted for {Path.GetFileName(originalFilePath)}"
-					: $"Changes rejected for {Path.GetFileName(originalFilePath)}"
+				UserAction = result == "SAVED" ? "accepted" : "rejected",
+				Result = result,
+				Trigger = trigger,
+				Message = result == "SAVED"
+					? $"User accepted changes for {Path.GetFileName(originalFilePath)}"
+					: $"User rejected changes for {Path.GetFileName(originalFilePath)}"
 			};
 		}
 		catch (Exception ex)
@@ -120,7 +122,7 @@ public class VsServiceRpc : IVsServiceRpc
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 
 		// Signal rejection to unblock OpenDiffAsync if it's waiting
-		entry.Value.Completion?.TrySetResult("rejected");
+		entry.Value.Completion?.TrySetResult(("REJECTED", "closed_via_tool"));
 
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
@@ -158,10 +160,11 @@ public class VsServiceRpc : IVsServiceRpc
 	public async Task<VsInfoResult> GetVsInfoAsync()
 	{
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-		var result = new VsInfoResult { IdeName = "Visual Studio", ProcessId = Process.GetCurrentProcess().Id };
+		var result = new VsInfoResult { IdeName = "Visual Studio", AppName = "Visual Studio", ProcessId = Process.GetCurrentProcess().Id };
 		try
 		{
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
+			result.Version = dte?.Version;
 			if (dte?.Solution != null)
 			{
 				result.SolutionPath = dte.Solution.FullName;
@@ -184,10 +187,10 @@ public class VsServiceRpc : IVsServiceRpc
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
 			var doc = dte?.ActiveDocument;
 			if (doc == null)
-				return new SelectionResult { Current = false, Message = "No active document." };
+				return new SelectionResult { Current = false };
 
 			if (doc.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
-				return new SelectionResult { Current = false, Message = "Active document is not a text document." };
+				return new SelectionResult { Current = false };
 
 			var sel = textDoc.Selection;
 			string? selectedText = null;
@@ -202,19 +205,19 @@ public class VsServiceRpc : IVsServiceRpc
 			{
 				Current = true,
 				FilePath = doc.FullName,
-				FileUri = new Uri(doc.FullName).ToString(),
-				SelectedText = selectedText,
-				IsEmpty = sel.IsEmpty,
-				StartLine = sel.TopPoint.Line - 1,
-				StartColumn = sel.TopPoint.DisplayColumn - 1,
-				EndLine = sel.BottomPoint.Line - 1,
-				EndColumn = sel.BottomPoint.DisplayColumn - 1,
-				Timestamp = DateTimeOffset.UtcNow.ToString("O")
+				FileUrl = new Uri(doc.FullName).ToString(),
+				Text = selectedText,
+				Selection = new SelectionRange
+				{
+					Start = new SelectionPosition { Line = sel.TopPoint.Line - 1, Character = sel.TopPoint.DisplayColumn - 1 },
+					End = new SelectionPosition { Line = sel.BottomPoint.Line - 1, Character = sel.BottomPoint.DisplayColumn - 1 },
+					IsEmpty = sel.IsEmpty
+				}
 			};
 		}
-		catch (Exception ex)
+		catch
 		{
-			return new SelectionResult { Current = false, Message = ex.Message };
+			return new SelectionResult { Current = false };
 		}
 	}
 
@@ -232,30 +235,51 @@ public class VsServiceRpc : IVsServiceRpc
 			}
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
 			var errorItems = dte?.ToolWindows.ErrorList.ErrorItems;
-			var results = new List<DiagnosticInfo>();
+			var fileGroups = new Dictionary<string, FileDiagnostics>(StringComparer.OrdinalIgnoreCase);
 			if (errorItems != null)
 			{
 				for (int i = 1; i <= Math.Min(errorItems.Count, 100); i++)
 				{
 					var item = errorItems.Item(i);
-					if (filePath != null && !string.IsNullOrEmpty(item.FileName) &&
-						!item.FileName.Equals(filePath, StringComparison.OrdinalIgnoreCase))
+					var itemFile = item.FileName ?? "";
+					if (filePath != null && !string.IsNullOrEmpty(itemFile) &&
+						!itemFile.Equals(filePath, StringComparison.OrdinalIgnoreCase))
 						continue;
-					results.Add(new DiagnosticInfo
+
+					if (!fileGroups.TryGetValue(itemFile, out var group))
 					{
-						Severity = item.ErrorLevel.ToString(),
+						var fileUri = string.IsNullOrEmpty(itemFile) ? "" : new Uri(itemFile).ToString();
+						group = new FileDiagnostics { Uri = fileUri, FilePath = itemFile, Diagnostics = [] };
+						fileGroups[itemFile] = group;
+					}
+
+					var line = Math.Max(0, item.Line - 1);
+					var col = Math.Max(0, item.Column - 1);
+					group.Diagnostics!.Add(new DiagnosticItem
+					{
 						Message = item.Description,
-						File = item.FileName,
-						Line = item.Line,
-						Column = item.Column,
-						Project = item.Project
+						Severity = MapSeverity(item.ErrorLevel),
+						Range = new DiagnosticRange
+						{
+							Start = new SelectionPosition { Line = line, Character = col },
+							End = new SelectionPosition { Line = line, Character = col }
+						},
+						Source = item.Project
 					});
 				}
 			}
-			return new DiagnosticsResult { Diagnostics = results };
+			return new DiagnosticsResult { Files = [.. fileGroups.Values] };
 		}
 		catch (Exception ex) { return new DiagnosticsResult { Error = ex.Message }; }
 	}
+
+	private static string MapSeverity(EnvDTE80.vsBuildErrorLevel level) => level switch
+	{
+		EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelHigh => "error",
+		EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelMedium => "warning",
+		EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelLow => "information",
+		_ => "information"
+	};
 
 	public Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines)
 	{
@@ -309,7 +333,7 @@ public class VsServiceRpc : IVsServiceRpc
 		state.InfoBarCookie = cookie;
 	}
 
-	private static void MonitorFrameClose(IVsWindowFrame frame, TaskCompletionSource<string> tcs)
+	private static void MonitorFrameClose(IVsWindowFrame frame, TaskCompletionSource<(string Result, string Trigger)> tcs)
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 		frame.SetProperty((int)__VSFPROPID.VSFPROPID_ViewHelper, new FrameCloseNotify(tcs));
@@ -339,29 +363,29 @@ public class VsServiceRpc : IVsServiceRpc
 		catch { /* Ignore */ }
 	}
 
-	private sealed class DiffInfoBarEvents(TaskCompletionSource<string> tcs) : IVsInfoBarUIEvents
+	private sealed class DiffInfoBarEvents(TaskCompletionSource<(string Result, string Trigger)> tcs) : IVsInfoBarUIEvents
 	{
 		public void OnActionItemClicked(IVsInfoBarUIElement infoBarUIElement, IVsInfoBarActionItem actionItem)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
 			if (actionItem.Text.Contains("Accept"))
-				tcs.TrySetResult("accepted");
+				tcs.TrySetResult(("SAVED", "accepted_via_button"));
 			else if (actionItem.Text.Contains("Reject"))
-				tcs.TrySetResult("rejected");
+				tcs.TrySetResult(("REJECTED", "rejected_via_button"));
 		}
 
 		public void OnClosed(IVsInfoBarUIElement infoBarUIElement)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
-			tcs.TrySetResult("rejected");
+			tcs.TrySetResult(("REJECTED", "rejected_via_button"));
 		}
 	}
 
-	private sealed class FrameCloseNotify(TaskCompletionSource<string> tcs) : IVsWindowFrameNotify3
+	private sealed class FrameCloseNotify(TaskCompletionSource<(string Result, string Trigger)> tcs) : IVsWindowFrameNotify3
 	{
 		public int OnClose(ref uint pgrfSaveOptions)
 		{
-			tcs.TrySetResult("rejected");
+			tcs.TrySetResult(("REJECTED", "closed_via_tab"));
 			return VSConstants.S_OK;
 		}
 

@@ -14,6 +14,14 @@ public sealed class OpenDiffTool
 		[Description("Name for the diff tab")] string tab_name)
 	{
 		var result = await rpcClient.VsServices!.OpenDiffAsync(original_file_path, new_file_contents, tab_name);
-		return result;
+		return new
+		{
+			success = result.Success,
+			result = result.Result,
+			trigger = result.Trigger,
+			tab_name = result.TabName,
+			message = result.Message,
+			error = result.Error
+		};
 	}
 }

@@ -15,6 +15,11 @@ public sealed class RpcClient : IDisposable
 	/// </summary>
 	public event Func<SelectionNotification, Task>? SelectionChanged;
 
+	/// <summary>
+	/// Event raised when VS notifies the MCP server of diagnostics changes.
+	/// </summary>
+	public event Func<DiagnosticsChangedNotification, Task>? DiagnosticsChanged;
+
 	public async Task ConnectAsync(string pipeName, CancellationToken ct = default)
 	{
 		_pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -27,6 +32,9 @@ public sealed class RpcClient : IDisposable
 	internal Task RaiseSelectionChanged(SelectionNotification notification)
 		=> SelectionChanged?.Invoke(notification) ?? Task.CompletedTask;
 
+	internal Task RaiseDiagnosticsChanged(DiagnosticsChangedNotification notification)
+		=> DiagnosticsChanged?.Invoke(notification) ?? Task.CompletedTask;
+
 	public void Dispose()
 	{
 		_rpc?.Dispose();
@@ -37,5 +45,8 @@ public sealed class RpcClient : IDisposable
 	{
 		public Task OnSelectionChangedAsync(SelectionNotification notification)
 			=> owner.RaiseSelectionChanged(notification);
+
+		public Task OnDiagnosticsChangedAsync(DiagnosticsChangedNotification notification)
+			=> owner.RaiseDiagnosticsChanged(notification);
 	}
 }
