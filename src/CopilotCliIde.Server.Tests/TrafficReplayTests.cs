@@ -35,8 +35,8 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeInitializeResponse_HasExpectedStructure(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
-		var response = _parser.GetInitializeResponse();
+		var parser = LoadCapture(captureFile);
+		var response = parser.GetInitializeResponse();
 		Assert.NotNull(response);
 
 		var result = response.Value.GetProperty("result");
@@ -273,6 +273,22 @@ public class TrafficReplayTests
 					Assert.True(range.TryGetProperty("end", out _));
 					Assert.True(diag.TryGetProperty("message", out _));
 					Assert.True(diag.TryGetProperty("severity", out _));
+
+					// source and code are present on the wire in some captures
+					// (vs-1.0.7 has source; VS Code 0.38 may not).
+					// When present, validate their types.
+					if (diag.TryGetProperty("source", out var source))
+					{
+						Assert.True(
+							source.ValueKind is JsonValueKind.String or JsonValueKind.Null,
+							$"diagnostic 'source' should be string or null, got {source.ValueKind}");
+					}
+					if (diag.TryGetProperty("code", out var code))
+					{
+						Assert.True(
+							code.ValueKind is JsonValueKind.String or JsonValueKind.Null,
+							$"diagnostic 'code' should be string or null, got {code.ValueKind}");
+					}
 				}
 			}
 		}
@@ -321,13 +337,588 @@ public class TrafficReplayTests
 
 	#endregion
 
+	#region Test A1 — Cross-capture tool input schema consistency
+
+	/// <summary>
+	/// Compares each tool's inputSchema (property names, types, required) across ALL capture files.
+	/// Flags any unexpected differences.
+	/// </summary>
+	[Fact]
+	public void AllCaptures_ToolInputSchemas_AreConsistent()
+	{
+		var captureFiles = Directory.GetFiles(FindCapturesDir(), "*.ndjson");
+		Assert.True(captureFiles.Length >= 2, "Need at least 2 captures for cross-capture comparison");
+
+		// Build per-tool, per-capture schema data:
+		// toolName -> list of (captureFile, properties dict, required set)
+		var toolSchemas = new Dictionary<string, List<(string Capture, Dictionary<string, string> Props, HashSet<string> Required)>>();
+
+		foreach (var captureFile in captureFiles)
+		{
+			var parser = LoadCapture(captureFile);
+			var response = parser.GetToolsListResponse();
+			if (response is null)
+				continue;
+
+			var captureName = Path.GetFileName(captureFile)!;
+			var toolsArray = response.Value.GetProperty("result").GetProperty("tools");
+
+			foreach (var tool in toolsArray.EnumerateArray())
+			{
+				var toolName = tool.GetProperty("name").GetString()!;
+				var schema = tool.GetProperty("inputSchema");
+				var properties = schema.GetProperty("properties");
+
+				// Extract property names and their types
+				var propDict = new Dictionary<string, string>();
+				foreach (var prop in properties.EnumerateObject())
+				{
+					var propType = prop.Value.TryGetProperty("type", out var typeEl)
+						? typeEl.ToString()
+						: "unknown";
+					propDict[prop.Name] = propType;
+				}
+
+				// Extract required fields
+				var requiredSet = new HashSet<string>();
+				if (schema.TryGetProperty("required", out var requiredArray))
+				{
+					foreach (var req in requiredArray.EnumerateArray())
+						requiredSet.Add(req.GetString()!);
+				}
+
+				if (!toolSchemas.ContainsKey(toolName))
+					toolSchemas[toolName] = [];
+				toolSchemas[toolName].Add((captureName, propDict, requiredSet));
+			}
+		}
+
+		// Compare schemas across captures for each tool
+		var differences = new List<string>();
+
+		foreach (var (toolName, schemas) in toolSchemas)
+		{
+			if (schemas.Count < 2)
+				continue; // Tool only appears in one capture — nothing to compare
+
+			var baseline = schemas[0];
+
+			for (var i = 1; i < schemas.Count; i++)
+			{
+				var other = schemas[i];
+
+				// Compare property names
+				var baselineProps = baseline.Props.Keys.ToHashSet();
+				var otherProps = other.Props.Keys.ToHashSet();
+
+				var missingInOther = baselineProps.Except(otherProps).ToList();
+				var extraInOther = otherProps.Except(baselineProps).ToList();
+
+				foreach (var missing in missingInOther)
+					differences.Add($"{toolName}: property '{missing}' in {baseline.Capture} but missing in {other.Capture}");
+				foreach (var extra in extraInOther)
+					differences.Add($"{toolName}: property '{extra}' in {other.Capture} but missing in {baseline.Capture}");
+
+				// Compare property types for shared properties
+				foreach (var prop in baselineProps.Intersect(otherProps))
+				{
+					if (baseline.Props[prop] != other.Props[prop])
+					{
+						differences.Add(
+							$"{toolName}.{prop}: type '{baseline.Props[prop]}' in {baseline.Capture} " +
+							$"vs '{other.Props[prop]}' in {other.Capture}");
+					}
+				}
+
+				// Compare required fields
+				var missingRequired = baseline.Required.Except(other.Required).ToList();
+				var extraRequired = other.Required.Except(baseline.Required).ToList();
+
+				foreach (var missing in missingRequired)
+					differences.Add($"{toolName}: required '{missing}' in {baseline.Capture} but not in {other.Capture}");
+				foreach (var extra in extraRequired)
+					differences.Add($"{toolName}: required '{extra}' in {other.Capture} but not in {baseline.Capture}");
+			}
+		}
+
+		Assert.True(differences.Count == 0,
+			$"Schema inconsistencies found across captures:\n" +
+			string.Join("\n", differences));
+	}
+
+	#endregion
+
+	#region Test B1 — get_selection response structure
+
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeGetSelectionResponse_HasExpectedStructure(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var response = parser.GetToolCallResponse("get_selection");
+		Assert.NotNull(response);
+
+		var result = response.Value.GetProperty("result");
+
+		// content array with at least one item
+		Assert.True(result.TryGetProperty("content", out var content));
+		Assert.Equal(JsonValueKind.Array, content.ValueKind);
+		Assert.True(content.GetArrayLength() > 0, "get_selection content should not be empty");
+
+		// First content item has type: "text"
+		var firstItem = content[0];
+		Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+		var textValue = firstItem.GetProperty("text").GetString()!;
+
+		// text can be "null" (string literal) when no editor is active
+		if (textValue == "null")
+			return; // Valid response — no active editor
+
+		// Otherwise it should be a JSON object with selection data
+		var selDoc = JsonDocument.Parse(textValue);
+		var sel = selDoc.RootElement;
+		Assert.Equal(JsonValueKind.Object, sel.ValueKind);
+
+		// Required fields
+		Assert.True(sel.TryGetProperty("current", out var current),
+			"get_selection response missing 'current'");
+		Assert.True(current.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+		// When current is false, filePath/fileUrl/selection may be absent
+		// (vs-1.0.7 returns {text: "", current: false} when no editor is active)
+		if (current.ValueKind == JsonValueKind.False)
+			return;
+
+		Assert.True(sel.TryGetProperty("filePath", out var filePath),
+			"get_selection response missing 'filePath'");
+		Assert.Equal(JsonValueKind.String, filePath.ValueKind);
+
+		Assert.True(sel.TryGetProperty("fileUrl", out var fileUrl),
+			"get_selection response missing 'fileUrl'");
+		Assert.Equal(JsonValueKind.String, fileUrl.ValueKind);
+
+		Assert.True(sel.TryGetProperty("selection", out var selection),
+			"get_selection response missing 'selection'");
+		Assert.Equal(JsonValueKind.Object, selection.ValueKind);
+
+		// selection sub-fields
+		Assert.True(selection.TryGetProperty("start", out var start));
+		Assert.True(start.TryGetProperty("line", out _));
+		Assert.True(start.TryGetProperty("character", out _));
+
+		Assert.True(selection.TryGetProperty("end", out var end));
+		Assert.True(end.TryGetProperty("line", out _));
+		Assert.True(end.TryGetProperty("character", out _));
+
+		Assert.True(selection.TryGetProperty("isEmpty", out var isEmpty));
+		Assert.True(isEmpty.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+		Assert.True(sel.TryGetProperty("text", out var selText),
+			"get_selection response missing 'text'");
+		Assert.Equal(JsonValueKind.String, selText.ValueKind);
+	}
+
+	#endregion
+
+	#region Test B2 — update_session_name response structure
+
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeUpdateSessionNameResponse_HasExpectedStructure(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var response = parser.GetToolCallResponse("update_session_name");
+		Assert.NotNull(response);
+
+		var result = response.Value.GetProperty("result");
+
+		// content array
+		Assert.True(result.TryGetProperty("content", out var content));
+		Assert.Equal(JsonValueKind.Array, content.ValueKind);
+		Assert.True(content.GetArrayLength() > 0, "update_session_name content should not be empty");
+
+		// First content item has type: "text"
+		var firstItem = content[0];
+		Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+		var textValue = firstItem.GetProperty("text").GetString()!;
+
+		// text should be a JSON object containing {"success": true}
+		var doc = JsonDocument.Parse(textValue);
+		var root = doc.RootElement;
+		Assert.Equal(JsonValueKind.Object, root.ValueKind);
+
+		Assert.True(root.TryGetProperty("success", out var success),
+			"update_session_name response missing 'success'");
+		Assert.Equal(JsonValueKind.True, success.ValueKind);
+	}
+
+	#endregion
+
+	#region Test E1 — Our server initialize response structure
+
+	[Fact]
+	public async Task OurServer_InitializeResponse_HasExpectedStructure()
+	{
+		// Start our MCP server with a mocked IVsServiceRpc
+		var mockVsServices = Substitute.For<IVsServiceRpc>();
+		var rpcClient = new RpcClient(mockVsServices);
+
+		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
+		var nonce = "test-nonce";
+
+		await using var server = new McpPipeServer();
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
+
+		// Connect to the pipe
+		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await pipe.ConnectAsync(cts.Token);
+
+		// Send initialize
+		var initRequest = JsonSerializer.Serialize(new
+		{
+			method = "initialize",
+			@params = new
+			{
+				protocolVersion = "2025-11-25",
+				capabilities = new { },
+				clientInfo = new { name = "replay-test", version = "1.0.0" },
+			},
+			jsonrpc = "2.0",
+			id = 0,
+		});
+		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
+		var initResponseBody = await ReadHttpResponseAsync(pipe, cts.Token);
+
+		// Parse the response — may be SSE format or direct JSON
+		var initJson = ExtractJsonRpcFromResponse(initResponseBody);
+		Assert.NotNull(initJson);
+
+		var result = initJson.Value.GetProperty("result");
+
+		// protocolVersion
+		Assert.True(result.TryGetProperty("protocolVersion", out var pv),
+			"Our initialize response missing 'protocolVersion'");
+		Assert.Equal(JsonValueKind.String, pv.ValueKind);
+		Assert.False(string.IsNullOrEmpty(pv.GetString()));
+
+		// capabilities.tools.listChanged
+		Assert.True(result.TryGetProperty("capabilities", out var caps),
+			"Our initialize response missing 'capabilities'");
+		var tools = caps.GetProperty("tools");
+		Assert.True(tools.TryGetProperty("listChanged", out var lc),
+			"Our initialize response missing 'capabilities.tools.listChanged'");
+		Assert.True(lc.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+		// serverInfo.name
+		Assert.True(result.TryGetProperty("serverInfo", out var serverInfo),
+			"Our initialize response missing 'serverInfo'");
+		Assert.True(serverInfo.TryGetProperty("name", out var name),
+			"Our initialize response missing 'serverInfo.name'");
+		Assert.Equal(JsonValueKind.String, name.ValueKind);
+		Assert.False(string.IsNullOrEmpty(name.GetString()));
+
+		// serverInfo.version
+		Assert.True(serverInfo.TryGetProperty("version", out var version),
+			"Our initialize response missing 'serverInfo.version'");
+		Assert.Equal(JsonValueKind.String, version.ValueKind);
+		Assert.False(string.IsNullOrEmpty(version.GetString()));
+	}
+
+	#endregion
+
+	#region Test E2 — Our server get_selection response structure
+
+	[Fact]
+	public async Task OurServer_GetSelectionResponse_HasExpectedStructure()
+	{
+		// Mock IVsServiceRpc to return a realistic SelectionResult
+		var mockVsServices = Substitute.For<IVsServiceRpc>();
+		mockVsServices.GetSelectionAsync().Returns(Task.FromResult(new SelectionResult
+		{
+			Current = true,
+			FilePath = @"C:\Projects\Example\Program.cs",
+			FileUrl = "file:///C:/Projects/Example/Program.cs",
+			Text = "Console.WriteLine(\"Hello\");",
+			Selection = new SelectionRange
+			{
+				Start = new SelectionPosition { Line = 10, Character = 8 },
+				End = new SelectionPosition { Line = 10, Character = 36 },
+				IsEmpty = false,
+			},
+		}));
+
+		var rpcClient = new RpcClient(mockVsServices);
+
+		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
+		var nonce = "test-nonce";
+
+		await using var server = new McpPipeServer();
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
+
+		// Connect and initialize
+		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await pipe.ConnectAsync(cts.Token);
+
+		var initRequest = JsonSerializer.Serialize(new
+		{
+			method = "initialize",
+			@params = new
+			{
+				protocolVersion = "2025-11-25",
+				capabilities = new { },
+				clientInfo = new { name = "replay-test", version = "1.0.0" },
+			},
+			jsonrpc = "2.0",
+			id = 0,
+		});
+		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
+		await ReadHttpResponseAsync(pipe, cts.Token);
+
+		// Send notifications/initialized
+		var initializedNotification = JsonSerializer.Serialize(new
+		{
+			method = "notifications/initialized",
+			jsonrpc = "2.0",
+		});
+		await SendHttpPostAsync(pipe, initializedNotification, nonce, cts.Token);
+		await ReadHttpResponseAsync(pipe, cts.Token);
+
+		// Call tools/call with get_selection
+		var getSelectionRequest = JsonSerializer.Serialize(new
+		{
+			method = "tools/call",
+			@params = new
+			{
+				name = "get_selection",
+				arguments = new { },
+			},
+			jsonrpc = "2.0",
+			id = 2,
+		});
+		await SendHttpPostAsync(pipe, getSelectionRequest, nonce, cts.Token);
+		var responseBody = await ReadHttpResponseAsync(pipe, cts.Token);
+
+		var json = ExtractJsonRpcFromResponse(responseBody);
+		Assert.NotNull(json);
+
+		var result = json.Value.GetProperty("result");
+		var content = result.GetProperty("content");
+		Assert.Equal(JsonValueKind.Array, content.ValueKind);
+		Assert.True(content.GetArrayLength() > 0);
+
+		var firstItem = content[0];
+		Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+		var textValue = firstItem.GetProperty("text").GetString()!;
+		var sel = JsonDocument.Parse(textValue).RootElement;
+		Assert.Equal(JsonValueKind.Object, sel.ValueKind);
+
+		// Validate all expected fields
+		Assert.True(sel.TryGetProperty("text", out var text),
+			"get_selection response missing 'text'");
+		Assert.Equal(JsonValueKind.String, text.ValueKind);
+		Assert.Equal("Console.WriteLine(\"Hello\");", text.GetString());
+
+		Assert.True(sel.TryGetProperty("filePath", out var filePath),
+			"get_selection response missing 'filePath'");
+		Assert.Equal(JsonValueKind.String, filePath.ValueKind);
+
+		Assert.True(sel.TryGetProperty("fileUrl", out var fileUrl),
+			"get_selection response missing 'fileUrl'");
+		Assert.Equal(JsonValueKind.String, fileUrl.ValueKind);
+
+		Assert.True(sel.TryGetProperty("current", out var current),
+			"get_selection response missing 'current'");
+		Assert.Equal(JsonValueKind.True, current.ValueKind);
+
+		Assert.True(sel.TryGetProperty("selection", out var selection),
+			"get_selection response missing 'selection'");
+		Assert.Equal(JsonValueKind.Object, selection.ValueKind);
+
+		// Validate selection sub-fields
+		var start = selection.GetProperty("start");
+		Assert.Equal(10, start.GetProperty("line").GetInt32());
+		Assert.Equal(8, start.GetProperty("character").GetInt32());
+
+		var end = selection.GetProperty("end");
+		Assert.Equal(10, end.GetProperty("line").GetInt32());
+		Assert.Equal(36, end.GetProperty("character").GetInt32());
+
+		Assert.True(selection.TryGetProperty("isEmpty", out var isEmpty));
+		Assert.Equal(JsonValueKind.False, isEmpty.ValueKind);
+	}
+
+	#endregion
+
+	#region Test E3 — Auth rejection (wrong nonce)
+
+	[Fact]
+	public async Task OurServer_InvalidNonce_Returns401()
+	{
+		// Start server with correct nonce
+		var mockVsServices = Substitute.For<IVsServiceRpc>();
+		var rpcClient = new RpcClient(mockVsServices);
+
+		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
+		var correctNonce = "correct-nonce";
+		var wrongNonce = "wrong-nonce";
+
+		await using var server = new McpPipeServer();
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		await server.StartAsync(rpcClient, pipeName, correctNonce, cts.Token);
+
+		// Connect to the pipe
+		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await pipe.ConnectAsync(cts.Token);
+
+		// Send a request with the WRONG nonce
+		var initRequest = JsonSerializer.Serialize(new
+		{
+			method = "initialize",
+			@params = new
+			{
+				protocolVersion = "2025-11-25",
+				capabilities = new { },
+				clientInfo = new { name = "replay-test", version = "1.0.0" },
+			},
+			jsonrpc = "2.0",
+			id = 0,
+		});
+		await SendHttpPostAsync(pipe, initRequest, wrongNonce, cts.Token);
+
+		// Read the raw HTTP response — should be 401
+		var sb = new StringBuilder();
+		var buffer = new byte[1];
+		while (!cts.IsCancellationRequested)
+		{
+			var read = await pipe.ReadAsync(buffer.AsMemory(0, 1), cts.Token);
+			if (read == 0) break;
+			sb.Append((char)buffer[0]);
+			if (sb.Length >= 4 && sb.ToString(sb.Length - 4, 4) == "\r\n\r\n")
+				break;
+		}
+
+		var rawResponse = sb.ToString();
+		Assert.Contains("401", rawResponse);
+		Assert.Contains("Unauthorized", rawResponse);
+	}
+
+	#endregion
+
+	#region Test C1 — Request-response ID correlation
+
+	/// <summary>
+	/// For every cli_to_vscode request with a parseable id, verifies there's exactly one
+	/// vscode_to_cli response with the same id. No orphaned responses, no missing responses.
+	/// Requests with truncated JSON (no parseable id) are skipped.
+	/// </summary>
+	[Fact]
+	public void AllCaptures_RequestResponseIds_AreCorrelated()
+	{
+		var captureFiles = Directory.GetFiles(FindCapturesDir(), "*.ndjson");
+		var allErrors = new List<string>();
+
+		foreach (var captureFile in captureFiles)
+		{
+			var captureName = Path.GetFileName(captureFile);
+			var parser = LoadCapture(captureFile);
+
+			// Collect request IDs (from entries where we can parse the id)
+			var requestIds = new Dictionary<long, int>(); // id -> count
+			foreach (var entry in parser.Entries)
+			{
+				if (entry.Direction != "cli_to_vscode" || entry.JsonRpcMessage is null)
+					continue;
+
+				var msg = entry.JsonRpcMessage.Value;
+
+				// Notifications don't have id fields — skip them
+				if (!msg.TryGetProperty("id", out var idEl))
+					continue;
+
+				if (idEl.ValueKind == JsonValueKind.Number && idEl.TryGetInt64(out var idNum))
+				{
+					requestIds[idNum] = requestIds.GetValueOrDefault(idNum) + 1;
+				}
+			}
+
+			// Collect response IDs
+			var responseIds = new Dictionary<long, int>(); // id -> count
+			foreach (var entry in parser.Entries)
+			{
+				if (entry.Direction != "vscode_to_cli" || entry.JsonRpcMessage is null)
+					continue;
+
+				var msg = entry.JsonRpcMessage.Value;
+
+				// Notifications (method-bearing messages without id) are not responses
+				if (msg.TryGetProperty("method", out _) && !msg.TryGetProperty("id", out _))
+					continue;
+
+				if (msg.TryGetProperty("id", out var idEl)
+					&& idEl.ValueKind == JsonValueKind.Number
+					&& idEl.TryGetInt64(out var idNum))
+				{
+					responseIds[idNum] = responseIds.GetValueOrDefault(idNum) + 1;
+				}
+			}
+
+			// Every response id must have a matching request id
+			foreach (var (respId, count) in responseIds)
+			{
+				if (!requestIds.ContainsKey(respId))
+				{
+					// This is acceptable when the request JSON was truncated and the id
+					// couldn't be extracted. Only flag it if we have NO truncated requests.
+					var hasTruncatedRequests = parser.Entries.Any(e =>
+						e.Direction == "cli_to_vscode"
+						&& e.Event is not null
+						&& e.JsonRpcMessage is null);
+
+					if (!hasTruncatedRequests)
+					{
+						allErrors.Add(
+							$"{captureName}: Response id={respId} has no matching request");
+					}
+					// else: acceptable — request id was likely in a truncated frame
+				}
+
+				if (count > 1)
+				{
+					allErrors.Add(
+						$"{captureName}: Response id={respId} appears {count} times (expected exactly 1)");
+				}
+			}
+
+			// Every request id should have a matching response id
+			foreach (var (reqId, _) in requestIds)
+			{
+				if (!responseIds.ContainsKey(reqId))
+				{
+					allErrors.Add(
+						$"{captureName}: Request id={reqId} has no matching response");
+				}
+			}
+		}
+
+		Assert.True(allErrors.Count == 0,
+			$"Request-response ID correlation errors:\n{string.Join("\n", allErrors)}");
+	}
+
+	#endregion
+
 	#region Test 7 — Our tools/list matches VS Code tool names
 
 	[Fact]
 	public async Task OurToolsList_MatchesVsCodeToolNames()
 	{
 		// Extract VS Code's tool names from the first capture
-		var _parser = LoadCapture(FindAllCaptureFiles().First());
+		var firstCapture = Directory.GetFiles(FindCapturesDir(), "*.ndjson").First();
+		var _parser = LoadCapture(firstCapture);
 		var vsCodeResponse = _parser.GetToolsListResponse();
 		Assert.NotNull(vsCodeResponse);
 		var vsCodeToolNames = vsCodeResponse.Value.GetProperty("result").GetProperty("tools")
@@ -429,9 +1020,6 @@ public class TrafficReplayTests
 			"Captures directory not found. Expected at src/CopilotCliIde.Server.Tests/Captures/");
 	}
 
-	private static string[] FindAllCaptureFiles() =>
-		Directory.GetFiles(FindCapturesDir(), "*.ndjson");
-
 	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct)
 	{
 		var bodyBytes = Encoding.UTF8.GetBytes(body);
@@ -526,6 +1114,52 @@ public class TrafficReplayTests
 		}
 
 		return names;
+	}
+
+	private static JsonElement? ExtractJsonRpcFromResponse(string responseBody)
+	{
+		// Try SSE format first: "event: message\ndata: {json}\n\n"
+		foreach (var line in responseBody.Split('\n'))
+		{
+			var trimmed = line.Trim();
+			if (trimmed.StartsWith("data:", StringComparison.Ordinal))
+			{
+				var json = trimmed["data:".Length..].Trim();
+				try
+				{
+					using var doc = JsonDocument.Parse(json);
+					return doc.RootElement.Clone();
+				}
+				catch { /* Not valid JSON */ }
+			}
+		}
+
+		// Fallback: try parsing the whole thing as JSON
+		try
+		{
+			using var doc = JsonDocument.Parse(responseBody);
+			return doc.RootElement.Clone();
+		}
+		catch { /* Not valid JSON */ }
+
+		// Final fallback: find JSON object by brace matching
+		var jsonStart = responseBody.IndexOf('{');
+		if (jsonStart >= 0)
+		{
+			var jsonEnd = responseBody.LastIndexOf('}');
+			if (jsonEnd > jsonStart)
+			{
+				try
+				{
+					var jsonStr = responseBody[jsonStart..(jsonEnd + 1)];
+					using var doc = JsonDocument.Parse(jsonStr);
+					return doc.RootElement.Clone();
+				}
+				catch { /* Not valid JSON */ }
+			}
+		}
+
+		return null;
 	}
 
 	private static bool TryExtractToolNames(string json, HashSet<string> names)

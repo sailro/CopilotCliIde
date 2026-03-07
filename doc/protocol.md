@@ -130,7 +130,8 @@ Requests without a valid nonce receive `401 Unauthorized`.
 
 **Standard headers (POST):**
 - `Content-Type: application/json`
-- `Content-Length: {bytes}`
+- `Content-Length: {bytes}` or `Transfer-Encoding: chunked` — the CLI typically uses
+  chunked encoding; servers MUST accept both framing methods
 - `Mcp-Session-Id: {sessionId}` — associate request with MCP session (optional but recommended)
 - `mcp-protocol-version: 2025-11-25` — MCP protocol version (may be sent by CLI)
 
@@ -157,7 +158,7 @@ All operations target a single path: `/mcp` (or `/`).
 POST /mcp HTTP/1.1
 Authorization: Nonce abc123
 Content-Type: application/json
-Content-Length: 182
+Transfer-Encoding: chunked
 Mcp-Session-Id: session-a1b2c3d4
 mcp-protocol-version: 2025-11-25
 
@@ -176,7 +177,11 @@ event: message
 data: {"jsonrpc":"2.0","id":1,"result":{"content":[...]}}
 ```
 
-**Response (notification, no result):** HTTP 202 Accepted.
+**Response (notification, no result expected):** HTTP `202 Accepted` with
+`Content-Type: text/plain`. This applies to fire-and-forget messages such as
+`notifications/initialized` which carry no JSON-RPC `id` and expect no result.
+Note: some server implementations return `200 OK` with an empty SSE body for
+notifications — the CLI accepts both.
 
 **Timeout:** Most tool calls have a 30-second timeout. The `open_diff` tool is exempt
 because it blocks until the user accepts or rejects the diff (with a 1-hour ultimate
@@ -230,12 +235,14 @@ requests. The server MUST advertise itself as:
 ```json
 {
   "name": "vscode-copilot-cli",
-  "version": "1.0.0"
+  "version": "0.0.1",
+  "title": "VS Code Copilot CLI"
 }
 ```
 
 > **Important:** All implementations MUST use this exact server name regardless of
-> the actual IDE. The CLI matches on this name.
+> the actual IDE. The CLI matches on this name. The `version` is implementation-defined
+> (VS Code sends `"0.0.1"`). The `title` field is optional and used for display purposes.
 
 ### Server Capabilities
 
@@ -266,6 +273,11 @@ compatibility.
 All tools declare `taskSupport: "forbidden"` — they do not support MCP task-based
 execution. Tool calls use simple request/response semantics (except `open_diff`
 which is long-running but still uses request/response).
+
+> **Schema variations:** VS Code's tool input schemas include
+> `"additionalProperties": false` and `"$schema": "http://json-schema.org/draft-07/schema#"`
+> on tools that have parameters. These are optional — the CLI does not require them,
+> and implementations may omit them.
 
 ### Tool Call Format
 
@@ -356,6 +368,11 @@ Returns the current text selection or cursor position in the active editor.
 **SelectionRange:** `{ start: Position, end: Position, isEmpty: boolean }`
 **Position:** `{ line: number, character: number }` — both 0-based.
 
+> **Null response:** If no editor is active and no cached selection exists, the tool
+> returns `null` content (i.e. the MCP result `content[0].text` is `"null"`). Clients
+> MUST handle this case gracefully — display a "no file open" state or equivalent.
+> Observed in VS Code when all editor tabs are closed.
+
 ---
 
 ### `get_diagnostics`
@@ -398,7 +415,7 @@ Returns language diagnostics (errors, warnings, information) from the IDE.
 | `diagnostics[].message` | string | Diagnostic message text |
 | `diagnostics[].severity` | string | `"error"`, `"warning"`, or `"information"` |
 | `diagnostics[].range` | Range | Location in file (0-based line/character) |
-| `diagnostics[].source` | string? | Diagnostic source (e.g. language service name) |
+| `diagnostics[].source` | string? | Diagnostic source (e.g. language service name). May be absent depending on the language service — not all providers populate this field. |
 | `diagnostics[].code` | string? | Diagnostic code (e.g. `"2304"`, `"E0001"`) |
 
 ---

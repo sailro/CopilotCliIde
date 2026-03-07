@@ -150,7 +150,7 @@ public class ToolDiscoveryTests
 
 		var uriParam = method.GetParameters().First(p => p.Name == "uri");
 		Assert.True(uriParam.HasDefaultValue);
-		Assert.Null(uriParam.DefaultValue);
+		Assert.Equal("", uriParam.DefaultValue);
 	}
 
 	[Fact]
