@@ -274,19 +274,34 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		if (disposing)
 		{
 			_selectionTracker?.Dispose();
-			_solutionEvents = null;
-			_buildEvents = null;
-			_documentEvents = null;
+
+			if (_solutionEvents != null)
+			{
+				_solutionEvents.Opened -= OnSolutionOpened;
+				_solutionEvents.AfterClosing -= OnSolutionAfterClosing;
+				_solutionEvents = null;
+			}
+			if (_buildEvents != null)
+			{
+				_buildEvents.OnBuildDone -= OnBuildDone;
+				_buildEvents = null;
+			}
+			if (_documentEvents != null)
+			{
+				_documentEvents.DocumentSaved -= OnDocumentSaved;
+				_documentEvents = null;
+			}
+
 			StopConnection();
+
+			_diagnosticsPusher?.Dispose();
+			_diagnosticsPusher = null;
+
 			_discovery?.Dispose();
 
 			if (_selectionMonitorCookie != 0)
 			{
-				try
-				{
-					_monitorSelection?.UnadviseSelectionEvents(_selectionMonitorCookie);
-				}
-				catch { /* Ignore */ }
+				_monitorSelection?.UnadviseSelectionEvents(_selectionMonitorCookie);
 				_selectionMonitorCookie = 0;
 			}
 			_monitorSelection = null;

@@ -51,5 +51,6 @@ public sealed class ServerProcessManager : IDisposable
 			catch { /* Ignore */ }
 		}
 		_process?.Dispose();
+		_process = null;
 	}
 }

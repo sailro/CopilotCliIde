@@ -70,6 +70,12 @@ _ = Task.Run(async () =>
 });
 
 await tcs.Task;
-await mcpServer.DisposeAsync();
-rpcClient.Dispose();
+try
+{
+	await mcpServer.DisposeAsync();
+}
+finally
+{
+	rpcClient.Dispose();
+}
 return 0;

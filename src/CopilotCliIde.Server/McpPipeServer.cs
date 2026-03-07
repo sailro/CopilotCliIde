@@ -397,6 +397,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		{
 			_cts.Cancel();
 			_cts.Dispose();
+			_cts = null;
 		}
 		return ValueTask.CompletedTask;
 	}
