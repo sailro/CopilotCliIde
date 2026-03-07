@@ -1,0 +1,18 @@
+{
+	"_comment": "Golden snapshot extracted from VS Code Insiders Copilot Chat extension v0.39.2026030604. The bj() function constructs: {text, filePath, fileUrl, selection: {start, end, isEmpty}}. The tool handler spreads that and adds 'current: true/false'.",
+	"current": "boolean",
+	"filePath": "string",
+	"fileUrl": "string",
+	"text": "string",
+	"selection": {
+		"start": {
+			"line": "number",
+			"character": "number"
+		},
+		"end": {
+			"line": "number",
+			"character": "number"
+		},
+		"isEmpty": "boolean"
+	}
+}

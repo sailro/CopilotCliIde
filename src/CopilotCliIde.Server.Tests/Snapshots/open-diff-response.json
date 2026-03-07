@@ -1,0 +1,8 @@
+{
+	"_comment": "Golden snapshot extracted from VS Code Insiders Copilot Chat extension v0.39.2026030604. Success response only — errors use MCP's isError wrapper via j7i(). result is 'SAVED' or 'REJECTED'. trigger comes from the diff registry resolve() call (e.g. 'accepted_via_button', 'rejected_via_button', 'closed_via_tool').",
+	"success": "boolean",
+	"result": "string",
+	"trigger": "string",
+	"tab_name": "string",
+	"message": "string"
+}

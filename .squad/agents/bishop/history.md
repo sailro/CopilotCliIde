@@ -63,3 +63,32 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-bish
 
 **Next:** Phase 2 (handshake integration test) — Bishop to lead, with Hudson's Phase 1 golden infrastructure as foundation.
 
+### 2026-03-07 — Golden Snapshots Replaced with Real VS Code Extension Data
+
+Extracted protocol reference data directly from VS Code Insiders Copilot Chat extension v0.39.2026030604 (`dist/extension.js`, ~19MB minified). Replaced all 8 golden snapshot files in `src/CopilotCliIde.Server.Tests/Snapshots/` with the actual wire-format structures VS Code produces.
+
+**Extraction method:** Read minified `extension.js`, located each `registerTool()` call, the `bj()` selection helper, `fna()` diagnostics-per-URI builder, `Ana()` severity mapper, and `broadcastNotification()` calls. Every field name, nesting, and type taken directly from the extension code.
+
+**Differences found vs previous snapshots (which were our own interpretations):**
+
+1. **`get-vscode-info-response.json` — MAJOR CHANGE:** Previous snapshot had our VS-specific fields (`ideName`, `solutionPath`, `projects`, `processId`). VS Code actually returns 8 `vscode.env.*` fields: `version`, `appName`, `appRoot`, `language`, `machineId`, `sessionId`, `uriScheme`, `shell`. When these snapshots get wired into response tests, this WILL catch that our `get_vscode_info` response is missing `appRoot`, `language`, `machineId`, `sessionId`, `uriScheme`, `shell`.
+
+2. **`open-diff-response.json` — removed `error` field:** VS Code doesn't include `error` in the success response object. Errors use MCP's standard `{isError: true}` wrapper.
+
+3. **`close-diff-response.json` — removed `error` field:** Same as open_diff — no `error` field in the response.
+
+4. **`diagnostics-changed-notification.json` — added `source` field:** VS Code's `fna()` includes `source` (from `diagnostic.source`) in each diagnostic item. Our previous snapshot was missing it. Also confirmed: notification entries do NOT include `filePath` (only `uri`), unlike the `get_diagnostics` tool response which has both.
+
+5. **`tools-list.json` — added descriptions:** Enriched with VS Code's exact tool description strings for documentation. No structural change to parameters.
+
+6. **`get-selection-response.json`, `get-diagnostics-response.json`, `selection-changed-notification.json` — confirmed correct:** These were already accurate.
+
+**Test results:** All 112 tests pass. This is expected because only `tools-list.json` is used in active tests (parameter schema check), and parameters didn't change. The response snapshots are golden reference files not yet wired into tests — when they are, they'll surface real protocol drift.
+
+**Key protocol insights from v0.39.2026030604:**
+- `Ana()` severity mapper includes `"hint"` and `"unknown"` values (we only map error/warning/information)
+- `diagnostics_changed` notification omits `filePath` (only `uri`) while `get_diagnostics` tool includes both
+- `selection_changed` notification does NOT include `current` field (that's only on the tool response)
+- `open_diff` error cases use MCP's `isError` wrapper, not a field in the response object
+- Lock file schema confirmed identical: `{socketPath, scheme, headers, pid, ideName, timestamp, workspaceFolders, isTrusted}`
+

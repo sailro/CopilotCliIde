@@ -1,0 +1,21 @@
+{
+	"_comment": "Golden snapshot extracted from VS Code Insiders Copilot Chat extension v0.39.2026030604. Notification payload is bj(textEditor) = {text, filePath, fileUrl, selection}. Broadcast via broadcastNotification('selection_changed', ...). Does NOT include 'current' field (that's only on the tool response). 200ms debounce.",
+	"jsonrpc": "string",
+	"method": "string",
+	"params": {
+		"text": "string",
+		"filePath": "string",
+		"fileUrl": "string",
+		"selection": {
+			"start": {
+				"line": "number",
+				"character": "number"
+			},
+			"end": {
+				"line": "number",
+				"character": "number"
+			},
+			"isEmpty": "boolean"
+		}
+	}
+}

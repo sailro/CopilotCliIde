@@ -1,0 +1,30 @@
+{
+	"_comment": "Golden snapshot extracted from VS Code Insiders Copilot Chat extension v0.39.2026030604. fna() builds per-URI entries from vscode.languages.getDiagnostics(). Note: notification entries do NOT include filePath (unlike get_diagnostics tool response which has both uri and filePath). 200ms debounce via onDidChangeDiagnostics.",
+	"jsonrpc": "string",
+	"method": "string",
+	"params": {
+		"uris": [
+			{
+				"uri": "string",
+				"diagnostics": [
+					{
+						"range": {
+							"start": {
+								"line": "number",
+								"character": "number"
+							},
+							"end": {
+								"line": "number",
+								"character": "number"
+							}
+						},
+						"message": "string",
+						"severity": "string",
+						"source": "string",
+						"code": "string"
+					}
+				]
+			}
+		]
+	}
+}
