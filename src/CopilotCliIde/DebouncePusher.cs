@@ -5,13 +5,10 @@ namespace CopilotCliIde;
 /// Used by both selection and diagnostics push notifications to avoid
 /// redundant RPC calls and coalesce rapid-fire events.
 /// </summary>
-internal sealed class DebouncePusher : IDisposable
+internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 {
 	private Timer? _timer;
 	private string? _lastKey;
-	private readonly Action _onElapsed;
-
-	public DebouncePusher(Action onElapsed) => _onElapsed = onElapsed;
 
 	/// <summary>
 	/// Resets the 200ms debounce window. The callback fires once,
@@ -20,7 +17,7 @@ internal sealed class DebouncePusher : IDisposable
 	public void Schedule()
 	{
 		if (_timer == null)
-			_timer = new Timer(_ => _onElapsed(), null, 200, Timeout.Infinite);
+			_timer = new Timer(_ => onElapsed(), null, 200, Timeout.Infinite);
 		else
 			_timer.Change(200, Timeout.Infinite);
 	}
@@ -32,7 +29,9 @@ internal sealed class DebouncePusher : IDisposable
 	/// </summary>
 	public bool IsDuplicate(string key)
 	{
-		if (key == _lastKey) return true;
+		if (key == _lastKey)
+			return true;
+
 		_lastKey = key;
 		return false;
 	}

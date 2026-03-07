@@ -263,48 +263,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private static List<DiagnosticsChangedUri> CollectDiagnosticsGrouped()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
-		var groups = new Dictionary<string, DiagnosticsChangedUri>(StringComparer.OrdinalIgnoreCase);
-		try
-		{
-			var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
-			var errorItems = dte?.ToolWindows.ErrorList.ErrorItems;
-			if (errorItems != null)
-			{
-				for (var i = 1; i <= Math.Min(errorItems.Count, 200); i++)
-				{
-					var item = errorItems.Item(i);
-					var fileName = item.FileName ?? "";
-
-					if (!groups.TryGetValue(fileName, out var group))
-					{
-						var uri = string.IsNullOrEmpty(fileName) ? "" : PathUtils.ToVsCodeFileUrl(fileName);
-						group = new DiagnosticsChangedUri { Uri = uri, Diagnostics = [] };
-						groups[fileName] = group;
-					}
-
-					var line = Math.Max(0, item.Line - 1);
-					var col = Math.Max(0, item.Column - 1);
-					group.Diagnostics!.Add(new DiagnosticItem
-					{
-						Message = item.Description,
-						Severity = item.ErrorLevel switch
-						{
-							EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelHigh => "error",
-							EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelMedium => "warning",
-							_ => "information"
-						},
-						Range = new DiagnosticRange
-						{
-							Start = new SelectionPosition { Line = line, Character = col },
-							End = new SelectionPosition { Line = line, Character = col }
-						},
-						Source = item.Project
-					});
-				}
-			}
-		}
-		catch { /* Ignore */ }
-		return [.. groups.Values];
+		return ErrorListReader.CollectGrouped()
+			.Select(f => new DiagnosticsChangedUri { Uri = f.Uri, Diagnostics = f.Diagnostics })
+			.ToList();
 	}
 
 	protected override void Dispose(bool disposing)

@@ -60,9 +60,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 #pragma warning restore MCPEXP001
 					_serverOptions.ToolCollection.Add(tool);
 				}
-				catch
-				{
-				}
+				catch { /* Ignore */ }
 			}
 		}
 

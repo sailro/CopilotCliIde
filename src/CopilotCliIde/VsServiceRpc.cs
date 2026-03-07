@@ -233,60 +233,18 @@ public class VsServiceRpc : IVsServiceRpc
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
-			// Convert URI to file path if provided
 			string? filePath = null;
 			if (uri != null)
 			{
 				try { filePath = new Uri(uri).LocalPath; }
 				catch { filePath = uri; }
 			}
-			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
-			var errorItems = dte?.ToolWindows.ErrorList.ErrorItems;
-			var fileGroups = new Dictionary<string, FileDiagnostics>(StringComparer.OrdinalIgnoreCase);
-			if (errorItems != null)
-			{
-				for (int i = 1; i <= Math.Min(errorItems.Count, 100); i++)
-				{
-					var item = errorItems.Item(i);
-					var itemFile = item.FileName ?? "";
-					if (filePath != null && !string.IsNullOrEmpty(itemFile) &&
-						!itemFile.Equals(filePath, StringComparison.OrdinalIgnoreCase))
-						continue;
-
-					if (!fileGroups.TryGetValue(itemFile, out var group))
-					{
-						var fileUri = string.IsNullOrEmpty(itemFile) ? "" : PathUtils.ToVsCodeFileUrl(itemFile);
-						group = new FileDiagnostics { Uri = fileUri, FilePath = PathUtils.ToLowerDriveLetter(itemFile), Diagnostics = [] };
-						fileGroups[itemFile] = group;
-					}
-
-					var line = Math.Max(0, item.Line - 1);
-					var col = Math.Max(0, item.Column - 1);
-					group.Diagnostics!.Add(new DiagnosticItem
-					{
-						Message = item.Description,
-						Severity = MapSeverity(item.ErrorLevel),
-						Range = new DiagnosticRange
-						{
-							Start = new SelectionPosition { Line = line, Character = col },
-							End = new SelectionPosition { Line = line, Character = col }
-						},
-						Source = item.Project
-					});
-				}
-			}
-			return new DiagnosticsResult { Files = [.. fileGroups.Values] };
+			var files = ErrorListReader.CollectGrouped(filePath, maxItems: 100);
+			return new DiagnosticsResult { Files = files };
 		}
 		catch (Exception ex) { return new DiagnosticsResult { Error = ex.Message }; }
 	}
 
-	private static string MapSeverity(EnvDTE80.vsBuildErrorLevel level) => level switch
-	{
-		EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelHigh => "error",
-		EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelMedium => "warning",
-		EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelLow => "information",
-		_ => "information"
-	};
 
 	public Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines)
 	{
@@ -313,7 +271,7 @@ public class VsServiceRpc : IVsServiceRpc
 		catch (Exception ex) { return Task.FromResult(new ReadFileResult { Error = ex.Message, FilePath = filePath }); }
 	}
 
-	private void AddDiffInfoBar(IVsWindowFrame frame, DiffState state)
+	private static void AddDiffInfoBar(IVsWindowFrame frame, DiffState state)
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 
