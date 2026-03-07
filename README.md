@@ -70,15 +70,15 @@ The extension exposes 7 MCP tools to the Copilot CLI agent:
 
 | Tool | Description |
 |------|-------------|
-| `get_vscode_info` | Solution path, name, project list |
-| `get_selection` | Active editor selection: text, file path, line/column range |
-| `get_diagnostics` | Errors and warnings from the VS Error List (filterable by URI) |
+| `get_vscode_info` | VS instance info: version, solution path, project list |
+| `get_selection` | Active editor selection: text, file URL, nested position range |
+| `get_diagnostics` | Errors and warnings from the VS Error List, grouped by file (filterable by URI) |
 | `read_file` | Read file content from disk (supports line ranges) |
 | `open_diff` | Open a VS diff view with Accept/Reject InfoBar. Blocks until user acts. |
 | `close_diff` | Close a diff tab by its tab name |
 | `update_session_name` | Set the CLI session display name |
 
-All tools include `execution.taskSupport: "forbidden"` metadata, matching VS Code's protocol.
+All tools include `execution.taskSupport: "forbidden"` metadata, matching VS Code's protocol. The first 6 tools match VS Code's Copilot Chat extension; `read_file` is an additional capability.
 
 ### Tool Details
 
@@ -87,6 +87,8 @@ Returns information about the current Visual Studio instance:
 ```json
 {
   "ideName": "Visual Studio",
+  "appName": "Visual Studio",
+  "version": "17.13.35931.197",
   "solutionPath": "C:\\Dev\\myproject\\MyProject.sln",
   "solutionName": "MyProject",
   "solutionDirectory": "C:\\Dev\\myproject",
@@ -96,35 +98,42 @@ Returns information about the current Visual Studio instance:
 ```
 
 #### `get_selection`
-Returns the current editor selection, read on-demand from DTE:
+Returns the current editor selection with nested position range, matching VS Code's format:
 ```json
 {
   "current": true,
   "filePath": "C:\\Dev\\myproject\\Program.cs",
-  "selectedText": "Console.WriteLine(\"Hello\");",
-  "startLine": 10,
-  "startColumn": 8,
-  "endLine": 10,
-  "endColumn": 35,
-  "isEmpty": false
+  "fileUrl": "file:///c%3A/Dev/myproject/Program.cs",
+  "text": "Console.WriteLine(\"Hello\");",
+  "selection": {
+    "start": { "line": 9, "character": 8 },
+    "end": { "line": 9, "character": 35 },
+    "isEmpty": false
+  }
 }
 ```
 
 #### `get_diagnostics`
-Returns errors and warnings from the Visual Studio Error List. Accepts an optional `uri` parameter to filter by file:
+Returns errors and warnings from the Visual Studio Error List, grouped by file. Accepts an optional `uri` parameter to filter. Returns a JSON array at root (matching VS Code's format):
 ```json
-{
-  "diagnostics": [
-    {
-      "severity": "vsBuildErrorLevelHigh",
-      "message": "The name 'x' does not exist in the current context.",
-      "file": "C:\\Dev\\myproject\\Program.cs",
-      "line": 12,
-      "column": 5,
-      "project": "MyProject"
-    }
-  ]
-}
+[
+  {
+    "uri": "file:///c%3A/Dev/myproject/Program.cs",
+    "filePath": "C:\\Dev\\myproject\\Program.cs",
+    "diagnostics": [
+      {
+        "message": "The name 'x' does not exist in the current context.",
+        "severity": "error",
+        "range": {
+          "start": { "line": 11, "character": 4 },
+          "end": { "line": 11, "character": 4 }
+        },
+        "source": "MyProject",
+        "code": null
+      }
+    ]
+  }
+]
 ```
 
 #### `read_file`
@@ -145,10 +154,10 @@ The diff workflow lets the agent propose changes that you review in VS:
 1. Agent calls `open_diff` with `original_file_path`, `new_file_contents`, and `tab_name`
 2. VS opens a native diff view via `IVsDifferenceService` with an Accept/Reject InfoBar
 3. The MCP call **blocks** until you click Accept, Reject, or close the diff tab
-4. The result (`"accepted"` or `"rejected"`) is returned to the agent
+4. Returns `result` (`"SAVED"` or `"REJECTED"`) and `trigger` (e.g. `"accepted_via_button"`, `"rejected_via_button"`, `"closed_via_tab"`, `"closed_via_tool"`, `"timeout"`)
 5. Agent can call `close_diff` with the same `tab_name` to programmatically close the diff
 
-> **Note**: Tool names and schemas match VS Code's Copilot Chat extension exactly (`get_vscode_info`, `get_selection`, `open_diff`, `close_diff`, `get_diagnostics`, `update_session_name`) to ensure full compatibility with the Copilot CLI `/ide` protocol.
+> **Note**: Tool names and schemas match VS Code's Copilot Chat extension (`get_vscode_info`, `get_selection`, `open_diff`, `close_diff`, `get_diagnostics`, `update_session_name`) to ensure full compatibility with the Copilot CLI `/ide` protocol. `read_file` is an additional tool not present in VS Code.
 
 ## Real-time Notifications
 
@@ -173,7 +182,34 @@ Pushed when the user switches files or moves the cursor in VS:
 }
 ```
 
-Notifications are pushed immediately on editor events and deduplicated — if the selection hasn't changed, no notification is sent. The RPC call runs off the UI thread to keep VS responsive. Temp buffers (paths that don't exist on disk) are filtered out.
+### `diagnostics_changed`
+Pushed after builds complete and documents are saved, when the Error List content changes:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "diagnostics_changed",
+  "params": {
+    "uris": [
+      {
+        "uri": "file:///c%3A/Dev/myproject/Program.cs",
+        "diagnostics": [
+          {
+            "range": {
+              "start": { "line": 11, "character": 4 },
+              "end": { "line": 11, "character": 4 }
+            },
+            "message": "The name 'x' does not exist in the current context.",
+            "severity": "error",
+            "code": null
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Both notifications use a **200ms debounce** — the push fires once the editor has been quiet for 200ms, matching VS Code's behavior. Notifications are also deduplicated: if the content hasn't changed, no notification is sent. The RPC calls run off the UI thread to keep VS responsive. Temp buffers (paths that don't exist on disk) are filtered out from selection events.
 
 When Copilot CLI first connects to the SSE stream, the MCP server fetches the current selection from VS via RPC and pushes it immediately — ensuring the display is correct even if the extension loaded before Copilot CLI was running.
 
@@ -181,7 +217,7 @@ When Copilot CLI first connects to the SSE stream, the MCP server fetches the cu
 
 - **MCP Transport**: Windows named pipe (`\\.\pipe\mcp-{uuid}.sock`) with Streamable HTTP + Nonce auth
 - **RPC Transport**: Windows named pipe (`\\.\pipe\copilot-cli-rpc-{uuid}`) with bidirectional StreamJsonRpc
-- **SSE Stream**: Chunked transfer encoding over GET /mcp for `selection_changed` notifications
+- **SSE Stream**: Chunked transfer encoding over GET /mcp for `selection_changed` and `diagnostics_changed` notifications
 - **Discovery**: Lock files in `~/.copilot/ide/{uuid}.lock`
 - **Diagnostics**: Per-process log files in `~/.copilot/ide/` (`vs-error-{pid}.log`, `vs-connection-{pid}.log`)
 
