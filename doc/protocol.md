@@ -168,9 +168,9 @@ mcp-protocol-version: 2025-11-25
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: text/event-stream
-Mcp-Session-Id: session-a1b2c3d4
-Content-Length: ...
+content-type: text/event-stream
+mcp-session-id: session-a1b2c3d4
+transfer-encoding: chunked
 
 event: message
 data: {"jsonrpc":"2.0","id":1,"result":{"content":[...]}}
@@ -194,11 +194,11 @@ Mcp-Session-Id: session-a1b2c3d4
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: text/event-stream
-Cache-Control: no-cache, no-transform
-Connection: keep-alive
-Mcp-Session-Id: session-a1b2c3d4
-Transfer-Encoding: chunked
+content-type: text/event-stream
+cache-control: no-cache, no-transform
+connection: keep-alive
+mcp-session-id: session-a1b2c3d4
+transfer-encoding: chunked
 ```
 
 The server sends chunked SSE events for push notifications (see §4). This connection
