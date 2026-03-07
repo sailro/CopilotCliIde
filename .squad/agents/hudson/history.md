@@ -32,3 +32,28 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-huds
 
 **Next:** Phase 2 — Bishop to lead handshake integration tests. Phase 3 and 4 deferred (per-tool golden tests and refresh script).
 
+### 2026-03-07 — Deep Test Gap Analysis (Captures + Existing Tests)
+
+- **131 tests currently passing** across 11 test files.
+- **3 capture files** analyzed: vs-1.0.7 (42 entries), vscode-0.38 (38 entries), vscode-insiders-0.39 (39 entries).
+- **Schema drift found:** `get_diagnostics.uri` parameter type changed from `"string"` (v0.38/0.39) to `["string","null"]` (VS 1.0.7). No test catches this.
+- **Capability evolution:** VS 1.0.7 adds `logging` capability key not present in earlier captures.
+- **4 of 7 tools never called in any capture:** `get_vscode_info`, `open_diff`, `close_diff`, `read_file`. Response schemas unvalidated from real traffic.
+- **get_selection response differs across captures:** VS 1.0.7 omits `text` key when empty; vscode-0.39 includes it.
+- **Every capture has exactly 2 `tools/list` calls.** Idempotency not tested.
+- **Empty text / isEmpty=true** notifications dominate captures (10+ per file). Tests validate structure but don't specifically target this edge case.
+- **Test 7 only validates tool names**, not initialize response shape, not input schemas, not auth rejection.
+- **TrafficParser** has 3 JSON extraction strategies (SSE, brace-matching, direct parse) — none directly unit-tested.
+- **Proposed 28 new tests** across 6 categories. Full report at `.squad/decisions/inbox/hudson-test-gap-analysis.md`.
+
+### 2026-03-07 — Top 5 Priority Tests from Gap Analysis (A1, B1, B2, E1, C1)
+
+- **5 new test methods added** to `TrafficReplayTests.cs`, bringing total from 131 to 140 (9 new executions: 5 methods, 3 are Theory×3 captures + 2 Fact).
+- **A1 `AllCaptures_ToolInputSchemas_AreConsistent`** — Cross-capture [Fact] comparing tool inputSchema property names, types, and required fields across all captures. Documents `get_diagnostics:uri:type` as a known variation (`"string"` vs `["string","null"]`).
+- **B1 `VsCodeGetSelectionResponse_HasExpectedStructure`** — [Theory] per-capture validation of `get_selection` response schema. Handles `"null"` text (no active editor) and validates `current`, `filePath`, `fileUrl`, `selection` structure. Documents that `text` key is optional (VS 1.0.7 omits it when empty).
+- **B2 `VsCodeUpdateSessionNameResponse_HasExpectedStructure`** — [Theory] per-capture validation of `update_session_name` response: `content[0].text` must parse as `{"success":true}`.
+- **E1 `OurServer_InitializeResponse_HasExpectedStructure`** — [Fact] integration test reusing pipe infrastructure from Test 7. Validates our server's initialize response has `protocolVersion`, `capabilities.tools.listChanged`, `serverInfo.name`, and `serverInfo.version`.
+- **C1 `AllCaptures_RequestResponseIds_AreCorrelated`** — [Fact] cross-capture test verifying JSON-RPC id correlation. Every response id must match a request id; every request id must have a response. Tolerates truncated request frames (common in captures where chunked encoding hides the id field).
+- **New helper `ExtractJsonRpcFromResponse`** added for parsing SSE/JSON/brace-matched responses from our MCP server (used by E1).
+- All 140 tests pass. No production code changes.
+

@@ -162,3 +162,45 @@ Sebastien rejected the golden-snapshot-from-source-code approach as circular ("I
 
 **Proposal:** `.squad/decisions/inbox/ripley-proxy-based-compat-testing.md`
 
+### 2026-03-08 — Protocol Documentation vs Capture Analysis
+
+Deep analysis of all 3 NDJSON capture files against `doc/protocol.md`. Key findings:
+
+**Server info version mismatch:** Doc says `"version": "1.0.0"` but both VS Code captures (0.38, 0.39) show `"0.0.1"`. Only our server sends `"1.0.0"`. Doc should note the actual VS Code value or state it's implementation-defined.
+
+**Undocumented `title` field in serverInfo:** All captures include `"title": "VS Code Copilot CLI"` in the initialize response serverInfo, but the doc only documents `name` and `version`.
+
+**`logging` capability not in VS Code:** Our server advertises `"logging": {}` capability. VS Code doesn't. Doc correctly shows only `{"tools": {"listChanged": true}}` — our server has the extra capability (from MCP SDK defaults).
+
+**VS Code tool schemas include `additionalProperties: false` and `$schema`:** VS Code 0.38/0.39 tool input schemas include `"additionalProperties": false` and `"$schema": "http://json-schema.org/draft-07/schema#"` on tools with parameters. Our schemas and the doc omit these. Functionally irrelevant but a structural difference.
+
+**`get_diagnostics` uri type difference:** VS Code declares `uri` as `{"type": "string"}` (no default). Our server declares `{"type": ["string", "null"], "default": null}`. Doc describes it as optional string without specifying JSON Schema type.
+
+**`get_selection` can return `null`:** vscode-0.38 capture shows the tool returning `null` (no active/cached editor). Doc only describes the object response with `current: true/false`, never mentions the `null` case.
+
+**`source` field never observed in captures:** Doc lists `source: string?` for diagnostic items in `get_diagnostics`. No capture file includes this field. The field may be VS Code language-dependent.
+
+**HTTP transport: chunked encoding, not Content-Length:** Doc describes `Content-Length` as standard POST header. All captures show CLI using `Transfer-Encoding: chunked` instead.
+
+**VS Code session ID behavior:** VS Code (Express-based) appears to echo the CLI's `X-Copilot-Session-Id` as the `mcp-session-id`. Our server generates its own. Doc says "server generates" — VS Code's behavior is technically different.
+
+**202 Accepted for notifications:** VS Code returns `202 Accepted` with `text/plain` for `notifications/initialized`. Our server returns `200 OK` with `text/event-stream`. Doc mentions 202 for notifications but doesn't detail the VS Code behavior for the initialized notification specifically.
+
+**Old Snapshots/ directory removed:** Commit `251d28d` removed the golden snapshot tests. The proxy-capture approach fully superseded them. No Snapshots/README.md to check.
+
+**Report written to:** `.squad/decisions/inbox/ripley-protocol-doc-analysis.md`
+
+### 2026-03-08 — Protocol.md Updated from Capture Analysis
+
+Applied 7 surgical edits to `doc/protocol.md` based on capture analysis findings:
+
+1. **P0 — `get_selection` null response:** Documented that the tool can return `null` content when no editor is active and no cached selection exists. Added blockquote after the response table.
+2. **P1 — 200 vs 202 response codes:** Expanded the notification response line to explain `202 Accepted` with `text/plain` for fire-and-forget messages, noting that some servers return `200 OK` and the CLI accepts both.
+3. **P1 — Server info version and title:** Changed example version from `"1.0.0"` to `"0.0.1"` (actual VS Code value), added `"title"` field, noted version is implementation-defined.
+4. **P1 — Content-Length vs chunked encoding:** Updated HTTP headers to show both `Content-Length` and `Transfer-Encoding: chunked` as valid, noting CLI typically uses chunked. Updated the POST example to show chunked.
+5. **P2 — Diagnostics `source` field:** Added note that the field may be absent depending on the language service.
+6. **P2 — `additionalProperties` and `$schema`:** Added blockquote noting VS Code includes these in tool schemas but they're optional.
+7. **P2 — Session ID format:** Already documented as implementation-defined — no change needed.
+
+No code changes, documentation only. All edits preserve existing correct content.
+

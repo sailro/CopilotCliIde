@@ -149,3 +149,46 @@ Aligned `McpPipeServer`'s HTTP response framing to match VS Code's Express serve
 
 **Test updates:** Updated 6 `HttpResponseTests` assertions for lowercase headers. Updated `TrafficReplayTests.ReadHttpResponseAsync` helper to handle chunked responses (since POST SSE responses no longer use Content-Length). All 131 tests pass. Format check clean.
 
+### 2026-03-08 — Deep Capture Analysis (vs-1.0.7, vscode-0.38, vscode-insiders-0.39)
+
+Compared all three NDJSON capture files against our server code. Key findings:
+
+**Real discrepancies found:**
+1. **`get_selection` tool response missing `text` field** — MCP SDK's serializer omits null values. When no text is selected, our `SelectionResult.Text` is null and the field disappears from the wire. VS Code always sends `"text": ""`. Our notification code already handles this (`text ?? ""`), but the tool response passes through the raw DTO. Fix: normalize in tool or ensure extension always sets `Text = ""`.
+2. **`diagnostics_changed` notification omits `source` field** — Our `PushDiagnosticsChangedAsync` anonymous object doesn't include `source`. VS Code's extension code includes it. Should add `source = d.Source` for consistency with the `get_diagnostics` tool response.
+3. **POST 200 SSE responses lack `cache-control` header** — VS Code sends `cache-control: no-cache` on POST SSE responses. Our GET SSE response has it, but POST SSE doesn't.
+4. **`diagnostics_changed` notification `code` field always null** — Extension-side issue: VS's Error List doesn't populate error codes. VS Code sends actual codes like `"CS0246"`. Not a server schema bug but a data quality gap.
+
+**Minor differences (non-breaking):**
+- Server version `"1.0.0"` vs VS Code `"0.0.1"` — informational only
+- Extra `"logging": {}` capability from MCP SDK — harmless
+- Tool schema lacks `additionalProperties: false` and `$schema` — MCP SDK library difference
+- Optional param `uri` typed as `["string", "null"]` vs simple `"string"` — both valid JSON Schema
+- `read_file` params use camelCase (C# convention) while other tools use snake_case — consistency issue
+- 202 response uses `content-length: 0` vs VS Code's chunked-with-empty-body — both valid HTTP
+- VS Code omits `mcp-session-id` from 202 responses; we include it — extra header, harmless
+- VS Code pretty-prints tool response JSON (2-space indent); we use compact — both valid
+- VS Code returns literal `"null"` for `get_selection` when no editor; we always return an object — behavioral difference, not schema issue
+
+**Confirmed correct (perfect match):**
+- Protocol version `2025-11-25`, server name `vscode-copilot-cli`, title `VS Code Copilot CLI`
+- All 6 VS Code tool names present with matching descriptions and parameter schemas
+- `selection_changed` notification shape: `text`, `filePath`, `fileUrl`, `selection.{start,end,isEmpty}`
+- `diagnostics_changed` notification shape: `uris[].{uri, diagnostics[].{range, message, severity, code}}`
+- `get_diagnostics` tool response shape: array of `{uri, filePath, diagnostics[...]}`
+- All tool `execution.taskSupport = "forbidden"`
+- HTTP: lowercase header names, chunked SSE, 202 for notifications, nonce auth
+- `open_diff`/`close_diff` tool schemas match (no calls in captures to verify responses)
+- SSE event format: `event: message\ndata: {JSON}\n\n`
+- GET SSE headers match: `content-type`, `cache-control: no-cache, no-transform`, `transfer-encoding: chunked`
+
+### 2026-03-08 — Fix get_selection text field and diagnostics_changed source field
+
+Fixed two protocol discrepancies found during capture analysis:
+
+1. **`get_selection` tool — `text` field always present:** `GetSelectionTool.cs` now returns an anonymous object with `text = result.Text ?? ""` instead of the raw `SelectionResult` DTO. The MCP SDK omits null properties during serialization, so `Text = null` caused the `text` field to vanish from the wire. VS Code always sends `"text": ""`. This matches the pattern already used in `McpPipeServer.PushSelectionChangedAsync` for `selection_changed` notifications.
+
+2. **`diagnostics_changed` notification — `source` field added:** `PushDiagnosticsChangedAsync` in `McpPipeServer.cs` now includes `source = d.Source` in the diagnostic anonymous object. VS Code includes this field and our own `get_diagnostics` tool response already had it — only the push notification was missing it.
+
+**Build:** Clean. **Tests:** 131 pass. **Format:** Clean.
+

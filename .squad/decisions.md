@@ -840,3 +840,143 @@ None. All new files. Existing 109 tests untouched. The `ProtocolCompatibilityTes
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+---
+
+## Capture Analysis Session: 2026-03-07T20-07-47Z
+
+### Capture Analysis: Code Changes
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-08  
+**Sources:** `vs-1.0.7.ndjson`, `vscode-0.38.ndjson`, `vscode-insiders-0.39.ndjson`  
+
+#### Server Code Changes Required (COMPLETED)
+
+**1. `get_selection` tool response: Always include `text` field**
+
+- **Evidence:** VS 1.0.7 omits `text` when empty; VS Code 0.39 includes `"text": ""` in all cases
+- **Fix Applied (Bishop):** `GetSelectionTool.cs` now transforms result to always set `text = result.Text ?? ""`
+- **Status:** ✅ MERGED
+
+**2. `diagnostics_changed` notification: Include `source` field**
+
+- **Evidence:** Our notifications omit `source`; tool responses include it when available
+- **Fix Applied (Bishop):** `PushDiagnosticsChangedAsync` now includes `source = d.Source` in diagnostic anonymous objects
+- **Status:** ✅ MERGED
+
+#### Extension-Side Data Gaps (non-code, lower priority)
+
+**3. `code` field in diagnostics always null** — Extension doesn't extract error code column from Error List  
+**4. POST SSE responses lack `cache-control` header** — Minor cosmetic difference
+
+**Outcome:** 2 critical fixes deployed. Build clean, 140+ tests pass.
+
+---
+
+### Protocol Documentation: Accuracy & Gaps
+
+**Author:** Ripley (Lead)  
+**Date:** 2026-03-08  
+**Captures analyzed:** `vs-1.0.7.ndjson`, `vscode-0.38.ndjson`, `vscode-insiders-0.39.ndjson`  
+**Document analyzed:** `doc/protocol.md`  
+
+#### Accurate Sections ✅
+
+- Protocol version, server name, tool names/descriptions, tool parameter schemas, `taskSupport: forbidden` execution mode
+- `selection_changed` notification format
+- File URI convention (`file:///c%3A/...`)
+- Capabilities (`tools.listChanged: true`)
+- CLI request methods and SSE wire format
+- Custom HTTP headers
+
+#### Documentation Updates Applied (7 edits)
+
+**P0 — `get_selection` null response**
+- **Gap:** Doc doesn't mention tool can return `null` when no editor active
+- **Updated:** §3 get_selection — "When no editor is active and no cached selection exists, the tool returns `null`"
+- **Status:** ✅ MERGED
+
+**P1 — HTTP response codes (200 vs 202)**
+- **Gap:** Doc mentions 202 Accepted but doesn't clearly distinguish when
+- **Updated:** §2 Transport — `200 OK` with SSE body for requests with results; `202 Accepted` for notifications
+- **Status:** ✅ MERGED
+
+**P1 — serverInfo version field**
+- **Gap:** Doc shows `"1.0.0"`; VS Code captures show `"0.0.1"`
+- **Updated:** §3 Server Info — Note: VS Code currently sends `"0.0.1"`, implementation-defined
+- **Status:** ✅ MERGED
+
+**P1 — serverInfo `title` field**
+- **Gap:** All captures include `"title": "VS Code Copilot CLI"` but doc omits it
+- **Updated:** §3 Server Info — Document `title` as optional field
+- **Status:** ✅ MERGED
+
+**P1 — HTTP Transfer-Encoding**
+- **Gap:** Doc says `Content-Length`, captures show `Transfer-Encoding: chunked`
+- **Updated:** §2 HTTP Headers — Either `Content-Length` or `Transfer-Encoding: chunked`
+- **Status:** ✅ MERGED
+
+**P2 — `source` field in diagnostics**
+- **Gap:** Doc example shows `source: "typescript"` but captures show it's typically null
+- **Updated:** §3 get_diagnostics — Note `source` may not be present depending on language service
+- **Status:** ✅ MERGED
+
+**P2 — Session ID generation**
+- **Gap:** Doc says server generates; VS Code appears to use client's session ID
+- **Updated:** §2 Session ID — Note format and origin are implementation-defined
+- **Status:** ✅ MERGED
+
+**Outcome:** All P0/P1/P2 gaps addressed. Documentation now matches capture reality.
+
+---
+
+### Test Gap Analysis: Coverage Review
+
+**Author:** Hudson (Tester)  
+**Date:** 2026-03-07  
+
+#### Test Gap Analysis Summary
+
+- **131 tests currently passing** across 11 test files
+- **3 capture files analyzed** (119 total entries): vs-1.0.7 (42), vscode-0.38 (38), vscode-insiders-0.39 (39)
+- **28 proposed tests** across 6 categories (A–F)
+
+#### Key Findings
+
+1. **Schema drift detected:** `get_diagnostics.uri` type changed from `"string"` (v0.38/v0.39) to `["string","null"]` (v1.0.7) — no test catches this
+2. **Capability evolution:** v1.0.7 adds `logging` capability absent in earlier versions
+3. **4 of 7 tools never called:** `get_vscode_info`, `open_diff`, `close_diff`, `read_file` — response schemas unvalidated
+4. **Duplicate tools/list calls:** Every capture has exactly 2 — idempotency not tested
+5. **get_selection schema variance:** v1.0.7 omits `text`; v0.39 includes it
+6. **Request-response ID correlation:** Parser uses fallback correlation for truncated HTTP frames — path not validated
+7. **Empty text notifications dominate:** 10+ per capture with `isEmpty: true` — edge case not specifically tested
+8. **Test 7 validates tool names only** — doesn't check initialize response shape, input schemas, or auth rejection
+
+#### Top 5 Priority Tests (COMPLETED)
+
+| Test | Category | What | Why | Status |
+|------|----------|------|-----|--------|
+| **A1** | Schema Consistency | `AllCaptures_ToolInputSchemas_AreConsistentOrDocumented` | Catches real schema drift (uri type) | ✅ MERGED |
+| **B1** | Tool Responses | `VsCodeGetSelectionResponse_HasExpectedStructure` | Called in all captures, never validated | ✅ MERGED |
+| **B2** | Tool Responses | `VsCodeUpdateSessionNameResponse_HasExpectedStructure` | Called in all captures, never validated | ✅ MERGED |
+| **E1** | Integration | `OurServer_InitializeResponse_MatchesCaptureStructure` | Test 7 only validates names | ✅ MERGED |
+| **C1** | Correlation | `AllCaptures_RequestResponseIds_AreCorrelated` | Validates JSON-RPC pairing | ✅ MERGED |
+
+#### Remaining Tests (23 proposed)
+
+**Medium priority (B3–B6, C2–C3, D1–D5):** Edge cases, consistency checks, parser coverage  
+**Nice-to-have (E2–E5, F1–F4):** Sanity checks, robustness, minor gaps  
+
+**Recommendation:** Add remaining tests in future sprints. All P0 gaps now covered.
+
+#### Missing Capture Coverage
+
+Tools never called in any capture:
+- `get_vscode_info`, `open_diff`, `close_diff`, `read_file`
+
+**Action:** Create new captures exercising these tools (future sprint).
+
+**Outcome:** 5 critical tests added. Current count: 140 passing (131 existing + 5 new + 4 prior work). All P0 gaps covered.
+
+---
