@@ -95,3 +95,45 @@ Hicks implemented whitespace enforcement via husky pre-commit hook (Sebastien's 
 
 The hook applies to all .NET code across the solution. See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook" for full details.
 
+### 2026-03-07 — Protocol Compatibility Test Architecture
+
+Designed architecture for automated protocol compatibility regression tests. Key decisions:
+
+**Approach:** Golden snapshot tests + MCP handshake integration tests, in the existing `CopilotCliIde.Server.Tests` project. Rejected live proxy tests (CI nightmare), extension.js extraction (fragile), and separate test project (unnecessary).
+
+**Two layers:**
+1. **Golden Schema Tests** — compare our MCP tool outputs against JSON snapshots captured from real VS Code ↔ Copilot CLI traffic. Structural superset check (we can have more fields, never fewer).
+2. **MCP Handshake Integration Tests** — spin up real `McpPipeServer` on test pipe with mocked `IVsServiceRpc`, perform full `initialize` → `tools/list` → tool calls → SSE notifications over real HTTP-on-pipe.
+
+**Test seam needed:** `RpcClient` needs an internal constructor accepting `IVsServiceRpc` so tests can inject mocks without connecting a real RPC pipe. Minimal change, already `[InternalsVisibleTo]`.
+
+**Reference data:** Golden JSON snapshots in `Snapshots/` folder, committed to repo. Refreshed manually (monthly or on major VS Code update) via proxy capture script. Not automated in CI — VS Code extension updates aren't predictable enough.
+
+**Phased rollout:** Phase 1 (golden infra + tools/list), Phase 2 (handshake integration), Phase 3 (per-tool golden tests), Phase 4 (refresh script).
+
+**Files:** `ProtocolCompatibilityTests.cs`, `McpHandshakeTests.cs`, `Snapshots/*.json`, `scripts/refresh-snapshots.ps1`
+
+**Key existing test coverage:** 109 tests already cover tool discovery, output schemas, notification formats, DTO serialization, and HTTP parsing individually. The new tests add integration-level and golden-reference validation.
+
+Full proposal: `.squad/decisions/inbox/ripley-protocol-compat-test-architecture.md`
+
+### 2026-03-07T17:02:27Z — Protocol Compatibility Phase 1 Orchestration Complete
+
+Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-ripley.md`. This spawn delivered the full protocol compatibility test automation architecture design.
+
+**Outcome:** ✅ SUCCESS. Complete two-layer architecture designed and documented. Phase 1 (golden snapshot infrastructure) completed by Hudson (3 tests, 8 golden JSON files). Phase 2 (handshake integration test) scoped at ~4 hours, Phase 3-4 deferred.
+
+**Key artifacts:**
+- `.squad/decisions.md` — "Protocol Compatibility Test Architecture" section merged from inbox with full specification covering test structure, reference data management, phased rollout, and assignments
+- `RpcClient` test seam specification (Option 1 — internal constructor) → implemented by Bishop ✅
+- Phase 1 infrastructure specification → completed by Hudson ✅
+- Phase 2 handshake test architecture → ready for Bishop to implement
+
+**Next phases:**
+- **Phase 2** (Bishop lead): MCP handshake integration test (~4h) using golden framework + test seam
+- **Phase 3** (Hudson): Per-tool golden response tests (~2h)
+- **Phase 4** (Hicks or Bishop): Refresh script (~3h)
+
+**Team impact:** Automated protocol compatibility checks now enabled. Golden snapshots committed to repo; manual refresh monthly or on major VS Code update. All production code changes complete (RpcClient seam is only change needed). Existing 109 tests remain at 100% pass rate.
+
+

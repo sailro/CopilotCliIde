@@ -47,3 +47,19 @@ Hicks implemented whitespace enforcement via husky pre-commit hook (Sebastien's 
 
 **No action required from Bishop or Server code.** The hook validates all .NET files across the solution. See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook" for full details.
 
+### 2026-03-07 — RpcClient Test Seam Constructor
+
+Added an `internal RpcClient(IVsServiceRpc vsServices)` constructor to `RpcClient.cs` as a test seam for MCP handshake integration tests. The constructor sets `VsServices` directly, bypassing the real named-pipe connection. The default `public RpcClient()` constructor and the `ConnectAsync` flow are untouched.
+
+**McpPipeServer.StartAsync needs no changes.** It receives an `RpcClient` and accesses `_rpcClient.VsServices` — it never calls `ConnectAsync` itself (that's `Program.cs`'s job). A pre-configured `RpcClient` with `VsServices` already set works seamlessly with `StartAsync`.
+
+**Key detail:** `_pipe` and `_rpc` remain null when using the test constructor. `Dispose()` already null-checks both, so cleanup is safe. The test project has `InternalsVisibleTo` access (established earlier by Hudson).
+
+### 2026-03-07T17:02:27Z — Protocol Compatibility Phase 1 Orchestration Complete
+
+Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-bishop.md`. This spawn delivered the RpcClient test seam for Phase 2 handshake integration tests.
+
+**Outcome:** ✅ SUCCESS. RpcClient constructor in place, no McpPipeServer changes needed, 109 existing tests all passing. Test seam ready for Hudson and Bishop to use in Phase 2 `McpHandshakeTests`.
+
+**Next:** Phase 2 (handshake integration test) — Bishop to lead, with Hudson's Phase 1 golden infrastructure as foundation.
+

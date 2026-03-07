@@ -459,6 +459,226 @@ No formatting fixes were needed — the codebase was already clean when `dotnet 
 
 ---
 
+### User Directive: Dispose Method Threading
+
+**Date:** 2026-03-07T14:35Z  
+**User:** Sebastien (via Copilot)  
+**Directive:** Never use `ThreadHelper.ThrowIfNotOnUIThread()` in Dispose methods. Do not assume Dispose runs on the UI thread.
+
+This directive captured for team memory — enforced in Extension Dev practices.
+
+---
+
+### Remove UI Thread Requirement from Dispose
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-03-07  
+**Status:** Implemented
+
+## Context
+
+`Dispose(bool disposing)` called `ThreadHelper.ThrowIfNotOnUIThread()` and re-fetched `IVsMonitorSelection` via `GetGlobalService`. This is fragile: Dispose can be called during shutdown when the UI thread may not be available, and `GetGlobalService` may return null for a service that was alive during `InitializeAsync`.
+
+## Decision
+
+1. Cache `IVsMonitorSelection` as `_monitorSelection` field, captured in `InitializeAsync` where it's already fetched.
+2. Remove `ThreadHelper.ThrowIfNotOnUIThread()` from `Dispose` — the cached reference eliminates the need for a service lookup.
+3. Use the cached `_monitorSelection` for `UnadviseSelectionEvents` in Dispose.
+4. Null out both `_monitorSelection` and `_selectionMonitorCookie` (set to 0) after unadvising for clean teardown.
+
+## Rationale
+
+- **Dispose shouldn't throw.** `ThrowIfNotOnUIThread()` in a disposal path violates the principle that cleanup should be resilient.
+- **Caching avoids stale-service risk.** During VS shutdown, `GetGlobalService` may return null even for services that were healthy at init time.
+- **Zeroing the cookie** prevents double-unadvise if Dispose is called more than once.
+
+## Files Changed
+
+- `src/CopilotCliIde/CopilotCliIdePackage.cs` — field added, InitializeAsync updated, Dispose refactored
+
+## Verification
+
+- Server builds clean (0 warnings)
+- 109 tests pass
+
+---
+
+### Protocol Compatibility Test Architecture
+
+**Author:** Ripley (Lead)  
+**Date:** 2026-03-07  
+**Status:** Implemented (Phase 1)  
+**Requested by:** Sebastien
+
+## Problem
+
+We reverse-engineered the VS Code Copilot Chat ↔ Copilot CLI protocol via a named pipe proxy. The findings in `decisions.md` document exact tool schemas, notification formats, HTTP headers, SSE transport, and lock file structure. But this knowledge lives in prose — when VS Code Insiders updates its extension, we have no automated way to detect if we've drifted out of compatibility.
+
+## Decision
+
+**Golden snapshot tests in the existing test project, with a full MCP handshake integration test as the centerpiece.**
+
+No new project. No live VS Code dependency. No extension.js parsing.
+
+## Architecture
+
+### Approach: Two-Layer Testing
+
+**Layer 1 — Golden Snapshot Tests** (`ProtocolCompatibilityTests.cs`)  
+Compare our server's MCP outputs against golden JSON snapshots captured from real VS Code ↔ Copilot CLI traffic. These are pure, fast, deterministic unit tests that run in CI.
+
+**Layer 2 — MCP Handshake Integration Test** (`McpHandshakeTests.cs`)  
+Spin up our actual `McpPipeServer` on a test named pipe with a mocked `IVsServiceRpc`, connect as a client (simulating Copilot CLI), and perform the full protocol exchange: `initialize` → `tools/list` → tool calls → SSE subscription → notification push. This catches integration bugs that per-component tests miss.
+
+### Why Not Other Approaches
+
+| Approach | Rejected Because |
+|---|---|
+| **Live proxy test (VS Code + CLI running)** | CI nightmare. Requires VS Code Insiders + Copilot CLI + authentication. Flaky. Slow. Can't control update timing. |
+| **Extract schemas from extension.js** | Minified JS with obfuscated names. Offsets change every build. Requires VS Code installed. Fragile. |
+| **Separate test project** | Our tests need `[InternalsVisibleTo]` access to `McpPipeServer`'s internal HTTP helpers. Same target framework (`net10.0`). Same dependencies. No benefit from a new project. |
+
+Golden snapshots give us 90% of the value at 10% of the complexity. The handshake test gives us integration confidence that no amount of unit tests provides.
+
+## What Exactly To Test
+
+### 1. MCP `initialize` Response Shape
+
+The `initialize` response from our server must match VS Code's:
+- `serverInfo.name` = `"vscode-copilot-cli"` (we already do this)
+- `capabilities.tools.listChanged` = `true`
+- No `taskSupport` in response (or `forbidden` — both acceptable)
+
+### 2. `tools/list` Response Schema
+
+The `tools/list` response defines the contract. Every tool name, description, and input schema must match what VS Code registers.
+
+Golden file: `Snapshots/tools-list.json` — the full `tools/list` response from a real VS Code capture.
+
+### 3. Tool Response Shapes (Per-Tool)
+
+For each tool, call it with representative inputs (via mocked RPC) and validate the response JSON matches the golden shape.
+
+**Important:** Schema comparison, not value comparison. We check that the same keys exist with the same value types and nesting depth. We do NOT check that `filePath` equals a specific string.
+
+### 4. Notification Formats
+
+Push `selection_changed` and `diagnostics_changed` through the full stack and verify the SSE event format matches golden snapshots.
+
+### 5. HTTP Protocol Details
+
+Already partially covered by `HttpParsingTests`, but the handshake test adds:
+- Auth header validation (`Authorization: Nonce {uuid}`)
+- `Mcp-Session-Id` header on responses
+- `Content-Type: text/event-stream` on SSE responses
+- 202 Accepted for notifications (not 200)
+- `Transfer-Encoding: chunked` on SSE stream
+
+### 6. Lock File Format
+
+Construct a lock file as our extension does, parse as JSON, and verify 8 required fields with correct types.
+
+## File Structure
+
+```
+src/CopilotCliIde.Server.Tests/
+  Snapshots/
+    tools-list.json                    # Captured tools/list response from VS Code
+    get-vscode-info-response.json      # Tool response shapes (structure only)
+    get-selection-response.json
+    get-diagnostics-response.json
+    open-diff-response.json
+    close-diff-response.json
+    selection-changed-notification.json
+    diagnostics-changed-notification.json
+    lock-file.json
+    README.md                          # How snapshots were captured, how to refresh
+  ProtocolCompatibilityTests.cs        # Golden snapshot comparison (Layer 1)
+  McpHandshakeTests.cs                 # Full pipe integration test (Layer 2)
+```
+
+Snapshots are committed to the repo. They're small JSON files (< 1KB each). They change infrequently — only when VS Code updates its protocol.
+
+## Reference Data Management
+
+### Initial Capture
+
+We have the proxy captures from the reverse-engineering sessions. These become the initial golden snapshots.
+
+### Refresh Process
+
+**Manual, triggered by VS Code Insiders updates.**
+
+1. **Detection:** Check `~/.vscode-insiders/extensions/github.copilot-chat-*/package.json` for version changes.
+2. **Capture:** Run the named pipe proxy tool between VS Code Insiders and Copilot CLI. Capture one full session.
+3. **Update:** Replace golden JSON files. Run `dotnet test` to see what changed. Review diffs. Commit.
+4. **Frequency:** Monthly, or when a major Copilot CLI / VS Code Insiders release is announced.
+
+### Refresh Script
+
+A PowerShell script (`scripts/refresh-snapshots.ps1`) that checks VS Code Insiders, reads extension version, launches proxy, captures session, and updates snapshots.
+
+## Phased Rollout
+
+### Phase 1: Golden Schema Infrastructure + `tools/list` Test ✅ COMPLETE
+
+**Effort:** ~2 hours  
+**Value:** High — catches tool registration regressions immediately
+
+- ✅ Created `Snapshots/` directory with 8 golden JSON files
+- ✅ Wrote `JsonSchemaComparer` helper (structural comparison utility)
+- ✅ Wrote `ProtocolCompatibilityTests` with 3 tests
+- ✅ Added RpcClient internal constructor test seam
+
+This phase builds the infrastructure that all subsequent tests depend on.
+
+### Phase 2: MCP Handshake Integration Test (NEXT)
+
+**Effort:** ~4 hours  
+**Value:** Very high — catches integration bugs, validates full wire protocol
+
+- Write `McpHandshakeTests` that spins up `McpPipeServer` on a test pipe
+- Mock `IVsServiceRpc` via NSubstitute
+- Test: `initialize` → `tools/list` → `get_vscode_info` call → response validation
+- Test: SSE connect → `selection_changed` push → verify SSE event arrives
+
+### Phase 3: Per-Tool Golden Response Tests (DEFERRED)
+
+**Effort:** ~2 hours  
+**Value:** Medium — incremental over Phase 2
+
+- Add golden snapshot files for each tool's response shape
+- Write parameterized test that calls each tool and compares against snapshot
+
+### Phase 4: Refresh Script (DEFERRED)
+
+**Effort:** ~3 hours  
+**Value:** Medium-long-term
+
+- PowerShell script for proxy capture → snapshot update
+- `snapshots/VERSION` tracking
+- `snapshots/README.md` with instructions
+
+## Test Seam: RpcClient Internal Constructor
+
+`RpcClient.VsServices` is set during `ConnectAsync` (which connects a real pipe). For the handshake test, we need to inject a mock `IVsServiceRpc` without actually connecting the RPC pipe.
+
+**Solution:** Added `internal RpcClient(IVsServiceRpc vsServices)` constructor. It's already `[InternalsVisibleTo]` for the test project. One line of code, no architectural impact.
+
+## Impact on Existing Tests
+
+None. All new files. Existing 109 tests untouched. The `ProtocolCompatibilityTests` (3 new tests) are additive. Phase 2 integration test is also additive. Current test count: **112 passing**.
+
+## Assignments
+
+- **Phase 1** ✅ Hudson — golden infrastructure complete
+- **Phase 2** (Next) — Bishop — handshake integration test
+- **Phase 3** (Future) — Hudson — per-tool golden tests
+- **Phase 4** (Future) — Hicks or Bishop — refresh script
+- **RpcClient seam** ✅ Bishop — constructor added
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

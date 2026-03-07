@@ -20,4 +20,15 @@
 - **RpcClient is sealed:** Cannot be mocked with NSubstitute. Tool methods (other than `UpdateSessionNameTool`) can only be tested via output schema validation on the anonymous objects they produce, not via direct invocation with mocked dependencies.
 - **Severity mapping centralization (2026-03-07):** Ripley promoted `VsServiceRpc.MapSeverity` to internal static, refactored `CopilotCliIdePackage.CollectDiagnosticsGrouped` to call it. No new VSIX unit test added (disproportionate infrastructure cost; indirect coverage via `NotificationFormatTests` sufficient). All 109 tests pass.
 - **Team Notification (2026-03-07T11:41:21Z):** Hicks implemented husky pre-commit hook for whitespace enforcement. All team members should run `npm run format` before committing and `npm run format:check` in CI pipelines. The pre-commit hook validates all .NET files. See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook" for details.
+- **Protocol compatibility test infrastructure — Phase 1 (2026-03-07):** Created golden JSON snapshot infrastructure in `Snapshots/` directory (8 JSON files + README) with TYPE-PLACEHOLDER format for structural comparison. Built `JsonSchemaComparer` utility for superset comparison (walks JSON trees, checks property names/types, allows extras in actual, fails on missing). Added `ProtocolCompatibilityTests` with 3 tests: `ToolsList_ContainsAllVsCodeTools` (verifies 6 VS Code tool names present), `ToolsList_ToolInputSchemas_MatchGolden` (verifies each tool's parameter names and types match golden file), `LockFile_Schema_MatchesVsCode` (verifies 8 required fields with correct types). Updated csproj with `<Content Include="Snapshots\**" CopyToOutputDirectory="PreserveNewest" />`. All 112 tests pass (109 existing + 3 new). Phase 2 (McpHandshakeTests integration) and Phase 3 (per-tool response golden tests) are next.
+
+### 2026-03-07T17:02:27Z — Protocol Compatibility Phase 1 Orchestration Complete
+
+Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-hudson.md`. This spawn delivered the Phase 1 golden snapshot infrastructure for protocol compatibility test automation.
+
+**Outcome:** ✅ SUCCESS. Golden Snapshots/ directory created with 8 JSON files, JsonSchemaComparer utility implemented, ProtocolCompatibilityTests class with 3 passing tests. Current test count: 112 passing (109 existing + 3 new). No regressions.
+
+**Phase 1 complete.** Bishop's test seam (RpcClient constructor) is now in place. Phase 2 (handshake integration test, ~4 hours) can proceed using both Bishop's infrastructure and the golden snapshot framework completed here.
+
+**Next:** Phase 2 — Bishop to lead handshake integration tests. Phase 3 and 4 deferred (per-tool golden tests and refresh script).
 
