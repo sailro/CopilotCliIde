@@ -469,6 +469,162 @@ This directive captured for team memory — enforced in Extension Dev practices.
 
 ---
 
+### HTTP Response Framing: Match VS Code Express Server
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-08  
+**Status:** Implemented
+
+All HTTP response headers from `McpPipeServer` are now lowercase (matching VS Code's Express server), and POST responses with `text/event-stream` content type use `Transfer-Encoding: chunked` instead of `Content-Length`.
+
+#### Rationale
+
+Traffic captures comparing our MCP server against VS Code's showed 3 framing differences. While HTTP headers are case-insensitive per RFC 7230, matching Express's lowercase output byte-for-byte maximizes compatibility with any Copilot CLI parsing that might be case-sensitive in practice.
+
+#### Rules Going Forward
+
+1. **All new HTTP response headers must be lowercase.** Do not use PascalCase (`Content-Type`) — use `content-type`.
+2. **SSE responses (`text/event-stream`) must use chunked encoding.** Only plain-text error responses (400, 401, 404, etc.) use `Content-Length`.
+3. **SSE chunk writes must be atomic.** Combine chunk size + data + trailing CRLF into a single `WriteAsync` call. Never split across multiple writes.
+
+#### Affects
+
+- Bishop: Any new HTTP response code in `McpPipeServer`
+- Hudson: Test assertions for HTTP headers must use lowercase
+
+**Result:** 131 tests pass. Committed as 7c460b8.
+
+---
+
+### Bishop's Capture Analysis — VS Code v0.38 vs v0.39 vs Our Server
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-07  
+**Status:** Analysis Complete
+
+Analyzed traffic captures from VS Code Stable (v0.38) and Insiders (v0.39) to identify protocol differences.
+
+#### Key Findings
+
+**v0.38 vs v0.39:** Protocol-identical. All tools, notifications, and headers match exactly.
+
+**VS Code vs Our Implementation:**
+
+1. **serverInfo.version mismatch** — we return `"1.0.0"`, should be `"0.0.1"` for consistency
+2. **Extra tool:** we expose `read_file` (harmless; intentional per project docs)
+3. **Casing concerns (P0):** Our DTOs serialize with PascalCase (`SelectionResult`, `VsInfoResult`). VS Code uses camelCase. If the MCP .NET SDK uses PascalCase (unlikely), this breaks compatibility for `get_selection`, `get_vscode_info`, `get_diagnostics`.
+4. **get_selection null handling (P1):** VS Code returns literal `"null"` when no editor is active; we return a serialized object with null fields.
+5. **get_diagnostics source field (P1):** We include `source`, VS Code's captures omit it.
+6. **HTTP framing (P2):** We use `Content-Length`, VS Code uses chunked encoding and lowercase headers.
+
+#### Test Opportunities
+
+Outlined 10 new integration tests to replay exact VS Code traffic and validate compatibility.
+
+#### Action Items
+
+- P0: Verify MCP .NET SDK serialization behavior (camelCase vs PascalCase)
+- P1: Align `get_selection` null behavior and `get_diagnostics` field set
+- P2: Use chunked encoding and lowercase headers for HTTP responses
+
+**Related:** See "Golden Snapshots Now Sourced from Real VS Code Extension" for protocol gaps discovered during snapshot refresh.
+
+---
+
+### Golden Snapshots Now Sourced from Real VS Code Extension
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-07  
+**Status:** Completed
+
+Replaced all 8 golden snapshot files in `src/CopilotCliIde.Server.Tests/Snapshots/` with data extracted directly from VS Code Insiders Copilot Chat extension **v0.39.2026030604** (`dist/extension.js`).
+
+#### Protocol Gaps Discovered
+
+1. **`get_vscode_info` response:** VS Code returns `{version, appName, appRoot, language, machineId, sessionId, uriScheme, shell}`. Our implementation returns completely different fields. When response tests are wired up, these 6 fields will be flagged as missing.
+
+2. **`diagnostics_changed` notification:** VS Code includes `source` per diagnostic. Our push notification omits it. Also, notification entries have only `uri` (no `filePath`), while the `get_diagnostics` tool response has both.
+
+3. **`open_diff` / `close_diff` responses:** VS Code does NOT include an `error` field. Errors use MCP's `{isError: true}` wrapper. Our server includes `error: null` in success responses — harmless extra field under superset comparison, but worth documenting.
+
+#### Snapshot Refresh Process
+
+Documented in `Snapshots/README.md`. Manual process: read `extension.js`, locate `registerTool()` calls and notification broadcasts, extract JSON structures.
+
+**Result:** 112 tests pass (no regressions). Response snapshots are reference files not yet in active tests. When wired in, they will surface the `get_vscode_info` gap.
+
+---
+
+### Proxy-Based Protocol Compatibility Testing
+
+**Author:** Ripley (Lead)  
+**Date:** 2026-03-07  
+**Status:** Proposed  
+**Supersedes:** "Protocol Compatibility Test Architecture" (golden snapshot approach)
+
+#### Decision
+
+Build a named pipe proxy tool that intercepts real Copilot CLI ↔ VS Code traffic. Use captured traffic as the ground truth for compatibility testing, not golden snapshots derived from source code.
+
+#### Architecture
+
+A C# console app (`net10.0`, `tools/PipeProxy/`) that sits between Copilot CLI and VS Code Insiders on the named pipe, logging traffic in NDJSON format.
+
+**Why C#:**
+- Reuses `ReadHttpRequestAsync`, `ReadChunkedBodyAsync`, `WriteHttpResponseAsync` from `McpPipeServer.cs` — production-tested, handles all HTTP-on-pipe edge cases
+- Same named pipe APIs and lock file format code already exist
+- No new runtime dependency; team knows C#
+
+**How It Works:**
+1. Scan `~/.copilot/ide/*.lock` to find VS Code Insiders
+2. Create proxy named pipe and inject proxy lock file (hide VS Code's lock temporarily to prevent CLI race)
+3. Relay all traffic (POST tool calls, GET SSE streams, DELETE disconnect) between CLI and VS Code
+4. Log each request/response/event as NDJSON with timestamps, directions, HTTP metadata, parsed JSON bodies
+
+**Log Format:**
+```jsonl
+{"ts":"2026-03-07T12:34:56.789Z","seq":1,"dir":"cli_to_vscode","type":"request","http":{...},"body":{...}}
+```
+
+#### Testing Strategy
+
+**Phase 1 (near term):** Build capture tool, run with Copilot CLI manually, inspect NDJSON output for protocol discovery.
+
+**Phase 2:** Write replay-based comparison tests:
+- Read captured NDJSON traffic file
+- Spin up our `McpPipeServer` with mocked `IVsServiceRpc`
+- Send same CLI requests to our server
+- Compare responses structurally (same fields, same types, same nesting) — values can differ
+
+**Phase 3 (future):** Live dual-target comparison mode (optional, requires VS Code + our mock running simultaneously).
+
+#### Phased Rollout
+
+| Phase | Task | Effort | Depends |
+|-------|------|--------|---------|
+| 1 | Build PipeProxy tool (capture mode) | ~6h | — |
+| 2 | First capture with VS Code Insiders | ~1h | Phase 1 |
+| 3 | TrafficParser + SchemaComparer utilities | ~3h | Phase 2 |
+| 4 | Replay comparison tests | ~4h | Phase 3 |
+| 5 | (Future) Live `--compare` mode | ~4h | Phase 4 |
+
+**Total to first capture:** ~6h  
+**Total to automated replay tests:** ~14h
+
+#### Key Design Decisions
+
+1. **C# over Node.js/PowerShell** — reuse production-tested HTTP-on-pipe code, not reimplementing
+2. **Standalone tool, not test fixture** — proxy runs interactively with a human; replay tests run headless in CI
+3. **NDJSON format** — queryable, `grep`-able, diffable, parseable with `System.Text.Json`
+4. **Committed captures** — ground truth stored as test data; re-captured on significant VS Code updates
+5. **Structural comparison** — schema shape (field names, types, nesting), not values
+
+#### What This Replaces
+
+Supersedes the golden snapshot approach. Existing `Snapshots/*.json` files kept temporarily; replaced when replay tests are ready.
+
+---
+
 ### Remove UI Thread Requirement from Dispose
 
 **Author:** Hicks (Extension Dev)  
