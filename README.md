@@ -47,6 +47,15 @@ $ copilot
 
 Once connected, the agent can query solution info, see your selection in real time, propose diffs with Accept/Reject, and check diagnostics from the Error List.
 
+### Diagnostics
+
+The extension logs all bridge activity to a dedicated **"Copilot CLI IDE"** pane in the VS Output Window (`View → Output`). Each log entry is timestamped and includes:
+
+- **MCP tool calls** received from Copilot CLI (e.g., `get_selection`, `open_diff`, `read_file`)
+- **Push notifications** sent to the CLI (e.g., selection changes, diagnostics updates)
+
+This real-time log is useful for debugging connectivity issues, verifying that the CLI can see your edits, and monitoring the bridge during active sessions.
+
 ## Protocol
 
 For full protocol details — discovery, transport, MCP tools, push notifications, and schemas — see **[doc/protocol.md](doc/protocol.md)**.
