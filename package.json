@@ -1,5 +1,11 @@
 {
   "devDependencies": {
-    "@bradygaster/squad-cli": "^0.8.20"
+    "@bradygaster/squad-cli": "^0.8.20",
+    "husky": "^9.1.7"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "format": "dotnet format ./CopilotCliIde.slnx whitespace --verbosity quiet",
+    "format:check": "dotnet format ./CopilotCliIde.slnx whitespace --verify-no-changes --verbosity quiet"
   }
 }
