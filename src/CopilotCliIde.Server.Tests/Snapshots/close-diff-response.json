@@ -1,7 +1,0 @@
-{
-	"_comment": "Golden snapshot extracted from VS Code Insiders Copilot Chat extension v0.39.2026030604. VS Code returns the same shape whether the diff was found or not — only already_closed and message differ. No error field; MCP isError wrapper used for exceptions.",
-	"success": "boolean",
-	"already_closed": "boolean",
-	"tab_name": "string",
-	"message": "string"
-}

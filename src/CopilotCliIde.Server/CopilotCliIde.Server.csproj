@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="CopilotCliIde.Server.Tests" />
+    <InternalsVisibleTo Include="PipeProxy" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" />

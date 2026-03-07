@@ -136,4 +136,29 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-ripl
 
 **Team impact:** Automated protocol compatibility checks now enabled. Golden snapshots committed to repo; manual refresh monthly or on major VS Code update. All production code changes complete (RpcClient seam is only change needed). Existing 109 tests remain at 100% pass rate.
 
+### 2026-03-07 — Protocol Compat Testing Redesign: Proxy-Based Approach
+
+Sebastien rejected the golden-snapshot-from-source-code approach as circular ("I want tests really using vscode-insiders"). Redesigned the entire protocol compatibility testing architecture around a named pipe proxy.
+
+**New approach:**
+- C# console app (`tools/PipeProxy/`, net10.0) that sits between Copilot CLI and VS Code Insiders on the named pipe
+- Reuses `ReadHttpRequestAsync`, `WriteHttpResponseAsync`, `ReadChunkedBodyAsync` from `McpPipeServer.cs` (already internal static, fully tested)
+- Reads VS Code's lock file, writes its own lock file so CLI connects to proxy
+- Logs all traffic as NDJSON (structured, machine-parseable)
+- Captured traffic committed to repo as test data — real wire captures, not derived from source code
+
+**Testing flow:**
+1. Developer runs proxy while using `copilot /ide` with VS Code Insiders → captures traffic to NDJSON
+2. Replay tests (`TrafficReplayTests.cs`) read captured traffic, send same requests to our server, structurally compare responses
+3. Future optional: live dual-target comparison mode (proxy sends to both VS Code and our server simultaneously)
+
+**Key decisions:**
+- C# over Node.js/PowerShell — reuses existing production HTTP parsing code
+- NDJSON over raw bytes/SQLite — grep-able, diffable, streamable
+- Structural comparison over value comparison — same fields/types/nesting, not same values
+- Standalone tool over test fixture — capture is manual (requires human driving CLI), replay is automated CI
+
+**Supersedes:** Previous golden snapshot architecture. Existing `Snapshots/*.json` files kept temporarily until replay tests replace them.
+
+**Proposal:** `.squad/decisions/inbox/ripley-proxy-based-compat-testing.md`
 

@@ -11,6 +11,17 @@ public sealed class RpcClient : IDisposable
 	public IVsServiceRpc? VsServices { get; private set; }
 
 	/// <summary>
+	/// Test constructor: injects a pre-configured <see cref="IVsServiceRpc"/>
+	/// so tests can bypass the real named-pipe connection.
+	/// </summary>
+	internal RpcClient(IVsServiceRpc vsServices)
+	{
+		VsServices = vsServices;
+	}
+
+	public RpcClient() { }
+
+	/// <summary>
 	/// Event raised when VS notifies the MCP server of a selection change.
 	/// </summary>
 	public event Func<SelectionNotification, Task>? SelectionChanged;

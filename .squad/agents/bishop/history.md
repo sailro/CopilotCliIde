@@ -92,3 +92,46 @@ Extracted protocol reference data directly from VS Code Insiders Copilot Chat ex
 - `open_diff` error cases use MCP's `isError` wrapper, not a field in the response object
 - Lock file schema confirmed identical: `{socketPath, scheme, headers, pid, ideName, timestamp, workspaceFolders, isTrusted}`
 
+### 2026-03-07 — PipeProxy Capture Tool (Phase 1)
+
+Built `tools/PipeProxy/` — a net10.0 console app that sits between Copilot CLI and VS Code on the named pipe, capturing all MCP traffic as NDJSON. This is Phase 1 of Ripley's proxy-based compatibility testing design.
+
+**Architecture:**
+```
+Copilot CLI ──(HTTP-on-pipe)──→ PipeProxy ──(HTTP-on-pipe)──→ VS Code Insiders
+             ←─────────────────           ←─────────────────
+                                    │
+                                    ▼
+                              traffic.ndjson
+```
+
+**Files created:**
+- `tools/PipeProxy/PipeProxy.csproj` — net10.0 console app, references `CopilotCliIde.Server` for HTTP helpers
+- `tools/PipeProxy/Program.cs` — CLI entry point with `capture` subcommand, `--output`, `--verbose` flags
+- `tools/PipeProxy/LockFileManager.cs` — Scans `~/.copilot/ide/*.lock` for VS Code instances, writes proxy lock, hides original, restores on dispose
+- `tools/PipeProxy/ProxyRelay.cs` — Bidirectional HTTP-on-pipe relay. Handles POST/DELETE (request-response forwarding) and GET (SSE chunked stream relay). Contains all HTTP read/write helpers for proxy forwarding.
+- `tools/PipeProxy/TrafficLogger.cs` — Thread-safe NDJSON logger. Parses bodies as JSON (including SSE `data:` extraction). Verbose mode shows traffic on stderr.
+
+**Key implementation decisions:**
+- Added `InternalsVisibleTo Include="PipeProxy"` to Server csproj to reuse `McpPipeServer.ReadHttpRequestAsync` and `ReadChunkedBodyAsync`
+- Each CLI pipe connection gets a matching VS Code client connection — requests relayed in lockstep
+- SSE relay reads individual chunks from VS Code and forwards raw bytes to CLI while parsing SSE events for logging
+- Lock file hiding: original VS Code lock renamed to `.proxy-hidden`, restored on dispose/Ctrl+C
+- POST response bodies in SSE format (`event: message\ndata: {...}`) are parsed to extract JSON for structured logging
+
+**Build/test results:** Clean build, `--help` works, `capture` correctly reports "no VS Code found" when none running. All 112 existing server tests pass. Format check clean.
+
+### 2026-03-08 — PipeProxy SSE POST Response Fix
+
+Fixed critical bug in `ProxyRelay.HandleConnectionAsync` where POST responses with `Content-Type: text/event-stream` (SSE) were broken. The MCP Streamable HTTP transport can return SSE chunked streams from POST requests (e.g., `initialize`, `tools/call`) — not just GET.
+
+**Root cause:** The proxy's POST handler called `ReadHttpResponseAsync` which consumed the entire chunked body via `ReadChunkedBodyAsync`, then `WriteHttpResponseAsync` stripped `Transfer-Encoding: chunked` and re-wrote the response with `Content-Length`. This broke the SSE contract — the CLI expects chunked event-stream framing.
+
+**Fix:** After reading VS Code's response headers, the proxy now checks `Content-Type`:
+- **`text/event-stream`**: Forward raw header bytes + relay chunked stream transparently via `RelayChunkedStreamAsync` (same as the GET/SSE path). Headers including `Transfer-Encoding: chunked` and `Mcp-Session-Id` are preserved byte-for-byte.
+- **Other** (e.g., `202 Accepted` for notifications): Read full body via new `ReadResponseBodyAsync` helper, then forward with `WriteHttpResponseAsync` as before.
+
+**Files changed:** `tools/PipeProxy/ProxyRelay.cs` — modified `HandleConnectionAsync` POST/DELETE section, added `ReadResponseBodyAsync` private helper.
+
+**Build/test results:** PipeProxy builds clean. All 112 server tests pass.
+
