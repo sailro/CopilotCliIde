@@ -13,20 +13,28 @@ namespace CopilotCliIde.Server.Tests;
 /// </summary>
 public class TrafficReplayTests : IDisposable
 {
-	private readonly TrafficParser _parser;
+	public void Dispose() { }
 
-	public TrafficReplayTests()
+	/// <summary>
+	/// Returns all .ndjson files from the Captures/ directory as test data.
+	/// Drop a new capture in Captures/ and it's automatically validated.
+	/// </summary>
+	public static IEnumerable<object[]> CaptureFiles()
 	{
-		_parser = TrafficParser.Load(FindTrafficFile());
+		var capturesDir = FindCapturesDir();
+		foreach (var file in Directory.GetFiles(capturesDir, "*.ndjson"))
+			yield return [file];
 	}
 
-	public void Dispose() { }
+	private static TrafficParser LoadCapture(string path) => TrafficParser.Load(path);
 
 	#region Test 1 — Initialize response structure
 
-	[Fact]
-	public void VsCodeInitializeResponse_HasExpectedStructure()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeInitializeResponse_HasExpectedStructure(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		var response = _parser.GetInitializeResponse();
 		Assert.NotNull(response);
 
@@ -69,9 +77,11 @@ public class TrafficReplayTests : IDisposable
 		"update_session_name",
 	};
 
-	[Fact]
-	public void VsCodeToolsList_ContainsExpectedTools()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeToolsList_ContainsExpectedTools(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		var response = _parser.GetToolsListResponse();
 		Assert.NotNull(response);
 
@@ -98,9 +108,11 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 3 — Tool input schemas shape
 
-	[Fact]
-	public void VsCodeToolsList_ToolInputSchemas_HaveExpectedShape()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeToolsList_ToolInputSchemas_HaveExpectedShape(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		var response = _parser.GetToolsListResponse();
 		Assert.NotNull(response);
 
@@ -129,9 +141,11 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 4 — get_diagnostics response structure
 
-	[Fact]
-	public void VsCodeGetDiagnosticsResponse_HasExpectedStructure()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeGetDiagnosticsResponse_HasExpectedStructure(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		var response = _parser.GetToolCallResponse("get_diagnostics");
 		Assert.NotNull(response);
 
@@ -183,9 +197,11 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 5 — selection_changed notification structure
 
-	[Fact]
-	public void VsCodeSelectionChanged_HasExpectedStructure()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeSelectionChanged_HasExpectedStructure(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		var notifications = _parser.GetNotifications("selection_changed");
 		Assert.NotEmpty(notifications);
 
@@ -228,9 +244,11 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 6 — diagnostics_changed notification structure
 
-	[Fact]
-	public void VsCodeDiagnosticsChanged_HasExpectedStructure()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeDiagnosticsChanged_HasExpectedStructure(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		var notifications = _parser.GetNotifications("diagnostics_changed");
 		Assert.NotEmpty(notifications);
 
@@ -275,9 +293,11 @@ public class TrafficReplayTests : IDisposable
 		"diagnostics_changed",
 	};
 
-	[Fact]
-	public void VsCodeCapture_ContainsNoUnknownNotificationMethods()
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsCodeCapture_ContainsNoUnknownNotificationMethods(string captureFile)
 	{
+		var _parser = LoadCapture(captureFile);
 		// Extract ALL notification methods from vscode_to_cli entries
 		var allMethods = _parser.Entries
 			.Where(e => e.Direction == "vscode_to_cli" && e.JsonRpcMessage.HasValue)
@@ -307,7 +327,8 @@ public class TrafficReplayTests : IDisposable
 	[Fact]
 	public async Task OurToolsList_MatchesVsCodeToolNames()
 	{
-		// Extract VS Code's tool names from the capture
+		// Extract VS Code's tool names from the first capture
+		var _parser = LoadCapture(FindAllCaptureFiles().First());
 		var vsCodeResponse = _parser.GetToolsListResponse();
 		Assert.NotNull(vsCodeResponse);
 		var vsCodeToolNames = vsCodeResponse.Value.GetProperty("result").GetProperty("tools")
@@ -381,33 +402,36 @@ public class TrafficReplayTests : IDisposable
 	#region Helpers
 
 	/// <summary>
-	/// Finds the capture file relative to the test assembly or repo structure.
+	/// Finds the Captures/ directory relative to the test assembly or repo structure.
 	/// </summary>
-	private static string FindTrafficFile()
+	private static string FindCapturesDir()
 	{
-		// First: look for Captures/ next to the assembly (copied via CopyToOutputDirectory)
 		var assemblyDir = Path.GetDirectoryName(typeof(TrafficReplayTests).Assembly.Location)!;
-		var fromAssembly = Path.Combine(assemblyDir, "Captures", "vscode-insiders-0.39.ndjson");
-		if (File.Exists(fromAssembly))
+
+		// First: look next to the assembly (copied via CopyToOutputDirectory)
+		var fromAssembly = Path.Combine(assemblyDir, "Captures");
+		if (Directory.Exists(fromAssembly))
 			return fromAssembly;
 
 		// Fallback: walk up to find the test project source directory
 		var dir = assemblyDir;
 		while (dir != null)
 		{
-			var candidate = Path.Combine(dir, "src", "CopilotCliIde.Server.Tests", "Captures", "vscode-insiders-0.39.ndjson");
-			if (File.Exists(candidate))
+			var candidate = Path.Combine(dir, "src", "CopilotCliIde.Server.Tests", "Captures");
+			if (Directory.Exists(candidate))
 				return candidate;
-			// Also check directly (in case we're already in the test project dir)
-			candidate = Path.Combine(dir, "Captures", "vscode-insiders-0.39.ndjson");
-			if (File.Exists(candidate))
+			candidate = Path.Combine(dir, "Captures");
+			if (Directory.Exists(candidate))
 				return candidate;
 			dir = Path.GetDirectoryName(dir);
 		}
 
-		throw new FileNotFoundException(
-			"Capture file not found. Expected at src/CopilotCliIde.Server.Tests/Captures/vscode-insiders-0.39.ndjson");
+		throw new DirectoryNotFoundException(
+			"Captures directory not found. Expected at src/CopilotCliIde.Server.Tests/Captures/");
 	}
+
+	private static IEnumerable<string> FindAllCaptureFiles() =>
+		Directory.GetFiles(FindCapturesDir(), "*.ndjson");
 
 	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct)
 	{
