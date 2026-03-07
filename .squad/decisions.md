@@ -346,6 +346,42 @@ If the VSIX project ever gets its own test project (or if MapSeverity moves to S
 
 ---
 
+### Convert MapSeverity to Extension Method on vsBuildErrorLevel
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-03-07  
+**Status:** Implemented
+
+## Context
+
+`VsServiceRpc.MapSeverity` was an `internal static` helper that mapped `EnvDTE80.vsBuildErrorLevel` enum values to protocol severity strings (`"error"`, `"warning"`, `"information"`). Called from two places: `VsServiceRpc.GetDiagnosticsAsync` and `CopilotCliIdePackage.CollectDiagnosticsGrouped`.
+
+## Decision
+
+Converted to an extension method `ToProtocolSeverity()` on `vsBuildErrorLevel`, housed in a new `BuildErrorLevelExtensions` class in `src/CopilotCliIde/BuildErrorLevelExtensions.cs`.
+
+Call sites now read `item.ErrorLevel.ToProtocolSeverity()` instead of `VsServiceRpc.MapSeverity(item.ErrorLevel)`.
+
+## Why
+
+- **Natural API.** The conversion belongs to the type, not to `VsServiceRpc`.
+- **Focused RPC class.** Keeps `VsServiceRpc` focused on RPC concerns, not utility mapping.
+- **Stays in CopilotCliIde.** The method depends on VS SDK's `vsBuildErrorLevel`, so it can't move to the Shared project (netstandard2.0).
+
+## Files Changed
+
+- **Added:** `src/CopilotCliIde/BuildErrorLevelExtensions.cs` — new extension method class
+- **Modified:** `src/CopilotCliIde/VsServiceRpc.cs` — removed `MapSeverity` method, updated call site
+- **Modified:** `src/CopilotCliIde/CopilotCliIdePackage.cs` — updated call site
+
+## Impact
+
+- Server builds clean
+- 109 tests pass
+- No behavioral change — same protocol mapping, cleaner API
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

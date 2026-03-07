@@ -92,6 +92,14 @@ Ripley centralized `vsBuildErrorLevel` → severity string mapping that was dupl
 
 **Impact on extension:** `CopilotCliIdePackage.CollectDiagnosticsGrouped` now uses single canonical mapping for diagnostics push notifications and tool responses. No functional change — ensures consistency across all severity string production.
 
-See `.squad/decisions.md` for full rationale (why not Shared project, why not new utility class).
+### 2026-03-07T105840Z — MapSeverity Extension Method Refactor
+
+Converted static `MapSeverity` helper to extension method `ToProtocolSeverity()` on `vsBuildErrorLevel`. New class `BuildErrorLevelExtensions.cs` houses the extension; call sites in `VsServiceRpc.cs` and `CopilotCliIdePackage.cs` updated to use natural API (`item.ErrorLevel.ToProtocolSeverity()`).
+
+**Rationale:** Extension method reads more naturally at call site; keeps `VsServiceRpc` focused on RPC concerns, not utility mapping. Method stays in CopilotCliIde (not Shared) because it depends on VS SDK's `vsBuildErrorLevel` enum.
+
+**Build:** Server compiles clean, 109 tests pass.
+
+See `.squad/decisions.md` — "Convert MapSeverity to Extension Method" decision section.
 
 
