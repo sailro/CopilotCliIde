@@ -57,3 +57,22 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-huds
 - **New helper `ExtractJsonRpcFromResponse`** added for parsing SSE/JSON/brace-matched responses from our MCP server (used by E1).
 - All 140 tests pass. No production code changes.
 
+### 2026-03-08 — Test Gap Analysis Round 2 (vs-1.0.7 Fresh Capture)
+
+- **140 tests still passing** across 12 test files (confirmed baseline).
+- **vs-1.0.7 capture key differences from round 1:** `source` field now present in `diagnostics_changed` (value: project name like "AzdTool.csproj"); `code` field present but null; `text` field always present in both `selection_changed` and `get_selection` (was previously noted as optional); `logging` capability added in initialize response (not in VS Code captures); out-of-order responses observed (id=8 before id=7).
+- **Cross-capture field alignment:** `text` key in `selection_changed` is always present across all 3 captures (was previously uncertain for vs-1.0.7). `source` field is present in vs-1.0.7 `diagnostics_changed` but absent in VS Code 0.38 notifications. `code` is "CS0246" in VS Code get_diagnostics responses but null in vs-1.0.7 notifications.
+- **Existing Test 6 gap confirmed:** `VsCodeDiagnosticsChanged_HasExpectedStructure` validates `range`, `message`, `severity` but does NOT check `source` or `code` fields. Same gap in Test 4 for get_diagnostics responses.
+- **8 new tests recommended** (3 critical, 4 important, 1 nice-to-have). Top 3: diagnostic source/code field validation, get_selection integration test, auth rejection test. Full analysis at `.squad/decisions/inbox/hudson-test-round2.md`.
+- **Tests not recommended (with rationale):** B3-B6 (no capture data), C2-C3 (timing/dedup), D4-D5 (already covered or hard to test), F1-F4 (testing test infrastructure).
+
+### 2026-03-08 — Refactor + Round 2 Priority Tests (3 new tests, 1 refactor)
+
+- **Removed `FindAllCaptureFiles()` method.** Cross-capture `[Fact]` tests (A1, C1, Test 7) now inline `Directory.GetFiles(FindCapturesDir(), "*.ndjson")`. `FindCapturesDir()` retained as shared infrastructure. All per-capture tests use `[Theory] [MemberData(nameof(CaptureFiles))]` with `TheoryData<string>`.
+- **Extended Test 6 (`VsCodeDiagnosticsChanged_HasExpectedStructure`)** to validate `source` and `code` fields on diagnostic items when present. Type-checks: string or null. Handles cross-capture variation (vs-1.0.7 has `source`, VS Code 0.38 may not).
+- **New Test E2 (`OurServer_GetSelectionResponse_HasExpectedStructure`)** — Integration test: mocks `IVsServiceRpc.GetSelectionAsync()` → returns `SelectionResult` with realistic data → calls `tools/call get_selection` over pipe → validates all fields (`text`, `filePath`, `fileUrl`, `selection`, `current`) and sub-fields (`start.line`, `start.character`, `end.line`, `end.character`, `isEmpty`).
+- **New Test E3 (`OurServer_InvalidNonce_Returns401`)** — Integration test: connects to server, sends request with wrong nonce, asserts HTTP 401 Unauthorized response. Validates the nonce as the sole security boundary.
+- **Fixed pre-existing Test B1 bug:** `VsCodeGetSelectionResponse_HasExpectedStructure` failed on vs-1.0.7 because `current: false` responses omit `filePath`/`fileUrl`/`selection`. Added early return when `current` is `false`.
+- **xUnit v3 TheoryData note:** `TheoryDataRow<T>.GetData()` is `protected` in xUnit v3 — cannot extract values from `TheoryData<T>` in non-Theory tests. Use `FindCapturesDir()` directly for `[Fact]` tests needing all captures.
+- **Test count:** 142 (was 140). All passing.
+

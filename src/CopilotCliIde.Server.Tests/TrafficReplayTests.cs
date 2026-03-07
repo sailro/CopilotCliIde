@@ -401,43 +401,43 @@ public class TrafficReplayTests
 			if (schemas.Count < 2)
 				continue; // Tool only appears in one capture — nothing to compare
 
-			var baseline = schemas[0];
+			var (baselineCapture, baselineProps, baselineRequired) = schemas[0];
 
 			for (var i = 1; i < schemas.Count; i++)
 			{
-				var other = schemas[i];
+				var (otherCapture, otherProps, otherRequired) = schemas[i];
 
 				// Compare property names
-				var baselineProps = baseline.Props.Keys.ToHashSet();
-				var otherProps = other.Props.Keys.ToHashSet();
+				var baselinePropNames = baselineProps.Keys.ToHashSet();
+				var otherPropNames = otherProps.Keys.ToHashSet();
 
-				var missingInOther = baselineProps.Except(otherProps).ToList();
-				var extraInOther = otherProps.Except(baselineProps).ToList();
+				var missingInOther = baselinePropNames.Except(otherPropNames).ToList();
+				var extraInOther = otherPropNames.Except(baselinePropNames).ToList();
 
 				foreach (var missing in missingInOther)
-					differences.Add($"{toolName}: property '{missing}' in {baseline.Capture} but missing in {other.Capture}");
+					differences.Add($"{toolName}: property '{missing}' in {baselineCapture} but missing in {otherCapture}");
 				foreach (var extra in extraInOther)
-					differences.Add($"{toolName}: property '{extra}' in {other.Capture} but missing in {baseline.Capture}");
+					differences.Add($"{toolName}: property '{extra}' in {otherCapture} but missing in {baselineCapture}");
 
 				// Compare property types for shared properties
-				foreach (var prop in baselineProps.Intersect(otherProps))
+				foreach (var prop in baselinePropNames.Intersect(otherPropNames))
 				{
-					if (baseline.Props[prop] != other.Props[prop])
+					if (baselineProps[prop] != otherProps[prop])
 					{
 						differences.Add(
-							$"{toolName}.{prop}: type '{baseline.Props[prop]}' in {baseline.Capture} " +
-							$"vs '{other.Props[prop]}' in {other.Capture}");
+							$"{toolName}.{prop}: type '{baselineProps[prop]}' in {baselineCapture} " +
+							$"vs '{otherProps[prop]}' in {otherCapture}");
 					}
 				}
 
 				// Compare required fields
-				var missingRequired = baseline.Required.Except(other.Required).ToList();
-				var extraRequired = other.Required.Except(baseline.Required).ToList();
+				var missingRequired = baselineRequired.Except(otherRequired).ToList();
+				var extraRequired = otherRequired.Except(baselineRequired).ToList();
 
 				foreach (var missing in missingRequired)
-					differences.Add($"{toolName}: required '{missing}' in {baseline.Capture} but not in {other.Capture}");
+					differences.Add($"{toolName}: required '{missing}' in {baselineCapture} but not in {otherCapture}");
 				foreach (var extra in extraRequired)
-					differences.Add($"{toolName}: required '{extra}' in {other.Capture} but not in {baseline.Capture}");
+					differences.Add($"{toolName}: required '{extra}' in {otherCapture} but not in {baselineCapture}");
 			}
 		}
 

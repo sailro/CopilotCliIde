@@ -192,3 +192,35 @@ Fixed two protocol discrepancies found during capture analysis:
 
 **Build:** Clean. **Tests:** 131 pass. **Format:** Clean.
 
+### 2026-03-08 — Round 2 Capture Re-Analysis (vs-1.0.7 + VS Code captures)
+
+Performed deep re-analysis of all three NDJSON captures after the `text` and `source` fixes were applied. Compared vs-1.0.7.ndjson (our fixed extension) against vscode-0.38.ndjson and vscode-insiders-0.39.ndjson.
+
+**Confirmed fixes working in vs-1.0.7:**
+1. `get_selection` `text` field always present — entry [17] shows `"text":""` even with no active editor (was previously omitted as null). Fix verified.
+2. `diagnostics_changed` `source` field present — entry [28] shows `"source":"AzdTool.csproj"` in each diagnostic. Fix verified.
+
+**No new discrepancies found.** All remaining differences were already documented in Round 1 and are either non-breaking or low-priority:
+- POST SSE `cache-control: no-cache` header still absent (GET SSE has it; POST SSE doesn't). Low impact on named pipes.
+- `diagnostics_changed` `code` field always null (extension-side; VS's Error List doesn't expose error codes like VS Code's language server does).
+- VS Code 0.38 `get_diagnostics` tool response omits `source` field; v0.39 extension code includes it. Our inclusion is forward-compatible.
+- Other minor differences unchanged: logging capability, schema annotations, 202 framing, server version, tool ordering, JSON formatting, null handling in no-editor case.
+
+**Conclusion:** No additional code changes needed. Protocol compatibility is solid.
+
+### 2026-03-08 — Post-Capture Cleanup: Stale Comments in TrafficReplayTests
+
+After the fresh vs-1.0.7 capture (taken post-fixes), audited `TrafficReplayTests.cs` for outdated comments referencing pre-fix behavior.
+
+**Verified with actual capture data:**
+- `get_diagnostics.uri` type is **still different**: `["string","null"]` in vs-1.0.7 vs `"string"` in both VS Code captures. The `knownVariations` HashSet remains necessary and was kept.
+- `text` field in `get_selection` response: vs-1.0.7 now includes it in all cases (previously omitted when selection was empty). Removed the outdated comment "VS 1.0.7 omits it when selection is empty" and replaced with a proper assertion for the `text` field.
+- Diagnostics `source` field comment (line 278) is accurate post-fix: vs-1.0.7 has source, VS Code 0.38 does not. No change needed.
+- `current: false` comment (line 500) describes legitimate edge case behavior. No change needed.
+
+**Changes:** One edit — removed 2-line stale comment in `VsCodeGetSelectionResponse_HasExpectedStructure`, added `text` field assertion. All 142 tests pass.
+
+### 2026-03-07 — get_diagnostics URI Schema Fix
+
+Fixed `get_diagnostics` tool's `uri` parameter type to match VS Code's schema. Changed parameter from `string? uri = null` to `string uri = ""` so the MCP SDK generates `{"type": "string"}` instead of `{"type": ["string","null"]}`. Updated method body to use `string.IsNullOrEmpty(uri) ? null : uri` to preserve identical RPC behavior. Removed `knownVariations` HashSet from `AllCaptures_ToolInputSchemas_AreConsistent` test since the variation is now fixed at the source. Updated `GetDiagnosticsTool_UriIsOptional` test to assert `""` default instead of `null`. 141/142 tests pass — the one remaining failure (`AllCaptures_ToolInputSchemas_AreConsistent`) is expected because the vs-1.0.7 capture file still contains the old `["string","null"]` schema and needs recapture.
+
