@@ -107,6 +107,24 @@ Authorization: Nonce {guid}
 
 Requests without a valid nonce receive `401 Unauthorized`.
 
+### HTTP Headers
+
+**Required on all requests:**
+- `Authorization: Nonce {guid}` — authentication token from lock file
+
+**Standard headers (POST):**
+- `Content-Type: application/json`
+- `Content-Length: {bytes}`
+- `Mcp-Session-Id: {sessionId}` — associate request with MCP session (optional but recommended)
+- `mcp-protocol-version: 2025-11-25` — MCP protocol version (may be sent by CLI)
+
+**Optional informational headers (CLI may send):**
+- `X-Copilot-Session-Id` — CLI's internal session UUID
+- `X-Copilot-PID` — CLI process ID
+- `X-Copilot-Parent-PID` — Parent process ID
+
+Servers should ignore unrecognized headers.
+
 ### Endpoints
 
 All operations target a single path: `/mcp` (or `/`).
@@ -125,8 +143,9 @@ Authorization: Nonce abc123
 Content-Type: application/json
 Content-Length: 182
 Mcp-Session-Id: session-a1b2c3d4
+mcp-protocol-version: 2025-11-25
 
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_selection","arguments":{}}}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_selection","arguments":{},"_meta":{"progressToken":1}}}
 ```
 
 **Response (with result):** HTTP 200 with SSE body:
@@ -231,6 +250,29 @@ compatibility.
 All tools declare `taskSupport: "forbidden"` — they do not support MCP task-based
 execution. Tool calls use simple request/response semantics (except `open_diff`
 which is long-running but still uses request/response).
+
+### Tool Call Format
+
+Tool calls include a `_meta` object with metadata for streaming and progress tracking:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_selection",
+    "arguments": {},
+    "_meta": { "progressToken": 1 }
+  },
+  "jsonrpc": "2.0",
+  "id": 1
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `_meta.progressToken` | Incrementing integer for streaming results. Opaque to the server — handled by the MCP transport layer. |
+
+Servers implementing synchronous tools (non-streaming) can safely ignore `_meta`.
 
 ---
 
@@ -528,6 +570,10 @@ or documents are saved.
 | `uris[].diagnostics` | array | Diagnostics for this file (same schema as `get_diagnostics`) |
 
 **Debounce:** ~200ms recommended.
+
+**Virtual URIs:** IDEs may optionally send diagnostics for virtual URIs (e.g., `git://` scheme
+for diff buffers) with empty diagnostics arrays `[]` to indicate the buffer exists but has
+no errors. Clients should handle both cases gracefully.
 
 ### SSE Wire Format
 
