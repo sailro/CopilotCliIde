@@ -135,3 +135,17 @@ Fixed critical bug in `ProxyRelay.HandleConnectionAsync` where POST responses wi
 
 **Build/test results:** PipeProxy builds clean. All 112 server tests pass.
 
+### 2026-03-08 — HTTP Response Framing Aligned to VS Code Express Server
+
+Aligned `McpPipeServer`'s HTTP response framing to match VS Code's Express server exactly, based on traffic captures comparing both servers. Three changes:
+
+1. **Lowercase HTTP headers:** All response header names in `WriteHttpResponseAsync` and the SSE GET handler changed from PascalCase (`Content-Type`, `Cache-Control`, `Connection`, `Mcp-Session-Id`, `Transfer-Encoding`) to lowercase (`content-type`, `cache-control`, `connection`, `mcp-session-id`, `transfer-encoding`). HTTP headers are case-insensitive per RFC 7230, but matching VS Code's Express output byte-for-byte ensures maximum compatibility.
+
+2. **Chunked Transfer-Encoding for SSE POST responses:** `WriteHttpResponseAsync` now uses `Transfer-Encoding: chunked` instead of `Content-Length` when `contentType` is `text/event-stream`. Non-SSE error responses (400, 401, 404, etc.) still use `Content-Length`. The chunked body is wrapped with hex-length prefix and `0\r\n\r\n` terminator.
+
+3. **Single-write SSE notification chunks:** `PushNotificationAsync` now combines the chunk size line, SSE event data, and trailing CRLF into a single `byte[]` via `Buffer.BlockCopy` before writing. Previously these were 3 separate `WriteAsync` calls, causing 3 separate pipe reads on the client side.
+
+**Files changed:** `src/CopilotCliIde.Server/McpPipeServer.cs`, `src/CopilotCliIde.Server.Tests/HttpResponseTests.cs`, `src/CopilotCliIde.Server.Tests/TrafficReplayTests.cs`
+
+**Test updates:** Updated 6 `HttpResponseTests` assertions for lowercase headers. Updated `TrafficReplayTests.ReadHttpResponseAsync` helper to handle chunked responses (since POST SSE responses no longer use Content-Length). All 131 tests pass. Format check clean.
+

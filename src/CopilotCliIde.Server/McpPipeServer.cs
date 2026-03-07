@@ -199,12 +199,12 @@ public sealed class McpPipeServer : IAsyncDisposable
 						var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
 						await WriteHttpResponseAsync(pipe, 200, responseBody, postCts.Token,
 							contentType: "text/event-stream",
-							extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
+							extraHeaders: $"mcp-session-id: {transport.SessionId}\r\n");
 					}
 					else
 					{
 						await WriteHttpResponseAsync(pipe, 202, "", postCts.Token,
-							extraHeaders: $"Mcp-Session-Id: {transport.SessionId}\r\n");
+							extraHeaders: $"mcp-session-id: {transport.SessionId}\r\n");
 					}
 					continue;
 				}
@@ -213,7 +213,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 				{
 					// SSE stream for server-to-client notifications
 					headers.TryGetValue("mcp-session-id", out var sseSessionId);
-					var sseHeaders = $"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache, no-transform\r\nConnection: keep-alive\r\nMcp-Session-Id: {sseSessionId ?? transport?.SessionId ?? "none"}\r\nTransfer-Encoding: chunked\r\n\r\n";
+					var sseHeaders = $"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache, no-transform\r\nconnection: keep-alive\r\nmcp-session-id: {sseSessionId ?? transport?.SessionId ?? "none"}\r\ntransfer-encoding: chunked\r\n\r\n";
 					await pipe.WriteAsync(Encoding.UTF8.GetBytes(sseHeaders), ct);
 					await pipe.FlushAsync(ct);
 
@@ -385,11 +385,41 @@ public sealed class McpPipeServer : IAsyncDisposable
 		};
 
 		var bodyBytes = Encoding.UTF8.GetBytes(body);
-		var response = $"HTTP/1.1 {statusCode} {statusText}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n{extraHeaders}\r\n";
-		var headerBytes = Encoding.UTF8.GetBytes(response);
+		var useChunked = contentType == "text/event-stream";
 
+		string response;
+		if (useChunked)
+		{
+			response = $"HTTP/1.1 {statusCode} {statusText}\r\ncontent-type: {contentType}\r\ntransfer-encoding: chunked\r\nconnection: keep-alive\r\n{extraHeaders}\r\n";
+		}
+		else
+		{
+			response = $"HTTP/1.1 {statusCode} {statusText}\r\ncontent-type: {contentType}\r\ncontent-length: {bodyBytes.Length}\r\nconnection: keep-alive\r\n{extraHeaders}\r\n";
+		}
+
+		var headerBytes = Encoding.UTF8.GetBytes(response);
 		await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), ct);
-		await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
+
+		if (useChunked && bodyBytes.Length > 0)
+		{
+			var chunk = Encoding.UTF8.GetBytes($"{bodyBytes.Length:x}\r\n");
+			var chunkEnd = Encoding.UTF8.GetBytes("\r\n0\r\n\r\n");
+			var fullChunk = new byte[chunk.Length + bodyBytes.Length + chunkEnd.Length];
+			Buffer.BlockCopy(chunk, 0, fullChunk, 0, chunk.Length);
+			Buffer.BlockCopy(bodyBytes, 0, fullChunk, chunk.Length, bodyBytes.Length);
+			Buffer.BlockCopy(chunkEnd, 0, fullChunk, chunk.Length + bodyBytes.Length, chunkEnd.Length);
+			await stream.WriteAsync(fullChunk.AsMemory(0, fullChunk.Length), ct);
+		}
+		else if (useChunked)
+		{
+			var terminator = Encoding.UTF8.GetBytes("0\r\n\r\n");
+			await stream.WriteAsync(terminator.AsMemory(0, terminator.Length), ct);
+		}
+		else
+		{
+			await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
+		}
+
 		await stream.FlushAsync(ct);
 	}
 
@@ -530,9 +560,11 @@ public sealed class McpPipeServer : IAsyncDisposable
 		{
 			try
 			{
-				await client.Pipe.WriteAsync(chunk);
-				await client.Pipe.WriteAsync(chunkData);
-				await client.Pipe.WriteAsync(chunkEnd);
+				var fullChunk = new byte[chunk.Length + chunkData.Length + chunkEnd.Length];
+				Buffer.BlockCopy(chunk, 0, fullChunk, 0, chunk.Length);
+				Buffer.BlockCopy(chunkData, 0, fullChunk, chunk.Length, chunkData.Length);
+				Buffer.BlockCopy(chunkEnd, 0, fullChunk, chunk.Length + chunkData.Length, chunkEnd.Length);
+				await client.Pipe.WriteAsync(fullChunk);
 				await client.Pipe.FlushAsync();
 			}
 			catch

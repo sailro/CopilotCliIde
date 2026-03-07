@@ -46,7 +46,7 @@ public class HttpResponseTests
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
-		Assert.Contains($"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n", response);
+		Assert.Contains($"content-length: {Encoding.UTF8.GetByteCount(body)}\r\n", response);
 	}
 
 	[Fact]
@@ -57,7 +57,7 @@ public class HttpResponseTests
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
-		Assert.Contains("Content-Type: text/plain\r\n", response);
+		Assert.Contains("content-type: text/plain\r\n", response);
 	}
 
 	[Fact]
@@ -69,7 +69,9 @@ public class HttpResponseTests
 			contentType: "text/event-stream");
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
-		Assert.Contains("Content-Type: text/event-stream\r\n", response);
+		Assert.Contains("content-type: text/event-stream\r\n", response);
+		// SSE responses use chunked encoding, not Content-Length
+		Assert.Contains("transfer-encoding: chunked\r\n", response);
 	}
 
 	[Fact]
@@ -92,7 +94,7 @@ public class HttpResponseTests
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
-		Assert.Contains("Connection: keep-alive\r\n", response);
+		Assert.Contains("connection: keep-alive\r\n", response);
 	}
 
 	[Fact]
@@ -103,7 +105,7 @@ public class HttpResponseTests
 		await McpPipeServer.WriteHttpResponseAsync(stream, 202, "", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
-		Assert.Contains("Content-Length: 0\r\n", response);
+		Assert.Contains("content-length: 0\r\n", response);
 	}
 
 	[Fact]
@@ -132,7 +134,7 @@ public class HttpResponseTests
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		var byteCount = Encoding.UTF8.GetByteCount(body);
-		Assert.Contains($"Content-Length: {byteCount}\r\n", response);
+		Assert.Contains($"content-length: {byteCount}\r\n", response);
 		Assert.EndsWith(body, response);
 	}
 
