@@ -277,7 +277,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 					if (!groups.TryGetValue(fileName, out var group))
 					{
-						var uri = string.IsNullOrEmpty(fileName) ? "" : new Uri(fileName).ToString();
+						var uri = string.IsNullOrEmpty(fileName) ? "" : PathUtils.ToVsCodeFileUrl(fileName);
 						group = new DiagnosticsChangedUri { Uri = uri, Diagnostics = [] };
 						groups[fileName] = group;
 					}

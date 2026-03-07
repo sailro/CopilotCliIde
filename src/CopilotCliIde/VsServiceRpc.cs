@@ -210,8 +210,8 @@ public class VsServiceRpc : IVsServiceRpc
 			return new SelectionResult
 			{
 				Current = true,
-				FilePath = doc.FullName,
-				FileUrl = new Uri(doc.FullName).ToString(),
+				FilePath = PathUtils.ToLowerDriveLetter(doc.FullName),
+				FileUrl = PathUtils.ToVsCodeFileUrl(doc.FullName),
 				Text = selectedText,
 				Selection = new SelectionRange
 				{
@@ -255,8 +255,8 @@ public class VsServiceRpc : IVsServiceRpc
 
 					if (!fileGroups.TryGetValue(itemFile, out var group))
 					{
-						var fileUri = string.IsNullOrEmpty(itemFile) ? "" : new Uri(itemFile).ToString();
-						group = new FileDiagnostics { Uri = fileUri, FilePath = itemFile, Diagnostics = [] };
+						var fileUri = string.IsNullOrEmpty(itemFile) ? "" : PathUtils.ToVsCodeFileUrl(itemFile);
+						group = new FileDiagnostics { Uri = fileUri, FilePath = PathUtils.ToLowerDriveLetter(itemFile), Diagnostics = [] };
 						fileGroups[itemFile] = group;
 					}
 
