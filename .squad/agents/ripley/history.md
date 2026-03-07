@@ -204,3 +204,27 @@ Applied 7 surgical edits to `doc/protocol.md` based on capture analysis findings
 
 No code changes, documentation only. All edits preserve existing correct content.
 
+### 2026-03-08 — Protocol Documentation Round 2 Re-Analysis
+
+Deep re-analysis of all 3 capture files (vscode-0.38, vscode-insiders-0.39, vs-1.0.7) against the UPDATED `doc/protocol.md`. The vs-1.0.7 capture is new — first capture from our own Visual Studio extension.
+
+**Result: No protocol doc changes needed.** All 7 Round 1 fixes are accurate against the new capture data:
+
+1. `get_selection` null response — VS Code 0.38 confirms `"null"` text. Our server returns `{"text":"","current":false}` instead (server compliance issue, not doc issue).
+2. 200 vs 202 for notifications — our server returns `202 Accepted` with `content-type: text/plain; content-length: 0`. VS Code uses `text/plain; charset=UTF-8` with chunked body. Both valid.
+3. Server info — our server sends `version: "1.0.0"`, VS Code sends `"0.0.1"`. Doc correctly notes version is implementation-defined.
+4. Chunked encoding — all captures confirm CLI uses `Transfer-Encoding: chunked`.
+5. Source field — present in our diagnostics push (`"source": "AzdTool.csproj"`), absent from VS Code pushes. Doc correctly says "may be absent."
+6. additionalProperties/$schema — VS Code includes on parameterized tools only. Our server omits both. Doc correctly notes these are optional.
+7. Session ID — VS Code maintains one ID per session. Our server generates a new ID per POST response (7 unique IDs in one session). Doc correctly says "generates on first POST" — our server has a compliance issue.
+
+**Server implementation issues discovered (not doc issues):**
+- Our `get_selection` returns a partial object instead of `"null"` when no editor is active
+- Our server rotates `mcp-session-id` per request instead of maintaining one per session
+- Our server advertises `"logging": {}` capability (MCP SDK default) that VS Code doesn't have
+
+**Captures README minor items:** Says "Copilot Chat extension version" in naming convention, but `vs-1.0.7` uses our VSIX version. Says "VS Code" but now includes our VS captures.
+
+**Coverage gap:** No capture invokes `get_vscode_info` — response format is documented but unverified against wire data.
+
+
