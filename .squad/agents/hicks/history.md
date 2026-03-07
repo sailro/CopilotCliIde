@@ -58,4 +58,21 @@ Implemented three alignment changes to match VS Code behavior:
 
 **Build:** Server + Shared compile clean. 97 tests pass (3 new).
 
+### 2026-03-07 — URI Consistency Fix in VsServiceRpc
+
+Critical bug discovered by Ripley: three call sites in VsServiceRpc.cs produced protocol-incompatible file URIs by bypassing PathUtils.
+
+**Affected methods:**
+- `GetSelectionAsync()` — FileUrl field used raw `Uri.ToString()` instead of `PathUtils.ToVsCodeFileUrl`
+- `GetDiagnosticsAsync()` — Uri field same issue
+- (Server side) `CollectDiagnosticsGrouped()` — diagnostics push Uri same issue
+
+**Impact:** Tool responses (get_selection, get_diagnostics) returned different URI formats than push notifications (selection_changed, diagnostics_changed), causing Copilot CLI to see inconsistent file references.
+
+**Fix:** All three sites now use `PathUtils.ToVsCodeFileUrl` and `PathUtils.ToLowerDriveLetter`. This enforces the protocol requirement: file URIs must have lowercase drive letters + URL-encoded colons.
+
+**Team rule established:** Any code producing file URIs for MCP protocol MUST use PathUtils, never raw Uri.ToString(). See `.squad/decisions.md` — "PathUtils is Protocol-Required, Not a Hack" section.
+
+**Build status:** 109 tests pass.
+
 

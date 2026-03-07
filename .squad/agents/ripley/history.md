@@ -42,3 +42,21 @@ Audited README.md against the actual source after VS Code schema alignment work.
 ### 2026-03-07 — Documentation Session Completion
 
 Led documentation audit session. Verified README.md against codebase, fixed 6 categories of wire format inaccuracies. Bishop verified protocol.md simultaneously and found one discrepancy (get_diagnostics missing filePath field — fixed). All documentation now aligned with implementation. Both agents committed changes.
+
+### 2026-03-07 — PathUtils Review & URI Consistency Fix
+
+Reviewed `PathUtils.cs` after Sebastien questioned whether BCL could replace it.
+
+**Verdict: PathUtils is necessary.** Both methods exist because BCL doesn't match the VS Code protocol:
+- `System.Uri("C:\\Dev\\file.cs").AbsoluteUri` → `file:///C:/Dev/file.cs` (uppercase `C`, literal `:`)
+- VS Code protocol requires → `file:///c%3A/Dev/file.cs` (lowercase `c`, encoded `%3A`)
+- `ToLowerDriveLetter` has no BCL equivalent — no method lowercases just the drive letter.
+
+**Bug found:** Three call sites bypassed PathUtils and used raw `new Uri(path).ToString()`:
+1. `VsServiceRpc.GetSelectionAsync()` — `FileUrl` and `FilePath` produced wrong format
+2. `VsServiceRpc.GetDiagnosticsAsync()` — `Uri` and `FilePath` wrong
+3. `CopilotCliIdePackage.CollectDiagnosticsGrouped()` — diagnostics push `Uri` wrong
+
+This meant the initial selection (via `get_selection` tool, backed by `VsServiceRpc`) produced different URIs than ongoing pushes (via `SelectionTracker`, which used PathUtils correctly). Same for diagnostics: tool response vs push notification had different URI formats.
+
+**Fix:** All 3 sites now use `PathUtils.ToVsCodeFileUrl` and `PathUtils.ToLowerDriveLetter`. Server builds clean, 109 tests pass.

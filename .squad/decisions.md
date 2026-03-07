@@ -248,6 +248,42 @@ Changed from lowercase strings to typed tuple `(Result, Trigger)`:
 
 ---
 
+### PathUtils is Protocol-Required, Not a Hack
+
+**Author:** Ripley (Lead)  
+**Date:** 2026-03-07  
+**Status:** Validated & Enforced
+
+#### Context
+
+Sebastien questioned whether `PathUtils.cs` could be replaced with BCL equivalents (`System.Uri`, `System.IO.Path`).
+
+#### Analysis
+
+`System.Uri` produces `file:///C:/Dev/file.cs` (uppercase drive, literal colon).  
+VS Code protocol requires `file:///c%3A/Dev/file.cs` (lowercase drive, encoded `%3A`).  
+No BCL method handles either transformation.
+
+Both `ToVsCodeFileUrl` and `ToLowerDriveLetter` are **protocol-required**, not hacky wrappers.
+
+#### Bugs Found & Fixed
+
+Three call sites in `VsServiceRpc.cs` and `CopilotCliIdePackage.cs` used raw `new Uri(path).ToString()` instead of PathUtils:
+
+1. `VsServiceRpc.GetSelectionAsync()` — `FileUrl` and `FilePath` produced wrong format
+2. `VsServiceRpc.GetDiagnosticsAsync()` — `Uri` and `FilePath` wrong
+3. `CopilotCliIdePackage.CollectDiagnosticsGrouped()` — diagnostics push `Uri` wrong
+
+This caused inconsistency: tool responses (wrong format) vs push notifications (correct format) had different URIs.
+
+**All three sites now use PathUtils consistently. Server builds clean, 109 tests pass.**
+
+#### Rule
+
+**Any code producing file URIs for the MCP protocol MUST use `PathUtils.ToVsCodeFileUrl`, never `new Uri(path).ToString()`.**
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
