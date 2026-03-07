@@ -28,7 +28,7 @@ public partial interface IMcpServerCallbacks
 	Task OnSelectionChangedAsync(SelectionNotification notification);
 	Task OnDiagnosticsChangedAsync(DiagnosticsChangedNotification notification);
 }
-xczvcvxcvcxvxcxvxcvcxvxcvxcv
+
 public class SelectionNotification
 {
 	public string? Text { get; set; }
