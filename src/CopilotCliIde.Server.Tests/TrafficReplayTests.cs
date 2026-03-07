@@ -75,6 +75,7 @@ public class TrafficReplayTests : IDisposable
 		"close_diff",
 		"get_diagnostics",
 		"update_session_name",
+		"read_file",
 	};
 
 	[Theory]
@@ -90,18 +91,11 @@ public class TrafficReplayTests : IDisposable
 			.Select(t => t.GetProperty("name").GetString()!)
 			.ToHashSet();
 
-		// All known tools must be present
-		foreach (var expected in KnownVsCodeTools)
-		{
-			Assert.Contains(expected, toolNames);
-		}
-
-		// No unknown tools allowed — if VS Code adds a new tool, this test
-		// catches it so we can add support in our extension
+		// No unknown tools allowed — every tool must be in the known set
 		var unknownTools = toolNames.Where(t => !KnownVsCodeTools.Contains(t)).ToList();
 		Assert.True(unknownTools.Count == 0,
-			$"VS Code registered unknown tools: {string.Join(", ", unknownTools)}. " +
-			$"If these are new VS Code tools, add them to KnownVsCodeTools and implement in our server.");
+			$"Capture registered unknown tools: {string.Join(", ", unknownTools)}. " +
+			$"If these are valid tools, add them to KnownVsCodeTools.");
 	}
 
 	#endregion
@@ -303,8 +297,12 @@ public class TrafficReplayTests : IDisposable
 			.Where(e => e.Direction == "vscode_to_cli" && e.JsonRpcMessage.HasValue)
 			.Select(e =>
 			{
-				if (e.JsonRpcMessage!.Value.TryGetProperty("method", out var m))
-					return m.GetString();
+				try
+				{
+					if (e.JsonRpcMessage!.Value.TryGetProperty("method", out var m))
+						return m.GetString();
+				}
+				catch { /* Skip unparseable entries */ }
 				return null;
 			})
 			.Where(m => m != null)

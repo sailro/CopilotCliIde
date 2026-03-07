@@ -37,7 +37,7 @@ sealed class LockFileManager : IDisposable
 					continue;
 
 				var ideName = ideNameProp.GetString();
-				if (ideName == null || !ideName.Contains("Code", StringComparison.OrdinalIgnoreCase))
+				if (string.IsNullOrEmpty(ideName))
 					continue;
 
 				if (!root.TryGetProperty("pid", out var pidProp))
