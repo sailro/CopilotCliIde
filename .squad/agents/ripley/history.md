@@ -23,3 +23,22 @@ Reverse-engineered the Copilot Chat extension (`github.copilot-chat-0.38.2026022
 - Decompiled key functions: `vSn` (create lock), `_Sn` (stale cleanup), `B1i` (pipe name), `iCt` class (lock file model with update/remove).
 
 **Decision merged:** `.squad/decisions.md` — "Lock File Format Compatibility" section. Verdict: no action required on schema; low-priority enhancement for workspace folder tracking.
+
+### 2026-03-06 — README Audit Against Codebase
+
+Audited README.md against the actual source after VS Code schema alignment work. Fixed 6 categories of inaccuracies:
+
+**Key wire format facts confirmed from source:**
+- MCP SDK (ModelContextProtocol 0.8.0-preview.1) serializes DTO properties as camelCase. Tools returning raw DTOs (`get_vscode_info`, `get_selection`) get camelCase automatically.
+- Tools returning anonymous objects (`open_diff`, `close_diff`, `get_diagnostics`) explicitly set snake_case/lowercase property names in the tool layer (`OpenDiffTool.cs`, `CloseDiffTool.cs`).
+- `get_diagnostics` returns `result.Files ?? []` — a raw array at root, not wrapped in an object. This matches VS Code.
+- `DiffResult` has `Result` ("SAVED"/"REJECTED") and `Trigger` fields. `UserAction` is kept for backward compat, mapped from Result.
+- Both `selection_changed` and `diagnostics_changed` use `DebouncePusher` with 200ms timer. Selection data is captured eagerly on UI thread, pushed after quiet period.
+- `diagnostics_changed` is triggered by `BuildEvents.OnBuildDone` + `DocumentEvents.DocumentSaved`, not real-time Roslyn analyzers.
+- `read_file` is our 7th tool, not in VS Code's 6-tool protocol. Harmless extra capability.
+
+**Files examined:** `Contracts.cs`, `VsServiceRpc.cs`, `CopilotCliIdePackage.cs`, `SelectionTracker.cs`, `DebouncePusher.cs`, `Program.cs`, all 7 tool files in `Tools/`.
+
+### 2026-03-07 — Documentation Session Completion
+
+Led documentation audit session. Verified README.md against codebase, fixed 6 categories of wire format inaccuracies. Bishop verified protocol.md simultaneously and found one discrepancy (get_diagnostics missing filePath field — fixed). All documentation now aligned with implementation. Both agents committed changes.
