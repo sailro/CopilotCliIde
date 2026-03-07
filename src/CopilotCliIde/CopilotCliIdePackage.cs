@@ -26,6 +26,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private EnvDTE.BuildEvents? _buildEvents;
 	private EnvDTE.DocumentEvents? _documentEvents;
 	private SelectionTracker? _selectionTracker;
+	private IVsMonitorSelection? _monitorSelection;
 	private uint _selectionMonitorCookie;
 	private CancellationTokenSource? _connectionCts;
 	private DebouncePusher? _diagnosticsPusher;
@@ -63,8 +64,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
 			var editorAdaptersFactory = componentModel.GetService<IVsEditorAdaptersFactoryService>();
 			_selectionTracker = new SelectionTracker(editorAdaptersFactory, () => _mcpCallbacks, cb => _mcpCallbacks = cb, _logger);
-			var monitorSelection = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
-			monitorSelection.AdviseSelectionEvents(new SelectionTracker.SelectionEventSink(_selectionTracker), out _selectionMonitorCookie);
+			_monitorSelection = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
+			_monitorSelection.AdviseSelectionEvents(new SelectionTracker.SelectionEventSink(_selectionTracker), out _selectionMonitorCookie);
 			_selectionTracker.TrackActiveView();
 		}
 		catch (Exception ex)
@@ -270,7 +271,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	protected override void Dispose(bool disposing)
 	{
-		ThreadHelper.ThrowIfNotOnUIThread();
 		if (disposing)
 		{
 			_selectionTracker?.Dispose();
@@ -284,11 +284,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				try
 				{
-					var monSel = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
-					monSel?.UnadviseSelectionEvents(_selectionMonitorCookie);
+					_monitorSelection?.UnadviseSelectionEvents(_selectionMonitorCookie);
 				}
 				catch { /* Ignore */ }
+				_selectionMonitorCookie = 0;
 			}
+			_monitorSelection = null;
 		}
 		base.Dispose(disposing);
 	}
