@@ -102,4 +102,24 @@ Converted static `MapSeverity` helper to extension method `ToProtocolSeverity()`
 
 See `.squad/decisions.md` — "Convert MapSeverity to Extension Method" decision section.
 
+### 2026-03-07 — ErrorListReader: Diagnostics Collection Deduplication
+
+Extracted shared Error List iteration logic from `VsServiceRpc.GetDiagnosticsAsync` (RPC on-demand path) and `CopilotCliIdePackage.CollectDiagnosticsGrouped` (push notification path) into a new `ErrorListReader.CollectGrouped()` helper.
+
+**What was duplicated:**
+- DTE Error List access, item iteration with cap, grouping by file, URI generation via PathUtils, 0-based line/col conversion, DiagnosticItem DTO construction, severity mapping via `ToProtocolSeverity()`.
+
+**Design:**
+- New `ErrorListReader` class in `src/CopilotCliIde/ErrorListReader.cs` with one `internal static` method.
+- Returns `List<FileDiagnostics>` (the richer DTO). Push path projects to `DiagnosticsChangedUri` via LINQ `.Select()`.
+- Parameters: optional `filterFilePath` (for RPC filter-by-URI), configurable `maxItems` (RPC uses 100, push uses 200 default).
+- `ThreadHelper.ThrowIfNotOnUIThread()` enforced — both callers already ensure UI thread.
+
+**Why a new class (not inline in VsServiceRpc):**
+- ~30 lines of meaningful logic with DTE access — more than a trivial helper.
+- Cleanly separates "read Error List" concern from both RPC and lifecycle code.
+- Follows the pattern established by `BuildErrorLevelExtensions` — focused utility classes in the extension project.
+
+**Build:** Clean, 0 warnings. 109 tests pass.
+
 

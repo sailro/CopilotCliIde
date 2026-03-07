@@ -382,6 +382,35 @@ Call sites now read `item.ErrorLevel.ToProtocolSeverity()` instead of `VsService
 
 ---
 
+### Extract ErrorListReader for Diagnostics Deduplication
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-03-07  
+**Status:** Implemented
+
+## Context
+
+`VsServiceRpc.GetDiagnosticsAsync` (RPC on-demand) and `CopilotCliIdePackage.CollectDiagnosticsGrouped` (push notification) contained ~30 lines of identical Error List iteration logic: DTE access, item capping, file grouping, URI generation, 0-based position conversion, and DiagnosticItem construction.
+
+## Decision
+
+Extracted into `ErrorListReader.CollectGrouped()` — a new `internal static` helper class in the extension project. Returns `List<FileDiagnostics>` with optional file filter and configurable max items.
+
+## Rationale
+
+- Eliminates copy-paste divergence risk (different caps, different DTOs hiding identical logic)
+- Follows the project pattern of focused utility classes (`BuildErrorLevelExtensions`, `PathUtils`)
+- ~30 lines of DTE-dependent logic justifies its own file (unlike `MapSeverity` which was 4 lines)
+- Both callers preserve their existing threading contracts and return types
+
+## Implementation
+
+- **New file:** `src/CopilotCliIde/ErrorListReader.cs`
+- **Modified:** `VsServiceRpc.cs` (simplified GetDiagnosticsAsync), `CopilotCliIdePackage.cs` (simplified CollectDiagnosticsGrouped)
+- Build clean, 0 warnings, 109 tests pass
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

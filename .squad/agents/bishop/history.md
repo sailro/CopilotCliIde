@@ -24,3 +24,16 @@
 
 - **Severity mapping centralization (2026-03-07):** Ripley centralized duplicate `vsBuildErrorLevel` → severity string mapping. Promoted `VsServiceRpc.MapSeverity` to internal static. Extension's `CollectDiagnosticsGrouped` now calls it for consistent severity strings in `diagnostics_changed` push notifications. Server tests remain at 109 passing (no VSIX test impact).
 
+### 2026-03-07T11:24:48Z — ErrorListReader Deduplication (Extension Refactor)
+
+Hicks consolidated duplicate Error List iteration logic from `VsServiceRpc.GetDiagnosticsAsync` (RPC on-demand path, 100-item cap) and `CopilotCliIdePackage.CollectDiagnosticsGrouped` (push notification path, 200-item cap) into a new `ErrorListReader.CollectGrouped()` helper class.
+
+**Impact on diagnostics data flow:**
+- Both `get_diagnostics` RPC tool and `diagnostics_changed` push notification now use identical collection logic via `ErrorListReader.CollectGrouped()`
+- Returns `List<FileDiagnostics>` (the MCP-format DTO); push path projects to `DiagnosticsChangedUri` type via LINQ
+- URI generation, severity mapping (via `ToProtocolSeverity()`), and position conversion now centralized — changes to these aspects apply to both paths automatically
+- RPC and push paths remain separate at cap level (100 vs 200 items) but share canonical collection algorithm
+- No functional change to MCP protocol output — both paths produce same DiagnosticItem field values
+
+**Implication for server:** If server-side diagnostics logic ever needs updating (e.g., field additions, filtering), the extension's shared reader establishes a canonical format that both tool and notification paths conform to.
+

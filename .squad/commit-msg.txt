@@ -1,0 +1,11 @@
+.squad: Merge decision inbox & update team memory
+
+- Merged: hicks-map-severity-extension-method.md → decisions.md
+- Updated: .squad/agents/hicks/history.md with MapSeverity extension method work
+- Outcome: MapSeverity → ToProtocolSeverity() extension method on vsBuildErrorLevel
+
+Session orchestration:
+- Hicks (Extension Dev): Converted MapSeverity helper to extension method
+- Outcome: SUCCESS — 109 tests pass, server builds clean
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
