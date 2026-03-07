@@ -37,3 +37,13 @@ Hicks consolidated duplicate Error List iteration logic from `VsServiceRpc.GetDi
 
 **Implication for server:** If server-side diagnostics logic ever needs updating (e.g., field additions, filtering), the extension's shared reader establishes a canonical format that both tool and notification paths conform to.
 
+### 2026-03-07T11:41:21Z — Team Notification: Husky Pre-Commit Hook Installed
+
+Hicks implemented whitespace enforcement via husky pre-commit hook (Sebastien's directive). **All team members should adopt the following practices immediately:**
+
+- Before committing: Run `npm run format` to auto-fix any whitespace violations
+- In CI pipelines: Use `npm run format:check` to verify without modifying
+- Git commit now automatically triggers the pre-commit hook running `dotnet format --verify-no-changes`
+
+**No action required from Bishop or Server code.** The hook validates all .NET files across the solution. See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook" for full details.
+

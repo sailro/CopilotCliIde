@@ -85,3 +85,13 @@ Refactored duplicated `vsBuildErrorLevel` → severity string mapping that exist
 
 **Build:** Server + extension compile clean, 109 tests pass.
 
+### 2026-03-07T11:41:21Z — Team Notification: Husky Pre-Commit Hook Installed
+
+Hicks implemented whitespace enforcement via husky pre-commit hook (Sebastien's directive). **All team members should adopt the following practices immediately:**
+
+- Before committing: Run `npm run format` to auto-fix any whitespace violations
+- In CI pipelines: Use `npm run format:check` to verify without modifying
+- Git commit now automatically triggers the pre-commit hook running `dotnet format --verify-no-changes`
+
+The hook applies to all .NET code across the solution. See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook" for full details.
+

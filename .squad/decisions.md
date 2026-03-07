@@ -411,6 +411,54 @@ Extracted into `ErrorListReader.CollectGrouped()` — a new `internal static` he
 
 ---
 
+### User Directive: Code Format Enforcement
+
+**Date:** 2026-03-07T11:38:30Z  
+**User:** Sebastien (via Copilot)  
+**Directive:** Enforce code style by running `dotnet format .\CopilotCliIde.slnx whitespace --verbosity quiet` on a regular basis
+
+This directive was implemented by Hicks via husky pre-commit hook.
+
+---
+
+### Whitespace Enforcement via Husky Pre-Commit Hook
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-03-07  
+**Status:** Implemented
+
+## Context
+
+Sebastien requested regular whitespace code style enforcement across the solution.
+
+## Decision
+
+Implemented **husky** for a git pre-commit hook (read-only check) rather than CI-only or standalone shell script. Rationale:
+
+- `node_modules` and `package.json` already in repo — husky is a natural fit
+- Pre-commit hooks catch violations *before* they enter the repo
+- Added npm scripts for manual runs and CI use
+- Pre-commit hook uses `--verify-no-changes` (read-only); `npm run format` auto-fixes
+
+## What Changed
+
+| File | Change |
+|------|--------|
+| `package.json` | Added `husky` devDep, `format` and `format:check` scripts |
+| `.husky/pre-commit` | Runs `dotnet format --verify-no-changes` |
+
+## Usage
+
+- `npm run format` — auto-fix whitespace issues
+- `npm run format:check` — check without modifying (CI-friendly)
+- Committing triggers the check automatically via husky
+
+## Notes
+
+No formatting fixes were needed — the codebase was already clean when `dotnet format` ran.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

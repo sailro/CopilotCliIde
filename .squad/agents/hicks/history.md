@@ -118,6 +118,21 @@ Extracted shared Error List iteration logic from `VsServiceRpc.GetDiagnosticsAsy
 **Why a new class (not inline in VsServiceRpc):**
 - ~30 lines of meaningful logic with DTE access — more than a trivial helper.
 - Cleanly separates "read Error List" concern from both RPC and lifecycle code.
+
+### 2026-03-07T11:41:21Z — Whitespace Enforcement via Husky Pre-Commit Hook
+
+Implemented Sebastien's directive for code style enforcement by setting up husky pre-commit hook and npm scripts.
+
+**Changes:**
+- Added `husky` to `package.json` devDependencies
+- Created `.husky/pre-commit` hook running `dotnet format --verify-no-changes` (read-only verification)
+- Added npm scripts: `npm run format` (auto-fix), `npm run format:check` (CI-friendly verify)
+
+**Verification:** Codebase was already clean (no fixes needed). Server builds clean, 109 tests pass.
+
+**Team adoption:** All team members should use `npm run format` locally before committing, and `npm run format:check` in CI pipelines. Pre-commit hook enforces verification automatically.
+
+See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook" decision section.
 - Follows the pattern established by `BuildErrorLevelExtensions` — focused utility classes in the extension project.
 
 **Build:** Clean, 0 warnings. 109 tests pass.
