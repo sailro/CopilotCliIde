@@ -264,9 +264,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private static List<DiagnosticsChangedUri> CollectDiagnosticsGrouped()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
-		return ErrorListReader.CollectGrouped()
-			.Select(f => new DiagnosticsChangedUri { Uri = f.Uri, Diagnostics = f.Diagnostics })
-			.ToList();
+		return [.. ErrorListReader.CollectGrouped().Select(f => new DiagnosticsChangedUri { Uri = f.Uri, Diagnostics = f.Diagnostics })];
 	}
 
 	protected override void Dispose(bool disposing)
@@ -275,22 +273,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			_selectionTracker?.Dispose();
 
-			if (_solutionEvents != null)
-			{
-				_solutionEvents.Opened -= OnSolutionOpened;
-				_solutionEvents.AfterClosing -= OnSolutionAfterClosing;
-				_solutionEvents = null;
-			}
-			if (_buildEvents != null)
-			{
-				_buildEvents.OnBuildDone -= OnBuildDone;
-				_buildEvents = null;
-			}
-			if (_documentEvents != null)
-			{
-				_documentEvents.DocumentSaved -= OnDocumentSaved;
-				_documentEvents = null;
-			}
+			_solutionEvents?.Opened -= OnSolutionOpened;
+			_solutionEvents?.AfterClosing -= OnSolutionAfterClosing;
+			_solutionEvents = null;
+
+			_buildEvents?.OnBuildDone -= OnBuildDone;
+			_buildEvents = null;
+			_documentEvents?.DocumentSaved -= OnDocumentSaved;
+			_documentEvents = null;
 
 			StopConnection();
 
@@ -301,7 +291,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 			if (_selectionMonitorCookie != 0)
 			{
+#pragma warning disable VSTHRD010
 				_monitorSelection?.UnadviseSelectionEvents(_selectionMonitorCookie);
+#pragma warning restore VSTHRD010
 				_selectionMonitorCookie = 0;
 			}
 			_monitorSelection = null;
