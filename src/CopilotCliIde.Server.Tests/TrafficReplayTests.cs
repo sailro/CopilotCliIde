@@ -59,6 +59,16 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 2 — Tools list contains expected tools
 
+	private static readonly HashSet<string> KnownVsCodeTools = new(StringComparer.Ordinal)
+	{
+		"get_vscode_info",
+		"get_selection",
+		"open_diff",
+		"close_diff",
+		"get_diagnostics",
+		"update_session_name",
+	};
+
 	[Fact]
 	public void VsCodeToolsList_ContainsExpectedTools()
 	{
@@ -70,20 +80,18 @@ public class TrafficReplayTests : IDisposable
 			.Select(t => t.GetProperty("name").GetString()!)
 			.ToHashSet();
 
-		var expectedTools = new[]
-		{
-			"get_vscode_info",
-			"get_selection",
-			"open_diff",
-			"close_diff",
-			"get_diagnostics",
-			"update_session_name",
-		};
-
-		foreach (var expected in expectedTools)
+		// All known tools must be present
+		foreach (var expected in KnownVsCodeTools)
 		{
 			Assert.Contains(expected, toolNames);
 		}
+
+		// No unknown tools allowed — if VS Code adds a new tool, this test
+		// catches it so we can add support in our extension
+		var unknownTools = toolNames.Where(t => !KnownVsCodeTools.Contains(t)).ToList();
+		Assert.True(unknownTools.Count == 0,
+			$"VS Code registered unknown tools: {string.Join(", ", unknownTools)}. " +
+			$"If these are new VS Code tools, add them to KnownVsCodeTools and implement in our server.");
 	}
 
 	#endregion
@@ -255,6 +263,41 @@ public class TrafficReplayTests : IDisposable
 				}
 			}
 		}
+	}
+
+	#endregion
+
+	#region Test 8 — No unknown notification methods in capture
+
+	private static readonly HashSet<string> KnownNotificationMethods = new(StringComparer.Ordinal)
+	{
+		"selection_changed",
+		"diagnostics_changed",
+	};
+
+	[Fact]
+	public void VsCodeCapture_ContainsNoUnknownNotificationMethods()
+	{
+		// Extract ALL notification methods from vscode_to_cli entries
+		var allMethods = _parser.Entries
+			.Where(e => e.Direction == "vscode_to_cli" && e.JsonRpcMessage.HasValue)
+			.Select(e =>
+			{
+				if (e.JsonRpcMessage!.Value.TryGetProperty("method", out var m))
+					return m.GetString();
+				return null;
+			})
+			.Where(m => m != null)
+			.Distinct()
+			.ToList();
+
+		var unknownMethods = allMethods
+			.Where(m => !KnownNotificationMethods.Contains(m!))
+			.ToList();
+
+		Assert.True(unknownMethods.Count == 0,
+			$"Capture contains unknown notification methods: {string.Join(", ", unknownMethods)}. " +
+			$"If these are valid new VS Code notifications, add them to KnownNotificationMethods.");
 	}
 
 	#endregion
