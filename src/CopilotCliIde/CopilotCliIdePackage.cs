@@ -36,6 +36,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private CancellationTokenSource? _connectionCts;
 	private Timer? _selectionDebounceTimer;
 	private Timer? _diagnosticsDebounceTimer;
+	private string? _lastDiagnosticsKey;
 	private volatile SelectionNotification? _pendingSelectionNotification;
 	private volatile string? _pendingSelectionKey;
 
@@ -112,6 +113,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void StopConnection()
 	{
 		_lastSelectionKey = null;
+		_lastDiagnosticsKey = null;
 		_pendingSelectionKey = null;
 		_pendingSelectionNotification = null;
 		_mcpCallbacks = null;
@@ -365,6 +367,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	/// <summary>
 	/// Fires 200ms after the last diagnostics change trigger. Collects
 	/// current Error List items on the UI thread and pushes them to the CLI.
+	/// Deduplicates by comparing a fingerprint of the diagnostics content.
 	/// </summary>
 	private void OnDiagnosticsDebounceElapsed(object? state)
 	{
@@ -377,6 +380,11 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
 				var uris = CollectDiagnosticsGrouped();
+
+				var key = ComputeDiagnosticsKey(uris);
+				if (key == _lastDiagnosticsKey) return;
+				_lastDiagnosticsKey = key;
+
 				var notification = new DiagnosticsChangedNotification { Uris = uris };
 
 				await Task.Run(async () =>
@@ -387,6 +395,23 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			}
 			catch { /* Don't crash VS */ }
 		});
+	}
+
+	private static string ComputeDiagnosticsKey(List<DiagnosticsChangedUri> uris)
+	{
+		var hash = new HashCode();
+		foreach (var group in uris)
+		{
+			hash.Add(group.Uri);
+			foreach (var d in group.Diagnostics!)
+			{
+				hash.Add(d.Message);
+				hash.Add(d.Severity);
+				hash.Add(d.Range?.Start?.Line);
+				hash.Add(d.Range?.Start?.Character);
+			}
+		}
+		return hash.ToHashCode().ToString();
 	}
 
 	private static List<DiagnosticsChangedUri> CollectDiagnosticsGrouped()
