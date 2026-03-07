@@ -60,3 +60,12 @@ Reviewed `PathUtils.cs` after Sebastien questioned whether BCL could replace it.
 This meant the initial selection (via `get_selection` tool, backed by `VsServiceRpc`) produced different URIs than ongoing pushes (via `SelectionTracker`, which used PathUtils correctly). Same for diagnostics: tool response vs push notification had different URI formats.
 
 **Fix:** All 3 sites now use `PathUtils.ToVsCodeFileUrl` and `PathUtils.ToLowerDriveLetter`. Server builds clean, 109 tests pass.
+
+**Team rule:** Any code producing file URIs for MCP protocol MUST use PathUtils, never raw Uri.ToString(). See `.squad/decisions.md` — "PathUtils is Protocol-Required, Not a Hack" section.
+
+### 2026-03-07T10:44:04Z — PathUtils XML Documentation
+
+Requested inline XML documentation to make the protocol requirement discoverable in source code. Hicks added class-level docs, method remarks explaining why BCL alternatives are insufficient. Documentation appears in IDE tooltips and generated docs.
+
+**Build:** 109 tests pass.
+

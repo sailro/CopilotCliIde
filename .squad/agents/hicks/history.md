@@ -75,4 +75,15 @@ Critical bug discovered by Ripley: three call sites in VsServiceRpc.cs produced 
 
 **Build status:** 109 tests pass.
 
+### 2026-03-07T10:44:04Z — PathUtils XML Documentation
+
+Added inline XML doc comments to `PathUtils.cs` to document the protocol requirement in source code, making the team rule discoverable in IDE tooltips.
+
+**Changes:**
+- Class-level docs explaining System.Uri gap (uppercase drive, literal colon) vs VS Code protocol (lowercase drive, URL-encoded colon)
+- `ToVsCodeFileUrl()` remarks documenting custom transformation necessity
+- `ToLowerDriveLetter()` remarks documenting BCL absence
+
+**Build:** Clean compile, 109 tests pass.
+
 
