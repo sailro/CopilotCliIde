@@ -86,4 +86,12 @@ Added inline XML doc comments to `PathUtils.cs` to document the protocol require
 
 **Build:** Clean compile, 109 tests pass.
 
+### 2026-03-07T105114Z — Severity Mapping Centralization (Team Context)
+
+Ripley centralized `vsBuildErrorLevel` → severity string mapping that was duplicated in two places (`VsServiceRpc.MapSeverity` private switch vs `CopilotCliIdePackage.CollectDiagnosticsGrouped` inline switch). Promoted `MapSeverity` to internal static, refactored caller. Hudson verified all 109 tests pass. 
+
+**Impact on extension:** `CopilotCliIdePackage.CollectDiagnosticsGrouped` now uses single canonical mapping for diagnostics push notifications and tool responses. No functional change — ensures consistency across all severity string production.
+
+See `.squad/decisions.md` for full rationale (why not Shared project, why not new utility class).
+
 

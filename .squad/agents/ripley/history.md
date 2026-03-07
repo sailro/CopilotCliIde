@@ -69,3 +69,19 @@ Requested inline XML documentation to make the protocol requirement discoverable
 
 **Build:** 109 tests pass.
 
+### 2026-03-07T105114Z — Severity Mapping Centralization (Implemented & Verified)
+
+Refactored duplicated `vsBuildErrorLevel` → severity string mapping that existed in two places:
+- `VsServiceRpc.MapSeverity` (private static, explicit 4-arm switch)
+- `CopilotCliIdePackage.CollectDiagnosticsGrouped` (inline 3-arm switch, missing explicit `Low` case)
+
+**Decision:** Promoted `VsServiceRpc.MapSeverity` from `private static` to `internal static`. `CopilotCliIdePackage` now calls `VsServiceRpc.MapSeverity(item.ErrorLevel)` instead of duplicating the switch.
+
+**Why not Shared project?** `vsBuildErrorLevel` is `EnvDTE80` (VS SDK). Shared is netstandard2.0 with no VS SDK dependency — moving it there would violate the architecture boundary.
+
+**Why not a new utility class?** Both callers are in the same extension project. The method is 5 lines, pure, and stateless. A new file would be over-engineering.
+
+**Verification:** Hudson ran full test suite. All 109 tests pass. No dedicated net472 unit test added (disproportionate infrastructure cost; existing indirect coverage sufficient). See `.squad/decisions.md` for merged decisions and rationale.
+
+**Build:** Server + extension compile clean, 109 tests pass.
+

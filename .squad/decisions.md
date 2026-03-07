@@ -284,6 +284,68 @@ This caused inconsistency: tool responses (wrong format) vs push notifications (
 
 ---
 
+### Severity Mapping Deduplication
+
+**Author:** Ripley (Lead)  
+**Date:** 2026-03-07  
+**Status:** Implemented
+
+## Context
+
+`vsBuildErrorLevel` → severity string mapping (`"error"`, `"warning"`, `"information"`) was duplicated:
+1. `VsServiceRpc.MapSeverity` — explicit 4-arm switch (private static)
+2. `CopilotCliIdePackage.CollectDiagnosticsGrouped` — inline 3-arm switch (missing explicit `Low` case)
+
+The severity strings are wire protocol values that must match VS Code exactly.
+
+## Decision
+
+Promoted `VsServiceRpc.MapSeverity` from `private static` to `internal static`. `CopilotCliIdePackage` now calls it instead of duplicating the logic.
+
+### Alternatives Considered
+
+- **Move to Shared project**: Rejected. `vsBuildErrorLevel` is `EnvDTE80` (VS SDK). Shared is netstandard2.0 with no VS SDK dependency.
+- **New utility class in extension**: Rejected. Both callers are in the same project. A new file for a 5-line pure function is over-engineering.
+- **Raw int mapping in Shared**: Rejected. Would require callers to cast the enum, adding complexity for no architectural gain.
+
+## Impact
+
+- `VsServiceRpc.cs`: `MapSeverity` visibility changed from `private` to `internal`
+- `CopilotCliIdePackage.cs`: Inline switch replaced with `VsServiceRpc.MapSeverity(item.ErrorLevel)`
+- Server + extension build clean, 109 tests pass
+
+---
+
+### Decision: Skip dedicated unit test for VsServiceRpc.MapSeverity
+
+**Author:** Hudson (Tester)  
+**Date:** 2026-03-07  
+**Status:** Accepted
+
+## Context
+
+Ripley promoted `VsServiceRpc.MapSeverity` from `private` to `internal static` in the VSIX project (`CopilotCliIde`, net472). The task asked whether a focused unit test would be valuable.
+
+## Decision
+
+**Do not add a unit test for `MapSeverity` at this time.**
+
+## Rationale
+
+1. **Assembly boundary prevents testing.** `MapSeverity` lives in `CopilotCliIde` (net472, VS SDK), not `CopilotCliIde.Server` (net10.0). The existing test project (`CopilotCliIde.Server.Tests`, net10.0) cannot reference the VSIX project — different target frameworks and VS SDK COM dependencies (`EnvDTE80.vsBuildErrorLevel`). The `InternalsVisibleTo` on the Server project doesn't help here.
+
+2. **Infrastructure cost is disproportionate.** Testing this would require either a new net472 test project with VS SDK references, or moving the method/enum to the Shared project. Both are significant plumbing changes for a 4-line switch expression.
+
+3. **The mapping is trivially correct by inspection.** Three named enum values map to three string literals, with a safe default. Risk of regression is minimal.
+
+4. **Existing coverage provides indirect validation.** `NotificationFormatTests.DiagnosticsChangedNotification_MatchesExpectedFormat` already validates that severity strings appear correctly in serialized notification format.
+
+## If this changes
+
+If the VSIX project ever gets its own test project (or if MapSeverity moves to Shared), a parameterized test covering High→"error", Medium→"warning", Low→"information", and unknown→"information" would be a good addition.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
