@@ -11,19 +11,20 @@ namespace CopilotCliIde.Server.Tests;
 /// traffic captured via the PipeProxy tool. Tests 1-6 are pure capture analysis;
 /// test 7 starts our actual MCP server and compares tool names.
 /// </summary>
-public class TrafficReplayTests : IDisposable
+public class TrafficReplayTests
 {
-	public void Dispose() { }
 
 	/// <summary>
 	/// Returns all .ndjson files from the Captures/ directory as test data.
 	/// Drop a new capture in Captures/ and it's automatically validated.
 	/// </summary>
-	public static IEnumerable<object[]> CaptureFiles()
+	public static TheoryData<string> CaptureFiles()
 	{
+		var data = new TheoryData<string>();
 		var capturesDir = FindCapturesDir();
 		foreach (var file in Directory.GetFiles(capturesDir, "*.ndjson"))
-			yield return [file];
+			data.Add(file);
+		return data;
 	}
 
 	private static TrafficParser LoadCapture(string path) => TrafficParser.Load(path);
@@ -67,8 +68,8 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 2 — Tools list contains expected tools
 
-	private static readonly HashSet<string> KnownVsCodeTools = new(StringComparer.Ordinal)
-	{
+	private static readonly HashSet<string> _knownVsCodeTools =
+	[
 		"get_vscode_info",
 		"get_selection",
 		"open_diff",
@@ -76,7 +77,7 @@ public class TrafficReplayTests : IDisposable
 		"get_diagnostics",
 		"update_session_name",
 		"read_file",
-	};
+	];
 
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
@@ -92,7 +93,7 @@ public class TrafficReplayTests : IDisposable
 			.ToHashSet();
 
 		// No unknown tools allowed — every tool must be in the known set
-		var unknownTools = toolNames.Where(t => !KnownVsCodeTools.Contains(t)).ToList();
+		var unknownTools = toolNames.Where(t => !_knownVsCodeTools.Contains(t)).ToList();
 		Assert.True(unknownTools.Count == 0,
 			$"Capture registered unknown tools: {string.Join(", ", unknownTools)}. " +
 			$"If these are valid tools, add them to KnownVsCodeTools.");
@@ -281,11 +282,11 @@ public class TrafficReplayTests : IDisposable
 
 	#region Test 8 — No unknown notification methods in capture
 
-	private static readonly HashSet<string> KnownNotificationMethods = new(StringComparer.Ordinal)
-	{
+	private static readonly HashSet<string> _knownNotificationMethods =
+	[
 		"selection_changed",
 		"diagnostics_changed",
-	};
+	];
 
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
@@ -310,7 +311,7 @@ public class TrafficReplayTests : IDisposable
 			.ToList();
 
 		var unknownMethods = allMethods
-			.Where(m => !KnownNotificationMethods.Contains(m!))
+			.Where(m => !_knownNotificationMethods.Contains(m!))
 			.ToList();
 
 		Assert.True(unknownMethods.Count == 0,
@@ -428,7 +429,7 @@ public class TrafficReplayTests : IDisposable
 			"Captures directory not found. Expected at src/CopilotCliIde.Server.Tests/Captures/");
 	}
 
-	private static IEnumerable<string> FindAllCaptureFiles() =>
+	private static string[] FindAllCaptureFiles() =>
 		Directory.GetFiles(FindCapturesDir(), "*.ndjson");
 
 	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct)

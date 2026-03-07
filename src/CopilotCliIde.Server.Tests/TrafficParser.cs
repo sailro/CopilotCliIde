@@ -167,12 +167,11 @@ public sealed partial class TrafficParser
 	/// </summary>
 	public List<JsonElement> GetNotifications(string method)
 	{
-		return Entries
+		return [.. Entries
 		.Where(e => e.Direction == "vscode_to_cli"
 		&& e.JsonRpcMessage is not null
 		&& TryGetStringProperty(e.JsonRpcMessage.Value, "method") == method)
-		.Select(e => e.JsonRpcMessage!.Value)
-		.ToList();
+		.Select(e => e.JsonRpcMessage!.Value)];
 	}
 
 	/// <summary>
@@ -198,7 +197,7 @@ public sealed partial class TrafficParser
 	/// </summary>
 	public IReadOnlyList<TrafficEntry> GetEntriesByDirection(string direction)
 	{
-		return Entries.Where(e => e.Direction == direction).ToList();
+		return [.. Entries.Where(e => e.Direction == direction)];
 	}
 
 	/// <summary>
@@ -206,11 +205,10 @@ public sealed partial class TrafficParser
 	/// </summary>
 	public IReadOnlyList<TrafficEntry> GetRequests(string method)
 	{
-		return Entries
+		return [.. Entries
 		.Where(e => e.Direction == "cli_to_vscode"
 		&& e.JsonRpcMessage is not null
-		&& TryGetStringProperty(e.JsonRpcMessage.Value, "method") == method)
-		.ToList();
+		&& TryGetStringProperty(e.JsonRpcMessage.Value, "method") == method)];
 	}
 
 	// --- HTTP frame extraction ---
