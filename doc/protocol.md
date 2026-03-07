@@ -358,6 +358,7 @@ Returns language diagnostics (errors, warnings, information) from the IDE.
 [
   {
     "uri": "file:///home/user/project/src/index.ts",
+    "filePath": "/home/user/project/src/index.ts",
     "diagnostics": [
       {
         "message": "Cannot find name 'foo'",
@@ -377,6 +378,7 @@ Returns language diagnostics (errors, warnings, information) from the IDE.
 | Field | Type | Description |
 |-------|------|-------------|
 | `uri` | string | File URI |
+| `filePath` | string | Absolute file path (OS-native format) |
 | `diagnostics[].message` | string | Diagnostic message text |
 | `diagnostics[].severity` | string | `"error"`, `"warning"`, or `"information"` |
 | `diagnostics[].range` | Range | Location in file (0-based line/character) |
