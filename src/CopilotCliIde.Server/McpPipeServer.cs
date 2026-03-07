@@ -456,11 +456,11 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 			await PushDiagnosticsChangedAsync(new DiagnosticsChangedNotification
 			{
-				Uris = diag.Files.Select(f => new DiagnosticsChangedUri
+				Uris = [.. diag.Files.Select(f => new DiagnosticsChangedUri
 				{
 					Uri = f.Uri,
 					Diagnostics = f.Diagnostics
-				}).ToList()
+				})]
 			});
 		}
 		catch { /* VS not ready or no diagnostics */ }
