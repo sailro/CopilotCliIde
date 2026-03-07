@@ -381,32 +381,32 @@ public class TrafficReplayTests : IDisposable
 	#region Helpers
 
 	/// <summary>
-	/// Finds the traffic.ndjson file relative to the test assembly location (repo root).
+	/// Finds the capture file relative to the test assembly or repo structure.
 	/// </summary>
 	private static string FindTrafficFile()
 	{
-		// Walk up from the test assembly directory to find the repo root
-		var dir = Path.GetDirectoryName(typeof(TrafficReplayTests).Assembly.Location)!;
+		// First: look for Captures/ next to the assembly (copied via CopyToOutputDirectory)
+		var assemblyDir = Path.GetDirectoryName(typeof(TrafficReplayTests).Assembly.Location)!;
+		var fromAssembly = Path.Combine(assemblyDir, "Captures", "vscode-insiders-0.39.ndjson");
+		if (File.Exists(fromAssembly))
+			return fromAssembly;
+
+		// Fallback: walk up to find the test project source directory
+		var dir = assemblyDir;
 		while (dir != null)
 		{
-			var candidate = Path.Combine(dir, "traffic.ndjson");
+			var candidate = Path.Combine(dir, "src", "CopilotCliIde.Server.Tests", "Captures", "vscode-insiders-0.39.ndjson");
+			if (File.Exists(candidate))
+				return candidate;
+			// Also check directly (in case we're already in the test project dir)
+			candidate = Path.Combine(dir, "Captures", "vscode-insiders-0.39.ndjson");
 			if (File.Exists(candidate))
 				return candidate;
 			dir = Path.GetDirectoryName(dir);
 		}
 
-		// Fallback: try relative to current directory
-		var cwd = Directory.GetCurrentDirectory();
-		while (cwd != null)
-		{
-			var candidate = Path.Combine(cwd, "traffic.ndjson");
-			if (File.Exists(candidate))
-				return candidate;
-			cwd = Path.GetDirectoryName(cwd);
-		}
-
 		throw new FileNotFoundException(
-			"traffic.ndjson not found. Expected at repo root (C:\\Dev\\vsext\\traffic.ndjson).");
+			"Capture file not found. Expected at src/CopilotCliIde.Server.Tests/Captures/vscode-insiders-0.39.ndjson");
 	}
 
 	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct)

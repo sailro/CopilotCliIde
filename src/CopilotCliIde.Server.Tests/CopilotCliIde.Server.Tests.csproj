@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-
+    <Content Include="Captures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
