@@ -37,6 +37,12 @@ internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 	}
 
 	/// <summary>
+	/// Clears only the dedup key so the next event is always sent, even if
+	/// the content hasn't changed. Called when a new CLI client connects.
+	/// </summary>
+	public void ResetDedupKey() => _lastKey = null;
+
+	/// <summary>
 	/// Clears the dedup key and disposes the timer. Called on connection
 	/// stop so the next connection starts fresh.
 	/// </summary>

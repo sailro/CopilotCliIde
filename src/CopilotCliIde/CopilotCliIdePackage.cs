@@ -41,6 +41,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			_logger = OutputLogger.Create();
 			VsServiceRpc.Logger = _logger;
+			VsServiceRpc.OnResetNotificationState = ResetNotificationState;
 
 			_discovery = new IdeDiscovery();
 			await _discovery.CleanStaleFilesAsync();
@@ -192,6 +193,18 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				_logger?.Log($"OnSolutionAfterClosing failed: {ex.Message}");
 			}
 		});
+	}
+
+	/// <summary>
+	/// Clears dedup keys on both selection and diagnostics pushers so the next
+	/// event is always sent — even if the content hasn't changed since the last
+	/// push. Called when a new CLI client connects (the new client hasn't seen
+	/// any prior notifications).
+	/// </summary>
+	private void ResetNotificationState()
+	{
+		_selectionTracker?.ResetDedupKey();
+		_diagnosticsPusher?.ResetDedupKey();
 	}
 
 	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => ScheduleDiagnosticsPush();

@@ -13,6 +13,7 @@ public class VsServiceRpc : IVsServiceRpc
 	private readonly ConcurrentDictionary<string, DiffState> _activeDiffs = new();
 
 	internal static OutputLogger? Logger { get; set; }
+	internal static Action? OnResetNotificationState { get; set; }
 
 	private class DiffState
 	{
@@ -245,6 +246,13 @@ public class VsServiceRpc : IVsServiceRpc
 		catch (Exception ex) { return new DiagnosticsResult { Error = ex.Message }; }
 	}
 
+
+	public Task ResetNotificationStateAsync()
+	{
+		Logger?.Log("ResetNotificationState: new CLI client connected");
+		OnResetNotificationState?.Invoke();
+		return Task.CompletedTask;
+	}
 
 	public Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines)
 	{

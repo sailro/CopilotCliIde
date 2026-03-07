@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using CopilotCliIde.Shared;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -219,10 +220,11 @@ public sealed class McpPipeServer : IAsyncDisposable
 					var sseClient = new SseClient(pipe);
 					lock (_sseClientsLock) { _sseClients.Add(sseClient); }
 
-					// Push the current selection so copilot-cli shows the right
-					// file immediately (the VS extension may have pushed earlier
+					// Reset dedup state in VS and push the current selection
+					// and diagnostics so copilot-cli has the right state
+					// immediately (the VS extension may have pushed earlier
 					// when no SSE clients were connected yet)
-					_ = Task.Run(async () => await PushCurrentSelectionAsync(), ct);
+					_ = Task.Run(async () => await PushInitialStateAsync(), ct);
 
 					try
 					{
@@ -403,6 +405,21 @@ public sealed class McpPipeServer : IAsyncDisposable
 	}
 
 	/// <summary>
+	/// Resets notification dedup state in VS and pushes the current selection
+	/// and diagnostics to the newly connected SSE client. The dedup reset
+	/// ensures VS re-sends events even if the content hasn't changed since
+	/// the previous CLI session.
+	/// </summary>
+	private async Task PushInitialStateAsync()
+	{
+		try { await _rpcClient!.VsServices!.ResetNotificationStateAsync(); }
+		catch { /* VS not ready */ }
+
+		await PushCurrentSelectionAsync();
+		await PushCurrentDiagnosticsAsync();
+	}
+
+	/// <summary>
 	/// Fetches the current selection from VS via RPC and pushes it to all
 	/// connected SSE clients. Called when a new SSE client connects so
 	/// copilot-cli immediately shows the active file.
@@ -414,25 +431,89 @@ public sealed class McpPipeServer : IAsyncDisposable
 			var sel = await _rpcClient!.VsServices!.GetSelectionAsync();
 			if (string.IsNullOrEmpty(sel.FilePath)) return;
 
-			await PushNotificationAsync("selection_changed", new
+			await PushSelectionChangedAsync(new SelectionNotification
 			{
-				text = sel.Text ?? "",
-				filePath = sel.FilePath,
-				fileUrl = sel.FileUrl,
-				selection = sel.Selection == null ? null : new
-				{
-					start = new { line = sel.Selection.Start?.Line ?? 0, character = sel.Selection.Start?.Character ?? 0 },
-					end = new { line = sel.Selection.End?.Line ?? 0, character = sel.Selection.End?.Character ?? 0 },
-					isEmpty = sel.Selection.IsEmpty
-				}
+				Text = sel.Text,
+				FilePath = sel.FilePath,
+				FileUrl = sel.FileUrl,
+				Selection = sel.Selection
 			});
 		}
 		catch { /* VS not ready or no active editor — nothing to push */ }
 	}
 
 	/// <summary>
+	/// Fetches the current diagnostics from VS via RPC and pushes them to all
+	/// connected SSE clients. Called when a new SSE client connects so
+	/// copilot-cli has the current Error List state immediately.
+	/// </summary>
+	private async Task PushCurrentDiagnosticsAsync()
+	{
+		try
+		{
+			var diag = await _rpcClient!.VsServices!.GetDiagnosticsAsync(null);
+			if (diag.Files == null || diag.Files.Count == 0) return;
+
+			await PushDiagnosticsChangedAsync(new DiagnosticsChangedNotification
+			{
+				Uris = diag.Files.Select(f => new DiagnosticsChangedUri
+				{
+					Uri = f.Uri,
+					Diagnostics = f.Diagnostics
+				}).ToList()
+			});
+		}
+		catch { /* VS not ready or no diagnostics */ }
+	}
+
+	/// <summary>
+	/// Formats and pushes a selection_changed notification to all connected SSE clients.
+	/// Used by both the initial push on connect and the real-time event forwarding.
+	/// </summary>
+	public Task PushSelectionChangedAsync(SelectionNotification notification)
+	{
+		return PushNotificationAsync("selection_changed", new
+		{
+			text = notification.Text ?? "",
+			filePath = notification.FilePath,
+			fileUrl = notification.FileUrl,
+			selection = notification.Selection == null ? null : new
+			{
+				start = new { line = notification.Selection.Start?.Line ?? 0, character = notification.Selection.Start?.Character ?? 0 },
+				end = new { line = notification.Selection.End?.Line ?? 0, character = notification.Selection.End?.Character ?? 0 },
+				isEmpty = notification.Selection.IsEmpty
+			}
+		});
+	}
+
+	/// <summary>
+	/// Formats and pushes a diagnostics_changed notification to all connected SSE clients.
+	/// Used by both the initial push on connect and the real-time event forwarding.
+	/// </summary>
+	public Task PushDiagnosticsChangedAsync(DiagnosticsChangedNotification notification)
+	{
+		return PushNotificationAsync("diagnostics_changed", new
+		{
+			uris = notification.Uris?.Select(u => new
+			{
+				uri = u.Uri,
+				diagnostics = u.Diagnostics?.Select(d => new
+				{
+					range = d.Range == null ? null : new
+					{
+						start = new { line = d.Range.Start?.Line ?? 0, character = d.Range.Start?.Character ?? 0 },
+						end = new { line = d.Range.End?.Line ?? 0, character = d.Range.End?.Character ?? 0 }
+					},
+					message = d.Message,
+					severity = d.Severity,
+					code = d.Code
+				})
+			})
+		});
+	}
+
+	/// <summary>
 	/// Pushes a JSON-RPC notification to all connected SSE clients.
-	/// Used for selection_changed events from VS.
 	/// </summary>
 	public async Task PushNotificationAsync(string method, object? @params)
 	{

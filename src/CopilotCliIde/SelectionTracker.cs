@@ -101,6 +101,12 @@ internal sealed class SelectionTracker : IDisposable
 		_pusher.Reset();
 	}
 
+	/// <summary>
+	/// Clears only the dedup key so the next event is always sent, even if
+	/// the content hasn't changed. Called when a new CLI client connects.
+	/// </summary>
+	public void ResetDedupKey() => _pusher.ResetDedupKey();
+
 	public void Dispose()
 	{
 		UntrackView();

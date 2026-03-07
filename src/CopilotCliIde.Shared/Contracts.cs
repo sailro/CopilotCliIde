@@ -16,6 +16,7 @@ public partial interface IVsServiceRpc
 	Task<SelectionResult> GetSelectionAsync();
 	Task<DiagnosticsResult> GetDiagnosticsAsync(string? uri);
 	Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines);
+	Task ResetNotificationStateAsync();
 }
 
 /// <summary>
