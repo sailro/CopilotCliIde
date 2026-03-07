@@ -12,6 +12,8 @@ public class VsServiceRpc : IVsServiceRpc
 {
 	private readonly ConcurrentDictionary<string, DiffState> _activeDiffs = new();
 
+	internal static OutputLogger? Logger { get; set; }
+
 	private class DiffState
 	{
 		public string OriginalPath { get; set; } = "";
@@ -26,6 +28,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName)
 	{
+		Logger?.Log($"Tool open_diff: {tabName} ({originalFilePath})");
 		try
 		{
 			// Close any existing diff with the same tab name
@@ -117,6 +120,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<CloseDiffResult> CloseDiffByTabNameAsync(string tabName)
 	{
+		Logger?.Log($"Tool close_diff: {tabName}");
 		var entry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 		if (entry.Key == null)
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
@@ -159,6 +163,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<VsInfoResult> GetVsInfoAsync()
 	{
+		Logger?.Log("Tool get_vscode_info");
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		var result = new VsInfoResult { IdeName = "Visual Studio", AppName = "Visual Studio", ProcessId = Process.GetCurrentProcess().Id };
 		try
@@ -181,6 +186,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<SelectionResult> GetSelectionAsync()
 	{
+		Logger?.Log("Tool get_selection");
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
@@ -223,6 +229,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<DiagnosticsResult> GetDiagnosticsAsync(string? uri)
 	{
+		Logger?.Log($"Tool get_diagnostics: {uri ?? "(all)"}");
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
@@ -283,6 +290,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines)
 	{
+		Logger?.Log($"Tool read_file: {filePath}");
 		try
 		{
 			var fullText = File.ReadAllText(filePath);

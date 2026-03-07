@@ -60,9 +60,8 @@ public sealed class McpPipeServer : IAsyncDisposable
 #pragma warning restore MCPEXP001
 					_serverOptions.ToolCollection.Add(tool);
 				}
-				catch (Exception ex)
+				catch
 				{
-					await LogAsync($"Failed to register tool {type.Name}.{method.Name}: {ex.Message}");
 				}
 			}
 		}
@@ -143,9 +142,8 @@ public sealed class McpPipeServer : IAsyncDisposable
 					{
 						message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
 					}
-					catch (JsonException ex)
+					catch (JsonException)
 					{
-						await LogAsync($"JSON parse error: {ex.Message} body='{body}'");
 						await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct);
 						continue;
 					}
@@ -183,19 +181,15 @@ public sealed class McpPipeServer : IAsyncDisposable
 					bool hasResponse;
 					try
 					{
-						await LogAsync($"HandlePostRequest start: {body?[..Math.Min(body.Length, 200)]}");
 						hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token);
-						await LogAsync($"HandlePostRequest done: hasResponse={hasResponse} streamLen={responseStream.Length}");
 					}
 					catch (OperationCanceledException)
 					{
-						await LogAsync($"HandlePostRequest TIMEOUT{(isOpenDiff ? " (open_diff)" : " after 30s")}");
 						await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
 						continue;
 					}
 					catch (Exception ex)
 					{
-						await LogAsync($"HandlePostRequest ERROR: {ex}");
 						await WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
 						continue;
 					}
@@ -254,18 +248,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 			}
 		}
 		catch (OperationCanceledException) { }
-		catch (Exception ex)
-		{
-			// Log connection-level errors
-			try
-			{
-				var logPath = Path.Combine(
-					Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-					".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
-				await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {ex}\n\n", ct);
-			}
-			catch { /* Ignore */ }
-		}
+		catch { /* Ignore */ }
 		finally
 		{
 			if (transport != null) await transport.DisposeAsync();
@@ -506,18 +489,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		{
 			return serviceType == typeof(RpcClient);
 		}
-	}
-
-	private static async Task LogAsync(string message)
-	{
-		try
-		{
-			var logPath = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-				".copilot", "ide", $"vs-connection-{Environment.ProcessId}.log");
-			await File.AppendAllTextAsync(logPath, $"{DateTime.UtcNow:O} {message}\n");
-		}
-		catch { /* Ignore */ }
 	}
 }
 

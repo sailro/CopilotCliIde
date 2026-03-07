@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using CopilotCliIde.Shared;
@@ -30,6 +29,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private uint _selectionMonitorCookie;
 	private CancellationTokenSource? _connectionCts;
 	private DebouncePusher? _diagnosticsPusher;
+	private OutputLogger? _logger;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
@@ -38,9 +38,13 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 		try
 		{
+			_logger = OutputLogger.Create();
+			VsServiceRpc.Logger = _logger;
+
 			_discovery = new IdeDiscovery();
 			await _discovery.CleanStaleFilesAsync();
 
+			_logger?.Log("Extension loaded, starting connection...");
 			await StartConnectionAsync();
 
 			// Subscribe to solution events to restart connection on solution switch
@@ -58,14 +62,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			// Track active editor via native VS APIs (no DTE / COM interop)
 			var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
 			var editorAdaptersFactory = componentModel.GetService<IVsEditorAdaptersFactoryService>();
-			_selectionTracker = new SelectionTracker(editorAdaptersFactory, () => _mcpCallbacks, cb => _mcpCallbacks = cb);
+			_selectionTracker = new SelectionTracker(editorAdaptersFactory, () => _mcpCallbacks, cb => _mcpCallbacks = cb, _logger);
 			var monitorSelection = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
 			monitorSelection.AdviseSelectionEvents(new SelectionTracker.SelectionEventSink(_selectionTracker), out _selectionMonitorCookie);
 			_selectionTracker.TrackActiveView();
 		}
 		catch (Exception ex)
 		{
-			LogError(ex);
+			_logger?.Log($"InitializeAsync failed: {ex.Message}");
 		}
 	}
 
@@ -168,7 +172,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			}
 			catch (Exception ex)
 			{
-				LogError(ex);
+				_logger?.Log($"OnSolutionOpened failed: {ex.Message}");
 			}
 		});
 	}
@@ -184,7 +188,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			}
 			catch (Exception ex)
 			{
-				LogError(ex);
+				_logger?.Log($"OnSolutionAfterClosing failed: {ex.Message}");
 			}
 		});
 	}
@@ -226,6 +230,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				if (_diagnosticsPusher!.IsDuplicate(key)) return;
 
 				var notification = new DiagnosticsChangedNotification { Uris = uris };
+				var totalDiagnostics = uris.Sum(u => u.Diagnostics?.Count ?? 0);
+				_logger?.Log($"Push diagnostics_changed: {uris.Count} file(s), {totalDiagnostics} diagnostic(s)");
 
 				await Task.Run(async () =>
 				{
@@ -324,16 +330,5 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			}
 		}
 		base.Dispose(disposing);
-	}
-
-	private static void LogError(Exception ex)
-	{
-		try
-		{
-			var diagPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot", "ide", $"vs-error-{Process.GetCurrentProcess().Id}.log");
-			Directory.CreateDirectory(Path.GetDirectoryName(diagPath)!);
-			File.AppendAllText(diagPath, $"{DateTime.UtcNow:O}\n{ex}\n\n");
-		}
-		catch { /* Ignore */ }
 	}
 }

@@ -19,6 +19,7 @@ internal sealed class SelectionTracker : IDisposable
 	private readonly IVsEditorAdaptersFactoryService _editorAdaptersFactory;
 	private readonly Func<IMcpServerCallbacks?> _getCallbacks;
 	private readonly Action<IMcpServerCallbacks?> _clearCallbacks;
+	private readonly OutputLogger? _logger;
 	private readonly DebouncePusher _pusher;
 	private IWpfTextView? _trackedView;
 	private volatile SelectionNotification? _pendingNotification;
@@ -27,11 +28,13 @@ internal sealed class SelectionTracker : IDisposable
 	public SelectionTracker(
 		IVsEditorAdaptersFactoryService editorAdaptersFactory,
 		Func<IMcpServerCallbacks?> getCallbacks,
-		Action<IMcpServerCallbacks?> clearCallbacks)
+		Action<IMcpServerCallbacks?> clearCallbacks,
+		OutputLogger? logger = null)
 	{
 		_editorAdaptersFactory = editorAdaptersFactory;
 		_getCallbacks = getCallbacks;
 		_clearCallbacks = clearCallbacks;
+		_logger = logger;
 		_pusher = new DebouncePusher(OnDebounceElapsed);
 	}
 
@@ -179,6 +182,10 @@ internal sealed class SelectionTracker : IDisposable
 
 		var callbacks = _getCallbacks();
 		if (callbacks == null) return;
+
+		var sel = notification.Selection;
+		var isEmpty = sel?.IsEmpty ?? true;
+		_logger?.Log($"Push selection_changed: {Path.GetFileName(notification.FilePath ?? "")} L{sel?.Start?.Line}:{sel?.Start?.Character}{(isEmpty ? "" : $" → L{sel?.End?.Line}:{sel?.End?.Character}")}");
 
 		_ = Task.Run(async () =>
 		{

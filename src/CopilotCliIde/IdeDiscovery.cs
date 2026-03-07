@@ -47,27 +47,8 @@ public sealed class IdeDiscovery : IDisposable
 			return Task.CompletedTask;
 
 		CleanStaleLockFiles(ideDir);
-		CleanStaleLogFiles(ideDir);
 
 		return Task.CompletedTask;
-	}
-
-	private static void CleanStaleLogFiles(string ideDir)
-	{
-		// Clean stale PID-based log files (vs-error-{pid}.log, vs-connection-{pid}.log)
-		foreach (var file in Directory.GetFiles(ideDir, "vs-*.log"))
-		{
-			try
-			{
-				var name = Path.GetFileNameWithoutExtension(file);
-				var lastDash = name.LastIndexOf('-');
-				if (lastDash < 0) continue;
-				if (!int.TryParse(name.Substring(lastDash + 1), out var pid)) continue;
-				if (!IsProcessAlive(pid))
-					SafeDelete(file);
-			}
-			catch { /* Ignore */ }
-		}
 	}
 
 	private static void CleanStaleLockFiles(string ideDir)
