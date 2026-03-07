@@ -71,7 +71,7 @@ to discover available IDEs.
 | `scheme` | string | Transport scheme. Always `"pipe"`. |
 | `headers` | object | HTTP headers the CLI includes on every request. Contains `Authorization: Nonce {guid}` where the GUID is generated per session. |
 | `pid` | number | OS process ID of the IDE or MCP server process. Used for stale lock file cleanup. |
-| `ideName` | string | Human-readable IDE name (e.g. `"Visual Studio Code"`, `"JetBrains IntelliJ"`, `"Neovim"`). |
+| `ideName` | string | Human-readable IDE name (e.g. `"Visual Studio Code"`, `"JetBrains IntelliJ"`, `"Neovim"`). The CLI uses this value to select the display color for file paths and IDE labels in the terminal — see [IDE Display Colors](#ide-display-colors). |
 | `timestamp` | number | Unix timestamp in milliseconds (UTC) when the lock file was written. |
 | `workspaceFolders` | string[] | Absolute paths of open workspace / project folders. |
 | `isTrusted` | boolean | Whether the workspace is trusted by the IDE. |
@@ -88,6 +88,22 @@ The reference implementation uses: `mcp-{guid}.sock`
 
 The `.sock` suffix is a naming convention. On Windows the actual transport is a
 named pipe (`\\.\pipe\mcp-{guid}.sock`); on Unix it would be a domain socket.
+
+### IDE Display Colors
+
+The CLI uses the `ideName` field to colorize file paths and IDE labels in the
+terminal. The color is determined by matching the `ideName` against known IDE
+names:
+
+| `ideName` | Terminal Color | Notes |
+|-----------|---------------|-------|
+| `"Visual Studio Code"` | Blue | Matches VS Code's icon color |
+| `"Visual Studio Code - Insiders"` | Cyan | Matches VS Code Insiders' icon color |
+| _(anything else)_ | White (default) | Unrecognized IDE names get no color |
+
+This is a client-side display concern — the MCP server does not need to do
+anything to support it. However, implementors should be aware that their
+`ideName` value affects how the CLI presents their IDE to the user.
 
 ---
 
