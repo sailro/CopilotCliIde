@@ -12,7 +12,7 @@ public class DtoSerializationTests
 	private static readonly JsonSerializerOptions _jsonOptions = new()
 	{
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = false,
+		WriteIndented = false
 	};
 
 	[Fact]
@@ -28,8 +28,8 @@ public class DtoSerializationTests
 			{
 				Start = new SelectionPosition { Line = 10, Character = 4 },
 				End = new SelectionPosition { Line = 10, Character = 15 },
-				IsEmpty = false,
-			},
+				IsEmpty = false
+			}
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -67,7 +67,7 @@ public class DtoSerializationTests
 			TabName = "Edit: file.cs",
 			Message = "Diff opened",
 			Result = DiffOutcome.Saved,
-			Trigger = DiffTrigger.AcceptedViaButton,
+			Trigger = DiffTrigger.AcceptedViaButton
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -85,7 +85,7 @@ public class DtoSerializationTests
 		var result = new DiffResult
 		{
 			Success = false,
-			Error = "File not found",
+			Error = "File not found"
 		};
 
 		var json = JsonSerializer.Serialize(result, _jsonOptions);
@@ -103,7 +103,7 @@ public class DtoSerializationTests
 			Success = true,
 			AlreadyClosed = false,
 			TabName = "Edit: file.cs",
-			Message = "Closed",
+			Message = "Closed"
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -120,7 +120,7 @@ public class DtoSerializationTests
 		var result = new CloseDiffResult
 		{
 			Success = true,
-			AlreadyClosed = true,
+			AlreadyClosed = true
 		};
 
 		var json = JsonSerializer.Serialize(result, _jsonOptions);
@@ -143,8 +143,8 @@ public class DtoSerializationTests
 			Projects =
 			[
 				new ProjectInfo { Name = "WebApp", FullName = @"C:\src\WebApp\WebApp.csproj" },
-				new ProjectInfo { Name = "WebApp.Tests", FullName = @"C:\src\WebApp.Tests\WebApp.Tests.csproj" },
-			],
+				new ProjectInfo { Name = "WebApp.Tests", FullName = @"C:\src\WebApp.Tests\WebApp.Tests.csproj" }
+			]
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -190,10 +190,10 @@ public class DtoSerializationTests
 							Range = new DiagnosticRange
 							{
 								Start = new SelectionPosition { Line = 42, Character = 8 },
-								End = new SelectionPosition { Line = 42, Character = 9 },
-							},
-						},
-					],
+								End = new SelectionPosition { Line = 42, Character = 9 }
+							}
+						}
+					]
 				},
 				new FileDiagnostics
 				{
@@ -210,12 +210,12 @@ public class DtoSerializationTests
 							Range = new DiagnosticRange
 							{
 								Start = new SelectionPosition { Line = 10, Character = 12 },
-								End = new SelectionPosition { Line = 10, Character = 13 },
-							},
-						},
-					],
-				},
-			],
+								End = new SelectionPosition { Line = 10, Character = 13 }
+							}
+						}
+					]
+				}
+			]
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -248,7 +248,7 @@ public class DtoSerializationTests
 			Content = "using System;\n\nclass Program { }",
 			TotalLines = 3,
 			StartLine = 1,
-			LinesReturned = 3,
+			LinesReturned = 3
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -285,8 +285,8 @@ public class DtoSerializationTests
 			{
 				Start = new SelectionPosition { Line = 5, Character = 0 },
 				End = new SelectionPosition { Line = 5, Character = 11 },
-				IsEmpty = false,
-			},
+				IsEmpty = false
+			}
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
@@ -306,7 +306,7 @@ public class DtoSerializationTests
 		{
 			Text = null,
 			FilePath = null,
-			Selection = null,
+			Selection = null
 		};
 
 		var json = JsonSerializer.Serialize(notification, _jsonOptions);
@@ -322,7 +322,7 @@ public class DtoSerializationTests
 		{
 			Start = new SelectionPosition { Line = 3, Character = 7 },
 			End = new SelectionPosition { Line = 3, Character = 7 },
-			IsEmpty = true,
+			IsEmpty = true
 		};
 
 		var json = JsonSerializer.Serialize(range, _jsonOptions);
@@ -339,7 +339,7 @@ public class DtoSerializationTests
 		var original = new ProjectInfo
 		{
 			Name = "MyProject",
-			FullName = @"C:\repos\MySolution\MyProject\MyProject.csproj",
+			FullName = @"C:\repos\MySolution\MyProject\MyProject.csproj"
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);

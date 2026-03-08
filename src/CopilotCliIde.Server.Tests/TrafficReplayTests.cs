@@ -75,7 +75,7 @@ public class TrafficReplayTests
 		"close_diff",
 		"get_diagnostics",
 		"update_session_name",
-		"read_file",
+		"read_file"
 	];
 
 	[Theory]
@@ -160,31 +160,31 @@ public class TrafficReplayTests
 		var diagArray = diagDoc.RootElement;
 		Assert.Equal(JsonValueKind.Array, diagArray.ValueKind);
 
-		if (diagArray.GetArrayLength() > 0)
-		{
-			var firstGroup = diagArray[0];
+		if (diagArray.GetArrayLength() == 0)
+			return;
 
-			// Each group has uri, filePath, diagnostics
-			Assert.True(firstGroup.TryGetProperty("uri", out var uri));
-			Assert.Equal(JsonValueKind.String, uri.ValueKind);
+		var firstGroup = diagArray[0];
 
-			Assert.True(firstGroup.TryGetProperty("filePath", out var fp));
-			Assert.Equal(JsonValueKind.String, fp.ValueKind);
+		// Each group has uri, filePath, diagnostics
+		Assert.True(firstGroup.TryGetProperty("uri", out var uri));
+		Assert.Equal(JsonValueKind.String, uri.ValueKind);
 
-			Assert.True(firstGroup.TryGetProperty("diagnostics", out var diags));
-			Assert.Equal(JsonValueKind.Array, diags.ValueKind);
+		Assert.True(firstGroup.TryGetProperty("filePath", out var fp));
+		Assert.Equal(JsonValueKind.String, fp.ValueKind);
 
-			if (diags.GetArrayLength() > 0)
-			{
-				var firstDiag = diags[0];
-				Assert.True(firstDiag.TryGetProperty("message", out _));
-				Assert.True(firstDiag.TryGetProperty("severity", out _));
-				Assert.True(firstDiag.TryGetProperty("range", out var range));
-				Assert.True(range.TryGetProperty("start", out var start));
-				Assert.True(start.TryGetProperty("line", out _));
-				Assert.True(start.TryGetProperty("character", out _));
-			}
-		}
+		Assert.True(firstGroup.TryGetProperty("diagnostics", out var diags));
+		Assert.Equal(JsonValueKind.Array, diags.ValueKind);
+
+		if (diags.GetArrayLength() == 0)
+			return;
+
+		var firstDiag = diags[0];
+		Assert.True(firstDiag.TryGetProperty("message", out _));
+		Assert.True(firstDiag.TryGetProperty("severity", out _));
+		Assert.True(firstDiag.TryGetProperty("range", out var range));
+		Assert.True(range.TryGetProperty("start", out var start));
+		Assert.True(start.TryGetProperty("line", out _));
+		Assert.True(start.TryGetProperty("character", out _));
 	}
 
 	#endregion
@@ -300,7 +300,7 @@ public class TrafficReplayTests
 	private static readonly HashSet<string> _knownNotificationMethods =
 	[
 		"selection_changed",
-		"diagnostics_changed",
+		"diagnostics_changed"
 	];
 
 	[Theory]
@@ -419,15 +419,11 @@ public class TrafficReplayTests
 					differences.Add($"{toolName}: property '{extra}' in {otherCapture} but missing in {baselineCapture}");
 
 				// Compare property types for shared properties
-				foreach (var prop in baselinePropNames.Intersect(otherPropNames))
-				{
-					if (baselineProps[prop] != otherProps[prop])
-					{
-						differences.Add(
-							$"{toolName}.{prop}: type '{baselineProps[prop]}' in {baselineCapture} " +
-							$"vs '{otherProps[prop]}' in {otherCapture}");
-					}
-				}
+				differences.AddRange(
+					from prop in baselinePropNames.Intersect(otherPropNames)
+					where baselineProps[prop] != otherProps[prop]
+					select $"{toolName}.{prop}: type '{baselineProps[prop]}' in {baselineCapture} " +
+						$"vs '{otherProps[prop]}' in {otherCapture}");
 
 				// Compare required fields
 				var missingRequired = baselineRequired.Except(otherRequired).ToList();
@@ -566,7 +562,7 @@ public class TrafficReplayTests
 		var rpcClient = new RpcClient(mockVsServices);
 
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
-		var nonce = "test-nonce";
+		const string nonce = "test-nonce";
 
 		await using var server = new McpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -584,10 +580,10 @@ public class TrafficReplayTests
 			{
 				protocolVersion = "2025-11-25",
 				capabilities = new { },
-				clientInfo = new { name = "replay-test", version = "1.0.0" },
+				clientInfo = new { name = "replay-test", version = "1.0.0" }
 			},
 			jsonrpc = "2.0",
-			id = 0,
+			id = 0
 		});
 		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
 		var initResponseBody = await ReadHttpResponseAsync(pipe, cts.Token);
@@ -646,14 +642,14 @@ public class TrafficReplayTests
 			{
 				Start = new SelectionPosition { Line = 10, Character = 8 },
 				End = new SelectionPosition { Line = 10, Character = 36 },
-				IsEmpty = false,
-			},
+				IsEmpty = false
+			}
 		}));
 
 		var rpcClient = new RpcClient(mockVsServices);
 
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
-		var nonce = "test-nonce";
+		const string nonce = "test-nonce";
 
 		await using var server = new McpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -670,10 +666,10 @@ public class TrafficReplayTests
 			{
 				protocolVersion = "2025-11-25",
 				capabilities = new { },
-				clientInfo = new { name = "replay-test", version = "1.0.0" },
+				clientInfo = new { name = "replay-test", version = "1.0.0" }
 			},
 			jsonrpc = "2.0",
-			id = 0,
+			id = 0
 		});
 		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
 		await ReadHttpResponseAsync(pipe, cts.Token);
@@ -682,7 +678,7 @@ public class TrafficReplayTests
 		var initializedNotification = JsonSerializer.Serialize(new
 		{
 			method = "notifications/initialized",
-			jsonrpc = "2.0",
+			jsonrpc = "2.0"
 		});
 		await SendHttpPostAsync(pipe, initializedNotification, nonce, cts.Token);
 		await ReadHttpResponseAsync(pipe, cts.Token);
@@ -694,10 +690,10 @@ public class TrafficReplayTests
 			@params = new
 			{
 				name = "get_selection",
-				arguments = new { },
+				arguments = new { }
 			},
 			jsonrpc = "2.0",
-			id = 2,
+			id = 2
 		});
 		await SendHttpPostAsync(pipe, getSelectionRequest, nonce, cts.Token);
 		var responseBody = await ReadHttpResponseAsync(pipe, cts.Token);
@@ -764,8 +760,8 @@ public class TrafficReplayTests
 		var rpcClient = new RpcClient(mockVsServices);
 
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
-		var correctNonce = "correct-nonce";
-		var wrongNonce = "wrong-nonce";
+		const string correctNonce = "correct-nonce";
+		const string wrongNonce = "wrong-nonce";
 
 		await using var server = new McpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -783,10 +779,10 @@ public class TrafficReplayTests
 			{
 				protocolVersion = "2025-11-25",
 				capabilities = new { },
-				clientInfo = new { name = "replay-test", version = "1.0.0" },
+				clientInfo = new { name = "replay-test", version = "1.0.0" }
 			},
 			jsonrpc = "2.0",
-			id = 0,
+			id = 0
 		});
 		await SendHttpPostAsync(pipe, initRequest, wrongNonce, cts.Token);
 
@@ -838,28 +834,29 @@ public class TrafficReplayTests
 
 				var msg = entry.JsonRpcMessage.Value;
 
-				if (entry.Direction == "cli_to_vscode")
+				switch (entry.Direction)
 				{
-					// Notifications don't have id fields — skip them
-					if (msg.TryGetProperty("id", out var idEl)
-						&& idEl.ValueKind == JsonValueKind.Number
-						&& idEl.TryGetInt64(out var idNum))
-					{
-						requests.Add((entry.Seq, idNum));
-					}
-				}
-				else if (entry.Direction == "vscode_to_cli")
-				{
-					// Notifications (method-bearing messages without id) are not responses
-					if (msg.TryGetProperty("method", out _) && !msg.TryGetProperty("id", out _))
-						continue;
+					case "cli_to_vscode":
+						// Notifications don't have id fields — skip them
+						if (msg.TryGetProperty("id", out var reqIdEl)
+							&& reqIdEl.ValueKind == JsonValueKind.Number
+							&& reqIdEl.TryGetInt64(out var reqIdNum))
+						{
+							requests.Add((entry.Seq, reqIdNum));
+						}
+						break;
+					case "vscode_to_cli":
+						// Notifications (method-bearing messages without id) are not responses
+						if (msg.TryGetProperty("method", out _) && !msg.TryGetProperty("id", out _))
+							continue;
 
-					if (msg.TryGetProperty("id", out var idEl)
-						&& idEl.ValueKind == JsonValueKind.Number
-						&& idEl.TryGetInt64(out var idNum))
-					{
-						responses.Add((entry.Seq, idNum));
-					}
+						if (msg.TryGetProperty("id", out var respIdEl)
+							&& respIdEl.ValueKind == JsonValueKind.Number
+							&& respIdEl.TryGetInt64(out var respIdNum))
+						{
+							responses.Add((entry.Seq, respIdNum));
+						}
+						break;
 				}
 			}
 
@@ -915,7 +912,7 @@ public class TrafficReplayTests
 		var rpcClient = new RpcClient(mockVsServices);
 
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
-		var nonce = "test-nonce";
+		const string nonce = "test-nonce";
 
 		await using var server = new McpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -933,10 +930,10 @@ public class TrafficReplayTests
 			{
 				protocolVersion = "2025-11-25",
 				capabilities = new { },
-				clientInfo = new { name = "replay-test", version = "1.0.0" },
+				clientInfo = new { name = "replay-test", version = "1.0.0" }
 			},
 			jsonrpc = "2.0",
-			id = 0,
+			id = 0
 		});
 		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
 		var initResponse = await ReadHttpResponseAsync(pipe, cts.Token);
@@ -946,7 +943,7 @@ public class TrafficReplayTests
 		var initializedNotification = JsonSerializer.Serialize(new
 		{
 			method = "notifications/initialized",
-			jsonrpc = "2.0",
+			jsonrpc = "2.0"
 		});
 		await SendHttpPostAsync(pipe, initializedNotification, nonce, cts.Token);
 		await ReadHttpResponseAsync(pipe, cts.Token);
@@ -956,7 +953,7 @@ public class TrafficReplayTests
 		{
 			method = "tools/list",
 			jsonrpc = "2.0",
-			id = 1,
+			id = 1
 		});
 		await SendHttpPostAsync(pipe, toolsListRequest, nonce, cts.Token);
 		var toolsResponse = await ReadHttpResponseAsync(pipe, cts.Token);
@@ -990,7 +987,7 @@ public class TrafficReplayTests
 			DiffTrigger.RejectedViaButton,
 			DiffTrigger.ClosedViaTool,
 			DiffTrigger.ClosedViaTab,
-			DiffTrigger.Timeout,
+			DiffTrigger.Timeout
 		};
 
 		foreach (var response in responses)
@@ -1023,19 +1020,19 @@ public class TrafficReplayTests
 			Assert.Equal(JsonValueKind.String, message.ValueKind);
 
 			// When success == true, validate result and trigger
-			if (success.GetBoolean())
-			{
-				Assert.True(root.TryGetProperty("result", out var diffResult),
-					"open_diff success response missing 'result'");
-				var resultStr = diffResult.GetString();
-				Assert.True(resultStr == DiffOutcome.Saved || resultStr == DiffOutcome.Rejected,
-					$"open_diff result should be SAVED or REJECTED, got '{resultStr}'");
+			if (!success.GetBoolean())
+				continue;
 
-				Assert.True(root.TryGetProperty("trigger", out var trigger),
-					"open_diff success response missing 'trigger'");
-				var triggerStr = trigger.GetString();
-				Assert.Contains(triggerStr, (ISet<string?>)knownTriggers);
-			}
+			Assert.True(root.TryGetProperty("result", out var diffResult),
+				"open_diff success response missing 'result'");
+			var resultStr = diffResult.GetString();
+			Assert.True(resultStr is DiffOutcome.Saved or DiffOutcome.Rejected,
+				$"open_diff result should be SAVED or REJECTED, got '{resultStr}'");
+
+			Assert.True(root.TryGetProperty("trigger", out var trigger),
+				"open_diff success response missing 'trigger'");
+			var triggerStr = trigger.GetString();
+			Assert.Contains(triggerStr, (ISet<string?>)knownTriggers);
 		}
 	}
 
@@ -1202,33 +1199,27 @@ public class TrafficReplayTests
 		for (var i = 1; i < lines.Length; i++)
 		{
 			var colonIdx = lines[i].IndexOf(':');
-			if (colonIdx > 0)
-			{
-				var key = lines[i][..colonIdx].Trim();
-				var value = lines[i][(colonIdx + 1)..].Trim();
-				headers[key] = value;
-			}
+			if (colonIdx <= 0) continue;
+			var key = lines[i][..colonIdx].Trim();
+			var value = lines[i][(colonIdx + 1)..].Trim();
+			headers[key] = value;
 		}
 
 		if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
-		{
 			return await McpPipeServer.ReadChunkedBodyAsync(pipe, ct);
-		}
 
-		if (headers.TryGetValue("content-length", out var clStr) && int.TryParse(clStr, out var contentLength) && contentLength > 0)
+		if (!headers.TryGetValue("content-length", out var clStr) || !int.TryParse(clStr, out var contentLength) || contentLength <= 0)
+			return "";
+
+		var bodyBuffer = new byte[contentLength];
+		var totalRead = 0;
+		while (totalRead < contentLength)
 		{
-			var bodyBuffer = new byte[contentLength];
-			var totalRead = 0;
-			while (totalRead < contentLength)
-			{
-				var read = await pipe.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct);
-				if (read == 0) break;
-				totalRead += read;
-			}
-			return Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
+			var read = await pipe.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct);
+			if (read == 0) break;
+			totalRead += read;
 		}
-
-		return "";
+		return Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
 	}
 
 	private static HashSet<string> ExtractToolNamesFromResponse(string responseBody)
@@ -1240,12 +1231,10 @@ public class TrafficReplayTests
 		foreach (var line in responseBody.Split('\n'))
 		{
 			var trimmed = line.Trim();
-			if (trimmed.StartsWith("data:", StringComparison.Ordinal))
-			{
-				var json = trimmed["data:".Length..].Trim();
-				if (TryExtractToolNames(json, names))
-					return names;
-			}
+			if (!trimmed.StartsWith("data:", StringComparison.Ordinal)) continue;
+			var json = trimmed["data:".Length..].Trim();
+			if (TryExtractToolNames(json, names))
+				return names;
 		}
 
 		// Fallback: try parsing the whole thing as JSON-RPC
@@ -1254,15 +1243,12 @@ public class TrafficReplayTests
 
 		// Final fallback: find JSON object in the response
 		var jsonStart = responseBody.IndexOf('{');
-		if (jsonStart >= 0)
-		{
-			var jsonEnd = responseBody.LastIndexOf('}');
-			if (jsonEnd > jsonStart)
-			{
-				var json = responseBody[jsonStart..(jsonEnd + 1)];
-				TryExtractToolNames(json, names);
-			}
-		}
+		if (jsonStart < 0)
+			return names;
+
+		var jsonEnd = responseBody.LastIndexOf('}');
+		if (jsonEnd > jsonStart)
+			TryExtractToolNames(responseBody[jsonStart..(jsonEnd + 1)], names);
 
 		return names;
 	}
@@ -1273,16 +1259,14 @@ public class TrafficReplayTests
 		foreach (var line in responseBody.Split('\n'))
 		{
 			var trimmed = line.Trim();
-			if (trimmed.StartsWith("data:", StringComparison.Ordinal))
+			if (!trimmed.StartsWith("data:", StringComparison.Ordinal)) continue;
+			var json = trimmed["data:".Length..].Trim();
+			try
 			{
-				var json = trimmed["data:".Length..].Trim();
-				try
-				{
-					using var doc = JsonDocument.Parse(json);
-					return doc.RootElement.Clone();
-				}
-				catch { /* Not valid JSON */ }
+				using var doc = JsonDocument.Parse(json);
+				return doc.RootElement.Clone();
 			}
+			catch { /* Not valid JSON */ }
 		}
 
 		// Fallback: try parsing the whole thing as JSON
@@ -1295,20 +1279,20 @@ public class TrafficReplayTests
 
 		// Final fallback: find JSON object by brace matching
 		var jsonStart = responseBody.IndexOf('{');
-		if (jsonStart >= 0)
+		if (jsonStart < 0)
+			return null;
+
+		var jsonEnd = responseBody.LastIndexOf('}');
+		if (jsonEnd <= jsonStart)
+			return null;
+
+		try
 		{
-			var jsonEnd = responseBody.LastIndexOf('}');
-			if (jsonEnd > jsonStart)
-			{
-				try
-				{
-					var jsonStr = responseBody[jsonStart..(jsonEnd + 1)];
-					using var doc = JsonDocument.Parse(jsonStr);
-					return doc.RootElement.Clone();
-				}
-				catch { /* Not valid JSON */ }
-			}
+			var jsonStr = responseBody[jsonStart..(jsonEnd + 1)];
+			using var doc = JsonDocument.Parse(jsonStr);
+			return doc.RootElement.Clone();
 		}
+		catch { /* Not valid JSON */ }
 
 		return null;
 	}

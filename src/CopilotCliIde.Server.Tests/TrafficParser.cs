@@ -65,7 +65,7 @@ public sealed partial class TrafficParser
 				Timestamp = root.GetProperty("ts").GetDateTimeOffset(),
 				Seq = root.GetProperty("seq").GetInt32(),
 				Direction = root.GetProperty("dir").GetString()!,
-				Type = root.GetProperty("type").GetString()!,
+				Type = root.GetProperty("type").GetString()!
 			};
 
 			if (root.TryGetProperty("body", out var bodyEl))
@@ -147,16 +147,16 @@ public sealed partial class TrafficParser
 		// Strategy 2: Find the request event containing the tool name in raw text,
 		// then the next vscode_to_cli body with a result (tool call response pattern)
 		var fallbackSeq = FindToolCallRequestSeq(toolName);
-		if (fallbackSeq is not null)
-		{
-			var match = Entries.FirstOrDefault(e =>
-			e.Seq > fallbackSeq.Value
-			&& e is { Direction: "vscode_to_cli", Body: not null }
-			&& HasProperty(e.Body.Value, "result"));
+		if (fallbackSeq is null)
+			return null;
 
-			if (match is not null)
-				return match.JsonRpcMessage ?? match.Body;
-		}
+		var fallbackMatch = Entries.FirstOrDefault(e =>
+		e.Seq > fallbackSeq.Value
+		&& e is { Direction: "vscode_to_cli", Body: not null }
+		&& HasProperty(e.Body.Value, "result"));
+
+		if (fallbackMatch is not null)
+			return fallbackMatch.JsonRpcMessage ?? fallbackMatch.Body;
 
 		return null;
 	}
@@ -267,21 +267,14 @@ public sealed partial class TrafficParser
 			return null;
 
 		// Try SSE format: "event: message\ndata: {json}"
-		var sseJson = ExtractFromSse(bodyPart);
-		if (sseJson is not null)
-			return sseJson;
-
 		// Skip chunked encoding markers and brace-match to extract JSON
-		return ExtractJsonWithBraceMatching(bodyPart);
+		return ExtractFromSse(bodyPart) ?? ExtractJsonWithBraceMatching(bodyPart);
 	}
 
 	private static JsonElement? ExtractFromSse(string text)
 	{
 		var match = SseDataRegex().Match(text);
-		if (!match.Success)
-			return null;
-
-		return TryParseJson(match.Groups[1].Value.Trim());
+		return !match.Success ? null : TryParseJson(match.Groups[1].Value.Trim());
 	}
 
 	/// <summary>
@@ -303,18 +296,25 @@ public sealed partial class TrafficParser
 		{
 			var c = text[i];
 			if (escape) { escape = false; continue; }
-			if (c == '\\' && inString) { escape = true; continue; }
-			if (c == '"') { inString = !inString; continue; }
-			if (inString) continue;
-			if (c == '{') depth++;
-			else if (c == '}')
+			switch (c)
 			{
-				depth--;
-				if (depth == 0)
-				{
-					var jsonStr = text[jsonStart..(i + 1)];
-					return TryParseJson(jsonStr);
-				}
+				case '\\' when inString:
+					escape = true;
+					continue;
+				case '"':
+					inString = !inString;
+					continue;
+				case '{' when !inString:
+					depth++;
+					break;
+				case '}' when !inString:
+					depth--;
+					if (depth == 0)
+					{
+						var jsonStr = text[jsonStart..(i + 1)];
+						return TryParseJson(jsonStr);
+					}
+					break;
 			}
 		}
 
@@ -439,7 +439,7 @@ public sealed partial class TrafficParser
 			&& id.GetInt64() == elId.GetInt64(),
 			JsonValueKind.String => elId.ValueKind == JsonValueKind.String
 			&& id.GetString() == elId.GetString(),
-			_ => false,
+			_ => false
 		};
 	}
 

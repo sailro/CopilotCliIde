@@ -22,15 +22,15 @@ public class NotificationFormatTests
 			{
 				start = new { line = 5, character = 0 },
 				end = new { line = 5, character = 11 },
-				isEmpty = false,
-			},
+				isEmpty = false
+			}
 		};
 
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
 			method = "selection_changed",
-			@params = notification,
+			@params = notification
 		});
 
 		var doc = JsonDocument.Parse(jsonRpc);
@@ -58,14 +58,14 @@ public class NotificationFormatTests
 			text = "",
 			filePath = (string?)null,
 			fileUrl = (string?)null,
-			selection = (object?)null,
+			selection = (object?)null
 		};
 
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
 			method = "selection_changed",
-			@params = notification,
+			@params = notification
 		});
 
 		var doc = JsonDocument.Parse(jsonRpc);
@@ -106,8 +106,8 @@ public class NotificationFormatTests
 			{
 				start = new { line = 0, character = 0 },
 				end = new { line = 0, character = 0 },
-				isEmpty = true,
-			},
+				isEmpty = true
+			}
 		};
 
 		var json = JsonSerializer.Serialize(notification);
@@ -137,21 +137,21 @@ public class NotificationFormatTests
 							range = new
 							{
 								start = new { line = 41, character = 7 },
-								end = new { line = 41, character = 8 },
+								end = new { line = 41, character = 8 }
 							},
 							source = "WebApp",
-							code = "CS0103",
-						},
-					},
-				},
-			},
+							code = "CS0103"
+						}
+					}
+				}
+			}
 		};
 
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
 			method = "diagnostics_changed",
-			@params = notification,
+			@params = notification
 		});
 
 		var doc = JsonDocument.Parse(jsonRpc);
@@ -184,7 +184,7 @@ public class NotificationFormatTests
 		{
 			jsonrpc = "2.0",
 			method = "diagnostics_changed",
-			@params = new { uris = Array.Empty<object>() },
+			@params = new { uris = Array.Empty<object>() }
 		});
 
 		var doc = JsonDocument.Parse(jsonRpc);

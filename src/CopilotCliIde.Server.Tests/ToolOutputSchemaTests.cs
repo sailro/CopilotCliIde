@@ -12,7 +12,7 @@ public class ToolOutputSchemaTests
 {
 	private static readonly JsonSerializerOptions _camelCaseOptions = new()
 	{
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+		PropertyNamingPolicy = JsonNamingPolicy.CamelCase
 	};
 
 	[Fact]
@@ -26,7 +26,7 @@ public class ToolOutputSchemaTests
 			Trigger = DiffTrigger.AcceptedViaButton,
 			TabName = "Edit: file.cs",
 			Message = "Changes saved",
-			Error = null,
+			Error = null
 		};
 
 		var toolOutput = new
@@ -36,7 +36,7 @@ public class ToolOutputSchemaTests
 			trigger = rpcResult.Trigger,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -63,7 +63,7 @@ public class ToolOutputSchemaTests
 			Result = DiffOutcome.Rejected,
 			Trigger = DiffTrigger.RejectedViaButton,
 			TabName = "Edit: file.cs",
-			Message = "Changes rejected",
+			Message = "Changes rejected"
 		};
 
 		var toolOutput = new
@@ -73,7 +73,7 @@ public class ToolOutputSchemaTests
 			trigger = rpcResult.Trigger,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -91,7 +91,7 @@ public class ToolOutputSchemaTests
 			Success = true,
 			Result = DiffOutcome.Rejected,
 			Trigger = DiffTrigger.ClosedViaTab,
-			TabName = "Edit: file.cs",
+			TabName = "Edit: file.cs"
 		};
 
 		var toolOutput = new
@@ -101,7 +101,7 @@ public class ToolOutputSchemaTests
 			trigger = rpcResult.Trigger,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -118,7 +118,7 @@ public class ToolOutputSchemaTests
 			Success = true,
 			Result = DiffOutcome.Rejected,
 			Trigger = DiffTrigger.ClosedViaTool,
-			TabName = "Edit: file.cs",
+			TabName = "Edit: file.cs"
 		};
 
 		var toolOutput = new
@@ -128,7 +128,7 @@ public class ToolOutputSchemaTests
 			trigger = rpcResult.Trigger,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -144,7 +144,7 @@ public class ToolOutputSchemaTests
 		var rpcResult = new DiffResult
 		{
 			Success = false,
-			Error = "File not found",
+			Error = "File not found"
 		};
 
 		var toolOutput = new
@@ -154,7 +154,7 @@ public class ToolOutputSchemaTests
 			trigger = rpcResult.Trigger,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -175,7 +175,7 @@ public class ToolOutputSchemaTests
 			AlreadyClosed = false,
 			TabName = "Edit: file.cs",
 			Message = "Tab closed",
-			Error = null,
+			Error = null
 		};
 
 		var toolOutput = new
@@ -184,7 +184,7 @@ public class ToolOutputSchemaTests
 			already_closed = rpcResult.AlreadyClosed,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -206,7 +206,7 @@ public class ToolOutputSchemaTests
 			Success = true,
 			AlreadyClosed = true,
 			TabName = "Edit: file.cs",
-			Message = "Tab was already closed",
+			Message = "Tab was already closed"
 		};
 
 		var toolOutput = new
@@ -215,7 +215,7 @@ public class ToolOutputSchemaTests
 			already_closed = rpcResult.AlreadyClosed,
 			tab_name = rpcResult.TabName,
 			message = rpcResult.Message,
-			error = rpcResult.Error,
+			error = rpcResult.Error
 		};
 
 		var json = JsonSerializer.Serialize(toolOutput);
@@ -245,14 +245,14 @@ public class ToolOutputSchemaTests
 							Range = new DiagnosticRange
 							{
 								Start = new SelectionPosition { Line = 5, Character = 0 },
-								End = new SelectionPosition { Line = 5, Character = 3 },
+								End = new SelectionPosition { Line = 5, Character = 3 }
 							},
 							Source = "csharp",
-							Code = "CS0103",
-						},
-					],
-				},
-			],
+							Code = "CS0103"
+						}
+					]
+				}
+			]
 		};
 
 		// Tool returns: result.Files ?? []

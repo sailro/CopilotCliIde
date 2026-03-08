@@ -39,7 +39,7 @@ public class McpPipeServerTests
 		await server.PushNotificationAsync("selection_changed", new
 		{
 			text = "hello",
-			filePath = @"C:\test.cs",
+			filePath = @"C:\test.cs"
 		});
 	}
 

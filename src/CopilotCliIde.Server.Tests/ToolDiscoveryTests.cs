@@ -23,7 +23,7 @@ public class ToolDiscoveryTests
 		"close_diff",
 		"get_diagnostics",
 		"read_file",
-		"update_session_name",
+		"update_session_name"
 	];
 
 	[Fact]

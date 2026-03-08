@@ -42,7 +42,7 @@ public class HttpResponseTests
 	public async Task WriteHttpResponseAsync_IncludesContentLength()
 	{
 		using var stream = new MemoryStream();
-		var body = "Hello, World!";
+		const string body = "Hello, World!";
 
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
@@ -113,7 +113,7 @@ public class HttpResponseTests
 	public async Task WriteHttpResponseAsync_BodyIsAppendedAfterHeaders()
 	{
 		using var stream = new MemoryStream();
-		var body = """{"result":"ok"}""";
+		const string body = """{"result":"ok"}""";
 
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
@@ -129,7 +129,7 @@ public class HttpResponseTests
 	public async Task WriteHttpResponseAsync_Utf8Body()
 	{
 		using var stream = new MemoryStream();
-		var body = "naïve café ☕";
+		const string body = "naïve café ☕";
 
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
@@ -144,7 +144,7 @@ public class HttpResponseTests
 	{
 		// Write a response, then parse it as if we were the client
 		using var stream = new MemoryStream();
-		var body = """{"jsonrpc":"2.0","result":{"tools":[]},"id":1}""";
+		const string body = """{"jsonrpc":"2.0","result":{"tools":[]},"id":1}""";
 
 		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None,
 			contentType: "text/event-stream",

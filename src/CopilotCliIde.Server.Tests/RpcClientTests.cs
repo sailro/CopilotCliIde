@@ -16,7 +16,7 @@ public class RpcClientTests
 		await client.RaiseSelectionChanged(new SelectionNotification
 		{
 			Text = "hello",
-			FilePath = @"C:\test.cs",
+			FilePath = @"C:\test.cs"
 		});
 	}
 
@@ -41,8 +41,8 @@ public class RpcClientTests
 			{
 				Start = new SelectionPosition { Line = 1, Character = 0 },
 				End = new SelectionPosition { Line = 1, Character = 10 },
-				IsEmpty = false,
-			},
+				IsEmpty = false
+			}
 		};
 
 		await client.RaiseSelectionChanged(sent);
@@ -112,10 +112,10 @@ public class RpcClientTests
 					Uri = "file:///C:/test.cs",
 					Diagnostics =
 					[
-						new DiagnosticItem { Severity = "error", Message = "CS0001" },
-					],
-				},
-			],
+						new DiagnosticItem { Severity = "error", Message = "CS0001" }
+					]
+				}
+			]
 		});
 	}
 
@@ -149,12 +149,12 @@ public class RpcClientTests
 							Range = new DiagnosticRange
 							{
 								Start = new SelectionPosition { Line = 10, Character = 4 },
-								End = new SelectionPosition { Line = 10, Character = 5 },
-							},
-						},
-					],
-				},
-			],
+								End = new SelectionPosition { Line = 10, Character = 5 }
+							}
+						}
+					]
+				}
+			]
 		};
 
 		await client.RaiseDiagnosticsChanged(sent);
@@ -202,8 +202,8 @@ public class RpcClientTests
 			[
 				new DiagnosticsChangedUri { Uri = "file:///a.cs", Diagnostics = [] },
 				new DiagnosticsChangedUri { Uri = "file:///b.cs", Diagnostics = [] },
-				new DiagnosticsChangedUri { Uri = "file:///c.cs", Diagnostics = [] },
-			],
+				new DiagnosticsChangedUri { Uri = "file:///c.cs", Diagnostics = [] }
+			]
 		});
 
 		Assert.NotNull(received);

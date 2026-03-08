@@ -12,7 +12,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_ParsesGetRequest()
 	{
-		var request = "GET /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Nonce abc123\r\n\r\n";
+		const string request = "GET /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Nonce abc123\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (method, path, headers, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
@@ -27,7 +27,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_ParsesPostWithBody()
 	{
-		var jsonBody = """{"jsonrpc":"2.0","method":"tools/call","id":1}""";
+		const string jsonBody = """{"jsonrpc":"2.0","method":"tools/call","id":1}""";
 		var request = $"POST /mcp HTTP/1.1\r\nContent-Length: {jsonBody.Length}\r\nContent-Type: application/json\r\n\r\n{jsonBody}";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
@@ -42,7 +42,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_HeadersAreCaseInsensitive()
 	{
-		var request = "GET / HTTP/1.1\r\ncontent-type: text/plain\r\nAUTHORIZATION: Nonce xyz\r\n\r\n";
+		const string request = "GET / HTTP/1.1\r\ncontent-type: text/plain\r\nAUTHORIZATION: Nonce xyz\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (_, _, headers, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
@@ -66,7 +66,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_ZeroContentLength_ReturnsEmptyBody()
 	{
-		var request = "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n";
+		const string request = "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (method, path, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
@@ -79,7 +79,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_DeleteMethod()
 	{
-		var request = "DELETE /mcp HTTP/1.1\r\nAuthorization: Nonce test\r\n\r\n";
+		const string request = "DELETE /mcp HTTP/1.1\r\nAuthorization: Nonce test\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (method, path, _, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
@@ -92,7 +92,7 @@ public class HttpParsingTests
 	public async Task ReadHttpRequestAsync_ChunkedTransferEncoding()
 	{
 		// "Hello" = 5 bytes, "World" = 5 bytes
-		var request = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n5\r\nWorld\r\n0\r\n\r\n";
+		const string request = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n5\r\nWorld\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (method, _, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
@@ -118,7 +118,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_MultipleHeaders()
 	{
-		var request = "GET / HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\nX-Custom: foo\r\nMcp-Session-Id: session-123\r\n\r\n";
+		const string request = "GET / HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\nX-Custom: foo\r\nMcp-Session-Id: session-123\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (_, _, headers, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
@@ -131,7 +131,7 @@ public class HttpParsingTests
 	[Fact]
 	public async Task ReadHttpRequestAsync_HeaderWithColonInValue()
 	{
-		var request = "GET / HTTP/1.1\r\nAuthorization: Bearer abc:def:ghi\r\n\r\n";
+		const string request = "GET / HTTP/1.1\r\nAuthorization: Bearer abc:def:ghi\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
 		var (_, _, headers, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
