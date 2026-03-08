@@ -227,9 +227,9 @@ public class DtoSerializationTests
 		var deserialized = JsonSerializer.Deserialize<DiagnosticsResult>(json, _jsonOptions)!;
 
 		Assert.Equal(2, deserialized.Files!.Count);
-		Assert.Equal("Error", deserialized.Files[0].Diagnostics![0]!.Severity);
-		Assert.Equal(42, deserialized.Files[0].Diagnostics![0]!.Range!.Start!.Line);
-		Assert.Equal("Warning", deserialized.Files[1].Diagnostics![0]!.Severity);
+		Assert.Equal("Error", deserialized.Files[0].Diagnostics![0].Severity);
+		Assert.Equal(42, deserialized.Files[0].Diagnostics![0].Range!.Start!.Line);
+		Assert.Equal("Warning", deserialized.Files[1].Diagnostics![0].Severity);
 	}
 
 	[Fact]

@@ -83,8 +83,8 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeToolsList_ContainsExpectedTools(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
-		var response = _parser.GetToolsListResponse();
+		var parser = LoadCapture(captureFile);
+		var response = parser.GetToolsListResponse();
 		Assert.NotNull(response);
 
 		var toolsArray = response.Value.GetProperty("result").GetProperty("tools");
@@ -107,8 +107,8 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeToolsList_ToolInputSchemas_HaveExpectedShape(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
-		var response = _parser.GetToolsListResponse();
+		var parser = LoadCapture(captureFile);
+		var response = parser.GetToolsListResponse();
 		Assert.NotNull(response);
 
 		var toolsArray = response.Value.GetProperty("result").GetProperty("tools");
@@ -140,8 +140,8 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeGetDiagnosticsResponse_HasExpectedStructure(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
-		var response = _parser.GetToolCallResponse("get_diagnostics");
+		var parser = LoadCapture(captureFile);
+		var response = parser.GetToolCallResponse("get_diagnostics");
 		Assert.NotNull(response);
 
 		var result = response.Value.GetProperty("result");
@@ -196,8 +196,8 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeSelectionChanged_HasExpectedStructure(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
-		var notifications = _parser.GetNotifications("selection_changed");
+		var parser = LoadCapture(captureFile);
+		var notifications = parser.GetNotifications("selection_changed");
 		Assert.NotEmpty(notifications);
 
 		foreach (var notification in notifications)
@@ -243,8 +243,8 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeDiagnosticsChanged_HasExpectedStructure(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
-		var notifications = _parser.GetNotifications("diagnostics_changed");
+		var parser = LoadCapture(captureFile);
+		var notifications = parser.GetNotifications("diagnostics_changed");
 		Assert.NotEmpty(notifications);
 
 		foreach (var notification in notifications)
@@ -308,10 +308,10 @@ public class TrafficReplayTests
 	[MemberData(nameof(CaptureFiles))]
 	public void VsCodeCapture_ContainsNoUnknownNotificationMethods(string captureFile)
 	{
-		var _parser = LoadCapture(captureFile);
+		var parser = LoadCapture(captureFile);
 		// Extract ALL notification methods from vscode_to_cli entries
-		var allMethods = _parser.Entries
-			.Where(e => e.Direction == "vscode_to_cli" && e.JsonRpcMessage.HasValue)
+		var allMethods = parser.Entries
+			.Where(e => e is { Direction: "vscode_to_cli", JsonRpcMessage: not null })
 			.Select(e =>
 			{
 				try
@@ -360,7 +360,7 @@ public class TrafficReplayTests
 			if (response is null)
 				continue;
 
-			var captureName = Path.GetFileName(captureFile)!;
+			var captureName = Path.GetFileName(captureFile);
 			var toolsArray = response.Value.GetProperty("result").GetProperty("tools");
 
 			foreach (var tool in toolsArray.EnumerateArray())
@@ -442,7 +442,7 @@ public class TrafficReplayTests
 		}
 
 		Assert.True(differences.Count == 0,
-			$"Schema inconsistencies found across captures:\n" +
+			"Schema inconsistencies found across captures:\n" +
 			string.Join("\n", differences));
 	}
 
@@ -573,7 +573,7 @@ public class TrafficReplayTests
 		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
 
 		// Connect to the pipe
-		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 		await pipe.ConnectAsync(cts.Token);
 
 		// Send initialize
@@ -660,7 +660,7 @@ public class TrafficReplayTests
 		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
 
 		// Connect and initialize
-		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 		await pipe.ConnectAsync(cts.Token);
 
 		var initRequest = JsonSerializer.Serialize(new
@@ -772,7 +772,7 @@ public class TrafficReplayTests
 		await server.StartAsync(rpcClient, pipeName, correctNonce, cts.Token);
 
 		// Connect to the pipe
-		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 		await pipe.ConnectAsync(cts.Token);
 
 		// Send a request with the WRONG nonce
@@ -875,9 +875,7 @@ public class TrafficReplayTests
 					// This is acceptable when the request JSON was truncated and the id
 					// couldn't be extracted. Only flag it if we have NO truncated requests.
 					var hasTruncatedRequests = parser.Entries.Any(e =>
-						e.Direction == "cli_to_vscode"
-						&& e.Event is not null
-						&& e.JsonRpcMessage is null);
+						e is { Direction: "cli_to_vscode", Event: not null, JsonRpcMessage: null });
 
 					if (!hasTruncatedRequests)
 					{
@@ -918,8 +916,8 @@ public class TrafficReplayTests
 	{
 		// Extract VS Code's tool names from the first capture
 		var firstCapture = Directory.GetFiles(FindCapturesDir(), "*.ndjson").First();
-		var _parser = LoadCapture(firstCapture);
-		var vsCodeResponse = _parser.GetToolsListResponse();
+		var parser = LoadCapture(firstCapture);
+		var vsCodeResponse = parser.GetToolsListResponse();
 		Assert.NotNull(vsCodeResponse);
 		var vsCodeToolNames = vsCodeResponse.Value.GetProperty("result").GetProperty("tools")
 			.EnumerateArray()
@@ -938,7 +936,7 @@ public class TrafficReplayTests
 		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
 
 		// Connect to the pipe and send initialize + tools/list
-		using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 		await pipe.ConnectAsync(cts.Token);
 
 		// Send initialize

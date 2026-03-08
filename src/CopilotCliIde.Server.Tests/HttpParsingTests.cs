@@ -56,7 +56,7 @@ public class HttpParsingTests
 	{
 		using var stream = new MemoryStream([]);
 
-		var (method, path, headers, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, path, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Null(method);
 		Assert.Null(path);

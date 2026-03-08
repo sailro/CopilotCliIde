@@ -100,10 +100,9 @@ public sealed partial class TrafficParser
 	public JsonElement? GetInitializeResponse()
 	{
 		return Entries
-		.Where(e => e.Direction == "vscode_to_cli"
-		&& e.JsonRpcMessage is not null
-		&& HasProperty(e.JsonRpcMessage.Value, "result")
-		&& HasNestedProperty(e.JsonRpcMessage.Value, "result", "protocolVersion"))
+		.Where(e => e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+					&& HasProperty(e.JsonRpcMessage.Value, "result")
+					&& HasNestedProperty(e.JsonRpcMessage.Value, "result", "protocolVersion"))
 		.Select(e => e.JsonRpcMessage)
 		.FirstOrDefault();
 	}
@@ -114,10 +113,9 @@ public sealed partial class TrafficParser
 	public JsonElement? GetToolsListResponse()
 	{
 		return Entries
-		.Where(e => e.Direction == "vscode_to_cli"
-		&& e.JsonRpcMessage is not null
-		&& HasProperty(e.JsonRpcMessage.Value, "result")
-		&& HasNestedProperty(e.JsonRpcMessage.Value, "result", "tools"))
+		.Where(e => e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+					&& HasProperty(e.JsonRpcMessage.Value, "result")
+					&& HasNestedProperty(e.JsonRpcMessage.Value, "result", "tools"))
 		.Select(e => e.JsonRpcMessage)
 		.FirstOrDefault();
 	}
@@ -134,8 +132,7 @@ public sealed partial class TrafficParser
 		if (requestId is not null)
 		{
 			var match = Entries.FirstOrDefault(e =>
-			e.Direction == "vscode_to_cli"
-			&& e.JsonRpcMessage is not null
+			e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
 			&& HasProperty(e.JsonRpcMessage.Value, "result")
 			&& MatchesId(e.JsonRpcMessage.Value, requestId.Value));
 
@@ -150,8 +147,7 @@ public sealed partial class TrafficParser
 		{
 			var match = Entries.FirstOrDefault(e =>
 			e.Seq > requestSeq.Value
-			&& e.Direction == "vscode_to_cli"
-			&& e.Body is not null
+			&& e is { Direction: "vscode_to_cli", Body: not null }
 			&& HasProperty(e.Body.Value, "result"));
 
 			if (match is not null)
@@ -168,47 +164,9 @@ public sealed partial class TrafficParser
 	public List<JsonElement> GetNotifications(string method)
 	{
 		return [.. Entries
-		.Where(e => e.Direction == "vscode_to_cli"
-		&& e.JsonRpcMessage is not null
-		&& TryGetStringProperty(e.JsonRpcMessage.Value, "method") == method)
+		.Where(e => e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+					&& TryGetStringProperty(e.JsonRpcMessage.Value, "method") == method)
 		.Select(e => e.JsonRpcMessage!.Value)];
-	}
-
-	/// <summary>
-	/// Extracts serverInfo from the initialize response.
-	/// </summary>
-	public JsonElement? GetVsCodeServerInfo()
-	{
-		var initResponse = GetInitializeResponse();
-		if (initResponse is null)
-			return null;
-
-		if (initResponse.Value.TryGetProperty("result", out var result)
-		&& result.TryGetProperty("serverInfo", out var serverInfo))
-		{
-			return serverInfo.Clone();
-		}
-
-		return null;
-	}
-
-	/// <summary>
-	/// Returns all entries matching a direction filter.
-	/// </summary>
-	public IReadOnlyList<TrafficEntry> GetEntriesByDirection(string direction)
-	{
-		return [.. Entries.Where(e => e.Direction == direction)];
-	}
-
-	/// <summary>
-	/// Returns all request entries for a given JSON-RPC method (e.g., "tools/list", "initialize").
-	/// </summary>
-	public IReadOnlyList<TrafficEntry> GetRequests(string method)
-	{
-		return [.. Entries
-		.Where(e => e.Direction == "cli_to_vscode"
-		&& e.JsonRpcMessage is not null
-		&& TryGetStringProperty(e.JsonRpcMessage.Value, "method") == method)];
 	}
 
 	// --- HTTP frame extraction ---

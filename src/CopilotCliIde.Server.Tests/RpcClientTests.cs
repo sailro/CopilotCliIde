@@ -162,8 +162,8 @@ public class RpcClientTests
 		Assert.NotNull(received);
 		Assert.Single(received!.Uris!);
 		Assert.Equal("file:///C:/src/Program.cs", received.Uris![0].Uri);
-		Assert.Equal("error", received.Uris[0].Diagnostics![0]!.Severity);
-		Assert.Equal("CS0103", received.Uris[0].Diagnostics![0]!.Code);
+		Assert.Equal("error", received.Uris[0].Diagnostics![0].Severity);
+		Assert.Equal("CS0103", received.Uris[0].Diagnostics![0].Code);
 	}
 
 	[Fact]

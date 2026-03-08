@@ -118,7 +118,7 @@ public class HttpResponseTests
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		// Body comes after the double CRLF that ends headers
-		var headerEnd = response.IndexOf("\r\n\r\n");
+		var headerEnd = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
 		Assert.True(headerEnd > 0);
 		var responseBody = response[(headerEnd + 4)..];
 		Assert.Equal(body, responseBody);
