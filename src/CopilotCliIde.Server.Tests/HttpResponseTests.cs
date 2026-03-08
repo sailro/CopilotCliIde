@@ -15,6 +15,7 @@ public class HttpResponseTests
 	[InlineData(401, "Unauthorized")]
 	[InlineData(404, "Not Found")]
 	[InlineData(405, "Method Not Allowed")]
+	[InlineData(500, "Internal Server Error")]
 	[InlineData(504, "Gateway Timeout")]
 	public async Task WriteHttpResponseAsync_CorrectStatusText(int statusCode, string expectedText)
 	{
@@ -27,14 +28,14 @@ public class HttpResponseTests
 	}
 
 	[Fact]
-	public async Task WriteHttpResponseAsync_UnknownStatusCode_UsesError()
+	public async Task WriteHttpResponseAsync_UnknownStatusCode_UsesUnknown()
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 500, "Internal", CancellationToken.None);
+		await McpPipeServer.WriteHttpResponseAsync(stream, 999, "test", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
-		Assert.StartsWith("HTTP/1.1 500 Error\r\n", response);
+		Assert.StartsWith("HTTP/1.1 999 Unknown\r\n", response);
 	}
 
 	[Fact]

@@ -21,8 +21,7 @@ public class TrafficReplayTests
 	public static TheoryData<string> CaptureFiles()
 	{
 		var data = new TheoryData<string>();
-		var capturesDir = FindCapturesDir();
-		foreach (var file in Directory.GetFiles(capturesDir, "*.ndjson"))
+		foreach (var file in GetCaptureFiles())
 			data.Add(file);
 		return data;
 	}
@@ -346,7 +345,7 @@ public class TrafficReplayTests
 	[Fact]
 	public void AllCaptures_ToolInputSchemas_AreConsistent()
 	{
-		var captureFiles = Directory.GetFiles(FindCapturesDir(), "*.ndjson");
+		var captureFiles = GetCaptureFiles();
 		Assert.True(captureFiles.Length >= 2, "Need at least 2 captures for cross-capture comparison");
 
 		// Build per-tool, per-capture schema data:
@@ -819,7 +818,7 @@ public class TrafficReplayTests
 	[Fact]
 	public void AllCaptures_RequestResponseIds_AreCorrelated()
 	{
-		var captureFiles = Directory.GetFiles(FindCapturesDir(), "*.ndjson");
+		var captureFiles = GetCaptureFiles();
 		var allErrors = new List<string>();
 
 		foreach (var captureFile in captureFiles)
@@ -915,7 +914,7 @@ public class TrafficReplayTests
 	public async Task OurToolsList_MatchesVsCodeToolNames()
 	{
 		// Extract VS Code's tool names from the first capture
-		var firstCapture = Directory.GetFiles(FindCapturesDir(), "*.ndjson").First();
+		var firstCapture = GetCaptureFiles().First();
 		var parser = LoadCapture(firstCapture);
 		var vsCodeResponse = parser.GetToolsListResponse();
 		Assert.NotNull(vsCodeResponse);
@@ -1016,6 +1015,14 @@ public class TrafficReplayTests
 
 		throw new DirectoryNotFoundException(
 			"Captures directory not found. Expected at src/CopilotCliIde.Server.Tests/Captures/");
+	}
+
+	/// <summary>
+	/// Returns all .ndjson capture files from the Captures/ directory.
+	/// </summary>
+	private static string[] GetCaptureFiles()
+	{
+		return Directory.GetFiles(FindCapturesDir(), "*.ndjson");
 	}
 
 	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct)

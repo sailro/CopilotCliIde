@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -15,7 +16,6 @@ namespace CopilotCliIde.Server;
 /// </summary>
 public sealed class McpPipeServer : IAsyncDisposable
 {
-	private string? _pipeName;
 	private string? _nonce;
 	private CancellationTokenSource? _cts;
 	private McpServerOptions? _serverOptions;
@@ -23,18 +23,18 @@ public sealed class McpPipeServer : IAsyncDisposable
 	private readonly List<SseClient> _sseClients = [];
 	private readonly Lock _sseClientsLock = new();
 
-	public string? PipeName => _pipeName;
+	public string? PipeName { get; private set; }
 
 	public async Task StartAsync(RpcClient rpcClient, string pipeName, string nonce, CancellationToken ct)
 	{
 		_rpcClient = rpcClient;
-		_pipeName = pipeName;
+		PipeName = pipeName;
 		_nonce = nonce;
 		_cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
 		_serverOptions = new McpServerOptions
 		{
-			ServerInfo = new Implementation { Name = "vscode-copilot-cli", Version = "1.0.0", Title = "VS Code Copilot CLI" },
+			ServerInfo = new Implementation { Name = "vscode-copilot-cli", Version = "0.0.1", Title = "VS Code Copilot CLI" },
 			Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = true } },
 			ToolCollection = [],
 		};
@@ -77,7 +77,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		while (!ct.IsCancellationRequested)
 		{
 			var pipe = new NamedPipeServerStream(
-				_pipeName!,
+				PipeName!,
 				PipeDirection.InOut,
 				NamedPipeServerStream.MaxAllowedServerInstances,
 				PipeTransmissionMode.Byte,
@@ -372,52 +372,51 @@ public sealed class McpPipeServer : IAsyncDisposable
 	internal static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
 		string contentType = "text/plain", string extraHeaders = "")
 	{
-		var statusText = statusCode switch
-		{
-			200 => "OK",
-			202 => "Accepted",
-			400 => "Bad Request",
-			401 => "Unauthorized",
-			404 => "Not Found",
-			405 => "Method Not Allowed",
-			504 => "Gateway Timeout",
-			_ => "Error"
-		};
+		// Use HttpResponseMessage to format the status line properly
+		using var response = new HttpResponseMessage((HttpStatusCode)statusCode);
+		var statusText = response.ReasonPhrase ?? "Unknown";
 
 		var bodyBytes = Encoding.UTF8.GetBytes(body);
 		var useChunked = contentType == "text/event-stream";
 
-		string response;
+		// Build status line and headers using proper HTTP formatting
+		var sb = new StringBuilder();
+		sb.Append($"HTTP/1.1 {statusCode} {statusText}\r\n");
+		sb.Append($"content-type: {contentType}\r\n");
 		if (useChunked)
-		{
-			response = $"HTTP/1.1 {statusCode} {statusText}\r\ncontent-type: {contentType}\r\ntransfer-encoding: chunked\r\nconnection: keep-alive\r\n{extraHeaders}\r\n";
-		}
+			sb.Append("transfer-encoding: chunked\r\n");
 		else
-		{
-			response = $"HTTP/1.1 {statusCode} {statusText}\r\ncontent-type: {contentType}\r\ncontent-length: {bodyBytes.Length}\r\nconnection: keep-alive\r\n{extraHeaders}\r\n";
-		}
+			sb.Append($"content-length: {bodyBytes.Length}\r\n");
+		sb.Append("connection: keep-alive\r\n");
+		if (!string.IsNullOrEmpty(extraHeaders))
+			sb.Append(extraHeaders);
+		sb.Append("\r\n");
 
-		var headerBytes = Encoding.UTF8.GetBytes(response);
+		var headerBytes = Encoding.UTF8.GetBytes(sb.ToString());
 		await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), ct);
 
-		if (useChunked && bodyBytes.Length > 0)
+		switch (useChunked)
 		{
-			var chunk = Encoding.UTF8.GetBytes($"{bodyBytes.Length:x}\r\n");
-			var chunkEnd = Encoding.UTF8.GetBytes("\r\n0\r\n\r\n");
-			var fullChunk = new byte[chunk.Length + bodyBytes.Length + chunkEnd.Length];
-			Buffer.BlockCopy(chunk, 0, fullChunk, 0, chunk.Length);
-			Buffer.BlockCopy(bodyBytes, 0, fullChunk, chunk.Length, bodyBytes.Length);
-			Buffer.BlockCopy(chunkEnd, 0, fullChunk, chunk.Length + bodyBytes.Length, chunkEnd.Length);
-			await stream.WriteAsync(fullChunk.AsMemory(0, fullChunk.Length), ct);
-		}
-		else if (useChunked)
-		{
-			var terminator = Encoding.UTF8.GetBytes("0\r\n\r\n");
-			await stream.WriteAsync(terminator.AsMemory(0, terminator.Length), ct);
-		}
-		else
-		{
-			await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
+			case true when bodyBytes.Length > 0:
+				{
+					var chunk = Encoding.UTF8.GetBytes($"{bodyBytes.Length:x}\r\n");
+					var chunkEnd = "\r\n0\r\n\r\n"u8.ToArray();
+					var fullChunk = new byte[chunk.Length + bodyBytes.Length + chunkEnd.Length];
+					Buffer.BlockCopy(chunk, 0, fullChunk, 0, chunk.Length);
+					Buffer.BlockCopy(bodyBytes, 0, fullChunk, chunk.Length, bodyBytes.Length);
+					Buffer.BlockCopy(chunkEnd, 0, fullChunk, chunk.Length + bodyBytes.Length, chunkEnd.Length);
+					await stream.WriteAsync(fullChunk.AsMemory(0, fullChunk.Length), ct);
+					break;
+				}
+			case true:
+				{
+					var terminator = "0\r\n\r\n"u8.ToArray();
+					await stream.WriteAsync(terminator.AsMemory(0, terminator.Length), ct);
+					break;
+				}
+			default:
+				await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
+				break;
 		}
 
 		await stream.FlushAsync(ct);
@@ -425,12 +424,12 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 	public ValueTask DisposeAsync()
 	{
-		if (_cts != null)
-		{
-			_cts.Cancel();
-			_cts.Dispose();
-			_cts = null;
-		}
+		if (_cts == null)
+			return ValueTask.CompletedTask;
+
+		_cts.Cancel();
+		_cts.Dispose();
+		_cts = null;
 		return ValueTask.CompletedTask;
 	}
 
@@ -593,8 +592,10 @@ public sealed class McpPipeServer : IAsyncDisposable
 		{
 			if (serviceType == typeof(RpcClient))
 				return rpcClient;
+
 			if (serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService))
 				return this;
+
 			return null;
 		}
 
