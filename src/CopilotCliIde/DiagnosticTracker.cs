@@ -108,12 +108,6 @@ internal sealed class DiagnosticTracker : IDisposable
 	/// </summary>
 	public void ResetDedupKey() => _pusher.ResetDedupKey();
 
-	/// <summary>
-	/// Clears pending state and resets the debounce timer.
-	/// Called on connection stop so the next connection starts fresh.
-	/// </summary>
-	public void Reset() => _pusher.Reset();
-
 	public void Dispose()
 	{
 		Unsubscribe();

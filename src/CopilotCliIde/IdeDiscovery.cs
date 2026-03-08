@@ -32,7 +32,7 @@ public sealed class IdeDiscovery : IDisposable
 			ideName = "Visual Studio",
 			timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
 			workspaceFolders,
-			isTrusted = true,
+			isTrusted = true
 		};
 
 		var json = JsonSerializer.Serialize(lockData, new JsonSerializerOptions { WriteIndented = true });

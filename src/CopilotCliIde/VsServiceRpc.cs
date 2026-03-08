@@ -17,9 +17,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	private class DiffState
 	{
-		public string OriginalPath { get; set; } = "";
 		public string TempNewPath { get; set; } = "";
-		public string NewContent { get; set; } = "";
 		public string TabName { get; set; } = "";
 		public IVsWindowFrame? Frame { get; set; }
 		public TaskCompletionSource<(string Result, string Trigger)>? Completion { get; set; }
@@ -76,9 +74,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			var state = new DiffState
 			{
-				OriginalPath = originalFilePath,
 				TempNewPath = tempFile,
-				NewContent = newFileContents,
 				TabName = tabName,
 				Frame = frame,
 				Completion = tcs
@@ -194,13 +190,9 @@ public class VsServiceRpc : IVsServiceRpc
 				return new SelectionResult { Current = false };
 
 			var sel = textDoc.Selection;
-			string? selectedText = null;
-			if (!sel.IsEmpty)
-			{
-				selectedText = sel.Text;
-				if (selectedText?.Length > 100_000)
-					selectedText = selectedText.Substring(0, 100_000);
-			}
+			var selectedText = sel.IsEmpty ? null : sel.Text;
+			if (selectedText?.Length > 100_000)
+				selectedText = selectedText.Substring(0, 100_000);
 
 			return new SelectionResult
 			{

@@ -36,7 +36,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		{
 			ServerInfo = new Implementation { Name = "vscode-copilot-cli", Version = "0.0.1", Title = "VS Code Copilot CLI" },
 			Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = true } },
-			ToolCollection = [],
+			ToolCollection = []
 		};
 
 		// Scan assembly for [McpServerToolType] classes and their [McpServerTool] methods
@@ -128,7 +128,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 					continue;
 				}
 
-				if (method == "POST" && (path == "/mcp" || path == "/"))
+				if (method == "POST" && path is "/mcp" or "/")
 				{
 					if (string.IsNullOrWhiteSpace(body))
 					{
@@ -184,11 +184,13 @@ public sealed class McpPipeServer : IAsyncDisposable
 					}
 					catch (OperationCanceledException)
 					{
+						// Use parent ct — postCts may have timed out
 						await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
 						continue;
 					}
 					catch (Exception ex)
 					{
+						// Use parent ct — postCts may have timed out
 						await WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
 						continue;
 					}
@@ -213,7 +215,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 				{
 					// SSE stream for server-to-client notifications
 					headers.TryGetValue("mcp-session-id", out var sseSessionId);
-					var sseHeaders = $"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache, no-transform\r\nconnection: keep-alive\r\nmcp-session-id: {sseSessionId ?? transport?.SessionId ?? "none"}\r\ntransfer-encoding: chunked\r\n\r\n";
+					var sseHeaders = $"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache, no-transform\r\nconnection: keep-alive\r\nmcp-session-id: {sseSessionId ?? transport.SessionId ?? "none"}\r\ntransfer-encoding: chunked\r\n\r\n";
 					await pipe.WriteAsync(Encoding.UTF8.GetBytes(sseHeaders), ct);
 					await pipe.FlushAsync(ct);
 
@@ -288,12 +290,12 @@ public sealed class McpPipeServer : IAsyncDisposable
 		for (int i = 1; i < lines.Length; i++)
 		{
 			var colonIdx = lines[i].IndexOf(':');
-			if (colonIdx > 0)
-			{
-				var key = lines[i][..colonIdx].Trim();
-				var value = lines[i][(colonIdx + 1)..].Trim();
-				headers[key] = value;
-			}
+			if (colonIdx <= 0)
+				continue;
+
+			var key = lines[i][..colonIdx].Trim();
+			var value = lines[i][(colonIdx + 1)..].Trim();
+			headers[key] = value;
 		}
 
 		// Read body
@@ -551,7 +553,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		var sseEvent = $"event: message\ndata: {notification}\n\n";
 		var chunkData = Encoding.UTF8.GetBytes(sseEvent);
 		var chunk = Encoding.UTF8.GetBytes($"{chunkData.Length:x}\r\n");
-		var chunkEnd = Encoding.UTF8.GetBytes("\r\n");
+		var chunkEnd = "\r\n"u8.ToArray();
 
 		SseClient[] clients;
 		lock (_sseClientsLock) { clients = [.. _sseClients]; }
@@ -593,10 +595,9 @@ public sealed class McpPipeServer : IAsyncDisposable
 			if (serviceType == typeof(RpcClient))
 				return rpcClient;
 
-			if (serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService))
-				return this;
-
-			return null;
+			return serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService)
+				? this
+				: null;
 		}
 
 		public bool IsService(Type serviceType)

@@ -17,7 +17,7 @@ internal sealed class DiagnosticTableSink(Action onChanged) : ITableDataSink
 	public bool IsStable
 	{
 		get => true;
-		set => onChanged();
+		set { _ = value; onChanged(); }
 	}
 
 	public void AddEntries(IReadOnlyList<ITableEntry> newEntries, bool removeAllEntries)

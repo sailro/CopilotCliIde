@@ -28,10 +28,10 @@ Console.CancelKeyPress += (_, e) => { e.Cancel = true; tcs.TrySetResult(0); };
 AppDomain.CurrentDomain.ProcessExit += (_, _) => tcs.TrySetResult(0);
 
 // Also monitor stdin - if parent closes it, exit
-_ = Task.Run(async () =>
+_ = Task.Run(() =>
 {
 	try { while (Console.In.ReadLine() != null) { } }
-	catch { }
+	catch { /* Ignore — stdin may be closed */ }
 	tcs.TrySetResult(0);
 });
 

@@ -26,9 +26,9 @@ public sealed class ServerProcessManager : IDisposable
 				CreateNoWindow = true,
 				RedirectStandardInput = true,
 				RedirectStandardOutput = true,
-				RedirectStandardError = true,
+				RedirectStandardError = true
 			},
-			EnableRaisingEvents = true,
+			EnableRaisingEvents = true
 		};
 
 		_process.Start();
