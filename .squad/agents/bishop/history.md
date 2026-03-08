@@ -242,3 +242,32 @@ Fixed `get_diagnostics` tool's `uri` parameter type to match VS Code's schema. C
 
 **Result:** Eliminated manual status code dictionary. Now using .NET's built-in HTTP types. 143 tests pass, build clean, format clean.
 
+
+### get_diagnostics file:// URI normalization fix (corrected)
+
+**Bug:** get_diagnostics tool failed when CLI sent VS Code-style file URIs (`file:///c%3A/path`). System.Uri.LocalPath on .NET 10 returns `/c:/path` (Unix-style) for percent-encoded drive colons, causing path comparison failures against Error List items (which use Windows paths like `C:\path`).
+
+**Initial fix (wrong layer):** Added NormalizeFileUri to `GetDiagnosticsTool.cs` in the Server project. This was incorrect -- the URI-to-path conversion already lived in `VsServiceRpc.GetDiagnosticsAsync`, which was doing `new Uri(uri).LocalPath` and producing `/c:/path`.
+
+**Corrected fix:** Moved `NormalizeFileUri` to `PathUtils` in the extension project (alongside the inverse method `ToVsCodeFileUrl`). Updated `VsServiceRpc.GetDiagnosticsAsync` to use `PathUtils.NormalizeFileUri(uri)` instead of `new Uri(uri).LocalPath`. Reverted `GetDiagnosticsTool.cs` to pass `uri` straight through to the RPC call. Removed the server-side test file (method no longer in server project; `PathUtils` is in net472 extension project, untestable from server test project).
+
+**Key learning:** URI-to-path conversion belongs in the layer that compares paths (VsServiceRpc/ErrorListReader), not the MCP tool layer. The tool should pass the raw URI through and let the extension handle normalization where it already does path comparison.
+
+**Files changed:**
+- src/CopilotCliIde/PathUtils.cs -- added `NormalizeFileUri` (inverse of `ToVsCodeFileUrl`)
+- src/CopilotCliIde/VsServiceRpc.cs -- replaced `new Uri(uri).LocalPath` with `PathUtils.NormalizeFileUri(uri)`
+- src/CopilotCliIde.Server/Tools/GetDiagnosticsTool.cs -- reverted to pass `uri` straight through (removed NormalizeFileUri)
+- src/CopilotCliIde.Server.Tests/GetDiagnosticsToolTests.cs -- removed (method no longer in server)
+
+**Result:** 143 tests pass, build clean, format clean.
+
+### URI Normalization Applied to All RPC Path-Accepting Methods
+
+Applied `PathUtils.NormalizeFileUri()` consistently to all `VsServiceRpc` methods that receive file paths from CLI tools. Previously only `GetDiagnosticsAsync` was normalized. Now `ReadFileAsync` and `OpenDiffAsync` also normalize their incoming path/URI parameters before use. `CloseDiffByTabNameAsync` was checked but only accepts a tab name string — no path normalization needed.
+
+**Pattern:** `paramName = PathUtils.NormalizeFileUri(paramName) ?? paramName;` at the top of the method body, before any file system or VS API calls. The `?? paramName` fallback preserves the original value if `NormalizeFileUri` returns null (which only happens for null/empty input — shouldn't occur for these required parameters, but defensive).
+
+**Files changed:**
+- src/CopilotCliIde/VsServiceRpc.cs — added `NormalizeFileUri` to `ReadFileAsync(filePath)` and `OpenDiffAsync(originalFilePath)`
+
+**Result:** 143 tests pass, build clean, format clean.

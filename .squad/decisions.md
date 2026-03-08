@@ -1200,3 +1200,31 @@ Our server advertises `"logging": {}` in capabilities (MCP SDK default). VS Code
 
 No capture invokes `get_vscode_info`. Future captures should trigger this tool to validate the response format on the wire.
 
+
+---
+
+# Normalize All RPC Path/URI Inputs via PathUtils.NormalizeFileUri
+
+**Author:** Bishop (Server Dev)
+**Date:** 2026-03-07
+
+## Decision
+
+All `VsServiceRpc` methods that accept file paths or URIs from CLI tools MUST normalize the input with `PathUtils.NormalizeFileUri()` before using it. This converts `file:///c%3A/path` URIs to local Windows paths and passes raw paths through unchanged.
+
+## Rationale
+
+CLI tools may send either raw file paths (`c:\Dev\file.cs`) or file URIs (`file:///c%3A/Dev/file.cs`). Without normalization, URI inputs cause `FileNotFoundException` or incorrect VS API behavior. The fix was initially applied only to `GetDiagnosticsAsync`; Sebastien directed it be applied uniformly.
+
+## Scope
+
+Methods now normalized:
+- `GetDiagnosticsAsync(uri)` — already had it
+- `ReadFileAsync(filePath)` — added
+- `OpenDiffAsync(originalFilePath)` — added
+- `CloseDiffByTabNameAsync(tabName)` — not applicable (tab name, not a path)
+
+## Team Rule
+
+**Any new RPC method that accepts a file path or URI from a CLI tool must apply `PathUtils.NormalizeFileUri()` at the top of the method body.** Pattern: `paramName = PathUtils.NormalizeFileUri(paramName) ?? paramName;`
+
