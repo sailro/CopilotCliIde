@@ -106,6 +106,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
 		_diagnosticTracker = new DiagnosticTracker(
 			componentModel,
+			JoinableTaskFactory,
 			() => _mcpCallbacks,
 			cb => _mcpCallbacks = cb,
 			CollectDiagnosticsGrouped,

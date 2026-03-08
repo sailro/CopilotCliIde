@@ -19,20 +19,23 @@ internal sealed class DiagnosticTracker : IDisposable
 	private readonly Action<IMcpServerCallbacks?> _clearCallbacks;
 	private readonly Func<List<DiagnosticsChangedUri>> _collectDiagnostics;
 	private readonly OutputLogger? _logger;
+	private readonly JoinableTaskFactory _joinableTaskFactory;
 	private readonly DebouncePusher _pusher;
 	private readonly object _tableSubscriptionLock = new();
-	private readonly HashSet<ITableDataSource> _subscribedSources = new();
-	private readonly List<IDisposable> _tableSubscriptions = new();
+	private readonly HashSet<ITableDataSource> _subscribedSources = [];
+	private readonly List<IDisposable> _tableSubscriptions = [];
 	private ITableManager? _errorTableManager;
 
 	public DiagnosticTracker(
 		IComponentModel componentModel,
+		JoinableTaskFactory joinableTaskFactory,
 		Func<IMcpServerCallbacks?> getCallbacks,
 		Action<IMcpServerCallbacks?> clearCallbacks,
 		Func<List<DiagnosticsChangedUri>> collectDiagnostics,
 		OutputLogger? logger = null)
 	{
 		_componentModel = componentModel;
+		_joinableTaskFactory = joinableTaskFactory;
 		_getCallbacks = getCallbacks;
 		_clearCallbacks = clearCallbacks;
 		_collectDiagnostics = collectDiagnostics;
@@ -74,7 +77,7 @@ internal sealed class DiagnosticTracker : IDisposable
 	/// </summary>
 	public void Unsubscribe()
 	{
-		if (_errorTableManager != null)
+		if (_errorTableManager is not null)
 		{
 			_errorTableManager.SourcesChanged -= OnErrorTableSourcesChanged;
 			_errorTableManager = null;
@@ -151,11 +154,11 @@ internal sealed class DiagnosticTracker : IDisposable
 		var callbacks = _getCallbacks();
 		if (callbacks == null) return;
 
-		_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+		_joinableTaskFactory.RunAsync(async () =>
 		{
 			try
 			{
-				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+				await _joinableTaskFactory.SwitchToMainThreadAsync();
 				var uris = _collectDiagnostics();
 
 				var key = ComputeDiagnosticsKey(uris);
