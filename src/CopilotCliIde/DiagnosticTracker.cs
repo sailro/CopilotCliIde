@@ -1,7 +1,7 @@
 using CopilotCliIde.Shared;
 using Microsoft.VisualStudio.ComponentModelHost;
-using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.TableManager;
+using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
 namespace CopilotCliIde;
@@ -77,11 +77,8 @@ internal sealed class DiagnosticTracker : IDisposable
 	/// </summary>
 	public void Unsubscribe()
 	{
-		if (_errorTableManager is not null)
-		{
-			_errorTableManager.SourcesChanged -= OnErrorTableSourcesChanged;
-			_errorTableManager = null;
-		}
+		_errorTableManager?.SourcesChanged -= OnErrorTableSourcesChanged;
+		_errorTableManager = null;
 
 		lock (_tableSubscriptionLock)
 		{
@@ -154,7 +151,7 @@ internal sealed class DiagnosticTracker : IDisposable
 		var callbacks = _getCallbacks();
 		if (callbacks == null) return;
 
-		_joinableTaskFactory.RunAsync(async () =>
+		_ = _joinableTaskFactory.RunAsync(async () =>
 		{
 			try
 			{
