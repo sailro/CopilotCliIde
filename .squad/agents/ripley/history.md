@@ -227,4 +227,41 @@ Deep re-analysis of all 3 capture files (vscode-0.38, vscode-insiders-0.39, vs-1
 
 **Coverage gap:** No capture invokes `get_vscode_info` — response format is documented but unverified against wire data.
 
+### 2026-03-08 — Deep Protocol Analysis of Updated Captures (open_diff/close_diff scenarios)
+
+All 3 captures updated by Sebastien to include open_diff accept, reject, and close_diff cancellation scenarios. Deep analysis confirms:
+
+**Sebastien's code changes are correct and complete:**
+- `DiffOutcome` constants ("SAVED"/"REJECTED") match all captures exactly
+- `DiffTrigger` constants ("accepted_via_button"/"rejected_via_button"/"closed_via_tool") match all captures exactly
+- Slimmed `DiffResult` (removed `DiffId`, `OriginalFilePath`, `ProposedFilePath`, `UserAction`) — confirmed these fields never appear in any capture
+- Slimmed `CloseDiffResult` (removed `OriginalFilePath`) — confirmed absent from captures
+- Updated tests use new constants correctly — 139 of 143 tests pass
+
+**New finding — close_diff-cancels-open_diff produces two responses:** When `close_diff` is called while `open_diff` blocks, both VS and VS Code emit: (1) the open_diff response with `result:"REJECTED"`, `trigger:"closed_via_tool"`, then (2) the close_diff response with `already_closed:false`. Our implementation handles this correctly.
+
+### 2026-03-08 — Deep Protocol Analysis (Multi-Session Captures)
+
+Comprehensive protocol compatibility analysis of all 3 NDJSON capture files with multi-session scenarios. Sebastien updated captures to include multiple tool invocations across sequential MCP sessions.
+
+**Key Findings:**
+- **Multi-session corruption detected:** Captures now contain 2–4 MCP sessions per file. JSON-RPC IDs reset between sessions. TrafficParser's `GetToolCallResponse` crosses session boundaries when matching request→response pairs, causing 4 test failures.
+- **Session ID isolation required:** Need sequence-scoped response matching. `GetToolCallRequest` → return both request ID and sequence number. `GetToolCallResponse` → only match responses with `Seq > requestSeq` within the same session.
+- **New tool invocations captured:** `open_diff` (5–6 instances per capture with 3 response patterns: SAVED/accepted_via_button, REJECTED/rejected_via_button, REJECTED/closed_via_tool), `close_diff` (1–4 instances), `get_vscode_info` (1–4 instances).
+- **`read_file` never invoked** in any capture.
+
+**Deliverables:**
+- Identified 4 failing tests tied to multi-session ID collision
+- Identified root cause: `TrafficParser` lacks session awareness
+- Scoped TrafficParser fixes needed for Bishop (described in full detail)
+- Proposal: `.squad/decisions/inbox/ripley-capture-analysis-2026-03-08.md`
+
+**4 test failures caused by multi-session captures:** Updated captures contain multiple sessions per file (capture script runs accept, reject, and close_diff scenarios in separate sessions). `TrafficParser.GetToolCallResponse()` correlates by JSON-RPC `id`, but IDs are reused across sessions. `AllCaptures_RequestResponseIds_AreCorrelated` expects unique IDs. Fix requires session-aware parsing.
+
+**Minor message text difference:** VS `close_diff` returns "closed and changes rejected"; VS Code says "closed successfully" (VsServiceRpc.cs line 153). Cosmetic only.
+
+**Coverage gap closed:** `get_vscode_info` is now exercised in all 3 captures. VS response schema (`{ideName, appName, version, solutionPath, solutionName, solutionDirectory, projects, processId}`) is intentionally different from VS Code (`{version, appName, appRoot, language, machineId, sessionId, uriScheme, shell}`) — by design.
+
+**Report:** `.squad/decisions/inbox/ripley-capture-analysis-2026-03-08.md`
+
 

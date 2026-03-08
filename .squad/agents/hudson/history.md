@@ -76,3 +76,26 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-huds
 - **xUnit v3 TheoryData note:** `TheoryDataRow<T>.GetData()` is `protected` in xUnit v3 — cannot extract values from `TheoryData<T>` in non-Theory tests. Use `FindCapturesDir()` directly for `[Fact]` tests needing all captures.
 - **Test count:** 142 (was 140). All passing.
 
+### 2026-03-08 — Test Suite Impact Analysis (Updated Captures)
+
+- **143 tests total, 4 failing, 139 passing** after Sebastien updated all 3 captures with more tool invocations.
+- **Captures now contain multiple MCP sessions** within a single file (vs-1.0.7: 3 sessions, vscode-0.38: 4 sessions, vscode-insiders-0.39: 2 sessions). JSON-RPC ids reset across sessions, causing id collision.
+- **4 failing tests — root cause: multi-session id collision.** `GetToolCallResponse` (Strategy 1) finds a request id from session 2 but matches it to a response from session 1. Test C1 (`AllCaptures_RequestResponseIds_AreCorrelated`) fails because response ids are no longer unique across the entire capture.
+- **New tool invocations in captures (previously never called):** `open_diff` (3-6 per capture, 3 response patterns: SAVED/accepted_via_button, REJECTED/rejected_via_button, REJECTED/closed_via_tool), `close_diff` (1-4 per capture, 2 patterns: already_closed=true/false), `get_vscode_info` (1-4 per capture).
+- **`read_file` still never called** in any capture. No capture-based response validation possible.
+- **TrafficParser needs session-aware correlation.** The `GetToolCallResponse` method must detect session boundaries (initialize responses) and scope id matching within sessions.
+- **6 new capture-based tests proposed** (P1): open_diff response structure, close_diff response structure, get_vscode_info response structure. **2 schema tests proposed** (P2-P3): ClosedViaTool trigger, Timeout trigger.
+- **No snapshot/golden files exist** in current codebase — Phase 1 infrastructure was apparently removed.
+- **DtoSerializationTests and ToolOutputSchemaTests** already updated by Sebastien — no changes needed there.
+- Full report at `.squad/decisions/inbox/hudson-test-impact-2026-03-08.md`.
+
+### 2026-03-08 — New Replay Tests B3–B5 + ClosedViaTool Schema Test (Complete)
+
+- **10 new test executions added** (143 → 153): 3 Theory tests × 3 captures = 9, plus 1 Fact.
+- **B3 `OpenDiffResponse_HasExpectedStructure`** — [Theory] per-capture. Uses `GetAllToolCallResponses("open_diff")` to validate ALL open_diff responses. Checks MCP envelope (`content[0].type == "text"`), parses inner JSON, asserts `success` (bool), `tab_name` (string), `message` (string). On success: validates `result` is SAVED/REJECTED, `trigger` is one of 5 known values from `DiffTrigger`. Skips captures with no open_diff calls.
+- **B4 `CloseDiffResponse_HasExpectedStructure`** — [Theory] per-capture. Uses `GetAllToolCallResponses("close_diff")`. Validates MCP envelope + inner JSON with `success`, `already_closed`, `tab_name`, `message`. Skips captures with no close_diff calls.
+- **B5 `GetVsCodeInfoResponse_HasExpectedStructure`** — [Theory] per-capture. Uses `GetAllToolCallResponses("get_vscode_info")`. Validates MCP envelope + inner JSON. Only asserts `appName` and `version` (common across VS Code and VS). Skips captures with no get_vscode_info calls.
+- **`OpenDiff_Output_ClosedViaTool`** — [Fact] in ToolOutputSchemaTests. Validates `DiffTrigger.ClosedViaTool` serializes correctly to `"closed_via_tool"` with `DiffOutcome.Rejected` result.
+- **Fixed nullable warning** in B3: cast `knownTriggers` to `ISet<string?>` for `Assert.Contains` overload compatibility with xUnit v3.
+- All 153 tests pass. No production code changes.
+

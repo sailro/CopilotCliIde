@@ -1228,3 +1228,43 @@ Methods now normalized:
 
 **Any new RPC method that accepts a file path or URI from a CLI tool must apply `PathUtils.NormalizeFileUri()` at the top of the method body.** Pattern: `paramName = PathUtils.NormalizeFileUri(paramName) ?? paramName;`
 
+
+
+### Multi-Session Capture Support
+
+**Author:** Bishop (Server Dev)
+**Date:** 2026-03-08
+**Status:** Implemented
+
+Fixed 4 test failures caused by expanded captures containing multiple MCP sessions per file (2-4 sessions). TrafficParser refactored to isolate session-scoped ID matching via sequence numbers.
+
+Key changes: FindToolCallRequestId returns (requestId, requestSeq); GetToolCallResponse now scopes matching with Seq > requestSeq predicate; new GetAllToolCallResponses method. Test C1 rewritten for sequential pairing, Test B2 handles missing update_session_name calls gracefully.
+
+Result: All 143 tests pass. Build clean.
+
+---
+
+### Copilot Directive: Capture Source Truth
+
+**Date:** 2026-03-08T17:00Z
+**Directive:** vs-1.0.7.ndjson is our VSIX capture. vscode-0.38.ndjson and vscode-insiders-0.39.ndjson are ground truth (real VS Code sessions). All test decisions flow from this.
+
+---
+
+### Test Coverage Gaps Identified
+
+**Author:** Hudson (Tester)
+**Date:** 2026-03-08
+
+New tool invocations in expanded captures: open_diff (3-6 per capture, 3 patterns), close_diff (1-4 per capture, 2 patterns), get_vscode_info (1-4 per capture). Proposed P1 tests: VsCodeOpenDiffResponse_HasExpectedStructure, VsCodeCloseDiffResponse_HasExpectedStructure, VsCodeGetVsCodeInfoResponse_HasExpectedStructure. Deferred pending suite stabilization.
+
+---
+
+### Protocol Compatibility: Multi-Session Capture Analysis
+
+**Author:** Ripley (Lead)
+**Date:** 2026-03-08
+**Status:** Complete
+
+Sebastien's contract changes verified correct: DiffOutcome and DiffTrigger constants match captures exactly. Removed fields confirmed absent. Tool schemas fully aligned with VS Code. 4 test failures were infrastructure issues (multi-session), not code issues. Minor cosmetic differences documented (message text, version strings). Recommendations: Multi-session ID collision FIXED by Bishop; new response tests pending; close_diff message cosmetic alignment optional.
+
