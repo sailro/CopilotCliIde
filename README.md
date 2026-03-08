@@ -56,6 +56,8 @@ The extension logs all bridge activity to a dedicated **"Copilot CLI IDE"** pane
 
 This real-time log is useful for debugging connectivity issues, verifying that the CLI can see your edits, and monitoring the bridge during active sessions.
 
+<img alt="output" src="https://github.com/user-attachments/assets/dfec519f-13fc-450c-afb5-c6b22eee079f" />
+
 ## Protocol
 
 For full protocol details — discovery, transport, MCP tools, push notifications, and schemas — see **[doc/protocol.md](doc/protocol.md)**.
