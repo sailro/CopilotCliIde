@@ -185,3 +185,26 @@ Implemented real-time diagnostic notifications using ITableManagerProvider + ITa
 **Team impact:** Unblocks real-time diagnostic push notifications (P2 feature). DiagnosticTableSink pattern available for future table API usage.
 
 See .squad/decisions.md — "ITableDataSink for Real-Time Diagnostic Notifications" section.
+
+### 2026-03-08T18-15-00Z — Extract DiagnosticTracker from CopilotCliIdePackage
+
+Refactored all diagnostic monitoring logic out of `CopilotCliIdePackage.cs` into a new `DiagnosticTracker.cs` class, mirroring the `SelectionTracker` IoC pattern.
+
+**New file: `DiagnosticTracker.cs` (172 lines)**
+- Constructor takes IoC callbacks: `getCallbacks`, `clearCallbacks`, `collectDiagnostics` (Func delegates), plus `IComponentModel` and `OutputLogger`
+- Public API: `Subscribe()`, `Unsubscribe()`, `SchedulePush()`, `ResetDedupKey()`, `Reset()`, `Dispose()`
+- Owns all table subscription state: `ITableManager`, `HashSet<ITableDataSource>`, `List<IDisposable>`, lock object
+- Owns `DebouncePusher` with 200ms debounce + content dedup (`ComputeDiagnosticsKey`)
+- Uses `ThreadHelper.JoinableTaskFactory` (static accessor) for UI thread switching in debounce callback — avoids needing JoinableTaskFactory as constructor parameter
+- `DiagnosticTableSink` remains separate (not merged) — tracker creates sink instances internally via `SchedulePush` callback
+
+**CopilotCliIdePackage.cs reduced from ~400 → ~260 lines**
+- Replaced 5 diagnostic fields (`_diagnosticsPusher`, `_errorTableManager`, `_tableSubscriptionLock`, `_subscribedSources`, `_tableSubscriptions`) with single `_diagnosticTracker` field
+- Removed 8 methods: `SubscribeToErrorTableSources`, `SubscribeToSource`, `OnErrorTableSourcesChanged`, `UnsubscribeFromErrorTableSources`, `ScheduleDiagnosticsPush`, `OnDiagnosticsDebounceElapsed`, `ComputeDiagnosticsKey` (moved to tracker)
+- `OnBuildDone`/`OnDocumentSaved` are now one-liner `_diagnosticTracker?.SchedulePush()` calls
+- `CollectDiagnosticsGrouped()` stays as static method — provides the `collectDiagnostics` callback
+- Removed `using Microsoft.VisualStudio.Shell.TableManager` (no longer needed)
+
+**Build:** Extension compiles clean. Server: 153 tests pass. Formatter clean.
+
+**Decisions:** Callback-driven design avoids singleton pattern. DiagnosticTableSink stays separate (tracked creates via callback). Static ThreadHelper avoids constructor bloat.

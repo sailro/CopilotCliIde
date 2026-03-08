@@ -8,6 +8,7 @@
 ## Core Context
 
 Bishop owns MCP server code, contract impact assessment, and HTTP response framing. Key decisions:
+- **DiagnosticTracker extraction (2026-03-08):** Hicks extracted diagnostic logic from Package into new DiagnosticTracker class. Server tests remain at 153 passing — no impact.
 - **Multi-session TrafficParser fix (2026-03-08):** Scope ID matching by sequence number to isolate sessions
 - **MCP tool schema alignment:** All schemas match VS Code captures exactly; `DiffOutcome`/`DiffTrigger` constants verified correct
 - **HTTP framing:** Lowercase headers, chunked encoding for SSE POST responses, atomic chunk writes
