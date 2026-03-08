@@ -6,7 +6,6 @@ using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using Microsoft.VisualStudio.Shell.TableManager;
 using StreamJsonRpc;
 using Task = System.Threading.Tasks.Task;
 
@@ -30,11 +29,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private IVsMonitorSelection? _monitorSelection;
 	private uint _selectionMonitorCookie;
 	private CancellationTokenSource? _connectionCts;
-	private DebouncePusher? _diagnosticsPusher;
-	private ITableManager? _errorTableManager;
-	private readonly object _tableSubscriptionLock = new();
-	private readonly HashSet<ITableDataSource> _subscribedSources = new();
-	private readonly List<IDisposable> _tableSubscriptions = new();
+	private DiagnosticTracker? _diagnosticTracker;
 	private OutputLogger? _logger;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -108,7 +103,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		await _discovery!.WriteLockFileAsync(mcpPipeName, nonce, workspaceFolders);
 
 		// Subscribe to Error List data layer for real-time diagnostic notifications
-		SubscribeToErrorTableSources();
+		var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
+		_diagnosticTracker = new DiagnosticTracker(
+			componentModel,
+			() => _mcpCallbacks,
+			cb => _mcpCallbacks = cb,
+			CollectDiagnosticsGrouped,
+			_logger);
+		_diagnosticTracker.Subscribe();
 	}
 
 	/// <summary>
@@ -120,9 +122,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		_mcpCallbacks = null;
 
-		UnsubscribeFromErrorTableSources();
+		_diagnosticTracker?.Dispose();
+		_diagnosticTracker = null;
 		_selectionTracker?.Reset();
-		_diagnosticsPusher?.Reset();
 
 		_connectionCts?.Cancel();
 		_connectionCts?.Dispose();
@@ -213,146 +215,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void ResetNotificationState()
 	{
 		_selectionTracker?.ResetDedupKey();
-		_diagnosticsPusher?.ResetDedupKey();
+		_diagnosticTracker?.ResetDedupKey();
 	}
 
-	/// <summary>
-	/// Subscribes to the Error List's underlying data layer so we get notified
-	/// whenever any <see cref="ITableDataSource"/> (Roslyn, analyzers, build, etc.)
-	/// pushes new diagnostics. Each source gets its own <see cref="DiagnosticTableSink"/>
-	/// that funnels change notifications into <see cref="ScheduleDiagnosticsPush"/>.
-	/// </summary>
-	private void SubscribeToErrorTableSources()
-	{
-		try
-		{
-			var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
-			var tableManagerProvider = componentModel.GetService<ITableManagerProvider>();
-			_errorTableManager = tableManagerProvider.GetTableManager(StandardTables.ErrorsTable);
+	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => _diagnosticTracker?.SchedulePush();
 
-			lock (_tableSubscriptionLock)
-			{
-				foreach (var source in _errorTableManager.Sources)
-				{
-					SubscribeToSource(source);
-				}
-			}
-
-			_errorTableManager.SourcesChanged += OnErrorTableSourcesChanged;
-		}
-		catch (Exception ex)
-		{
-			_logger?.Log($"Failed to subscribe to Error List table: {ex.Message}");
-		}
-	}
-
-	private void SubscribeToSource(ITableDataSource source)
-	{
-		if (!_subscribedSources.Add(source)) return;
-
-		var subscription = source.Subscribe(new DiagnosticTableSink(ScheduleDiagnosticsPush));
-		_tableSubscriptions.Add(subscription);
-	}
-
-	private void OnErrorTableSourcesChanged(object sender, EventArgs e)
-	{
-		if (_errorTableManager == null) return;
-
-		lock (_tableSubscriptionLock)
-		{
-			foreach (var source in _errorTableManager.Sources)
-			{
-				SubscribeToSource(source);
-			}
-		}
-	}
-
-	private void UnsubscribeFromErrorTableSources()
-	{
-		if (_errorTableManager != null)
-		{
-			_errorTableManager.SourcesChanged -= OnErrorTableSourcesChanged;
-			_errorTableManager = null;
-		}
-
-		lock (_tableSubscriptionLock)
-		{
-			foreach (var sub in _tableSubscriptions)
-			{
-				try { sub.Dispose(); }
-				catch { /* Ignore */ }
-			}
-			_tableSubscriptions.Clear();
-			_subscribedSources.Clear();
-		}
-	}
-
-	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => ScheduleDiagnosticsPush();
-
-	private void OnDocumentSaved(EnvDTE.Document document) => ScheduleDiagnosticsPush();
-
-	/// <summary>
-	/// Schedules a diagnostics push with 200ms debounce (same as VS Code).
-	/// Called after builds complete and documents are saved.
-	/// </summary>
-	private void ScheduleDiagnosticsPush()
-	{
-		if (_mcpCallbacks == null) return;
-
-		_diagnosticsPusher ??= new DebouncePusher(OnDiagnosticsDebounceElapsed);
-		_diagnosticsPusher.Schedule();
-	}
-
-	/// <summary>
-	/// Fires 200ms after the last diagnostics change trigger. Collects
-	/// current Error List items on the UI thread and pushes them to the CLI.
-	/// Deduplicates by comparing a fingerprint of the diagnostics content.
-	/// </summary>
-	private void OnDiagnosticsDebounceElapsed()
-	{
-		var callbacks = _mcpCallbacks;
-		if (callbacks == null) return;
-
-		_ = JoinableTaskFactory.RunAsync(async () =>
-		{
-			try
-			{
-				await JoinableTaskFactory.SwitchToMainThreadAsync();
-				var uris = CollectDiagnosticsGrouped();
-
-				var key = ComputeDiagnosticsKey(uris);
-				if (_diagnosticsPusher!.IsDuplicate(key)) return;
-
-				var notification = new DiagnosticsChangedNotification { Uris = uris };
-				var totalDiagnostics = uris.Sum(u => u.Diagnostics?.Count ?? 0);
-				_logger?.Log($"Push diagnostics_changed: {uris.Count} file(s), {totalDiagnostics} diagnostic(s)");
-
-				await Task.Run(async () =>
-				{
-					try { await callbacks.OnDiagnosticsChangedAsync(notification); }
-					catch { _mcpCallbacks = null; }
-				});
-			}
-			catch { /* Don't crash VS */ }
-		});
-	}
-
-	private static string ComputeDiagnosticsKey(List<DiagnosticsChangedUri> uris)
-	{
-		var hash = new HashCode();
-		foreach (var group in uris)
-		{
-			hash.Add(group.Uri);
-			foreach (var d in group.Diagnostics!)
-			{
-				hash.Add(d.Message);
-				hash.Add(d.Severity);
-				hash.Add(d.Range?.Start?.Line);
-				hash.Add(d.Range?.Start?.Character);
-			}
-		}
-		return hash.ToHashCode().ToString();
-	}
+	private void OnDocumentSaved(EnvDTE.Document document) => _diagnosticTracker?.SchedulePush();
 
 	private static List<DiagnosticsChangedUri> CollectDiagnosticsGrouped()
 	{
@@ -376,9 +244,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_documentEvents = null;
 
 			StopConnection();
-
-			_diagnosticsPusher?.Dispose();
-			_diagnosticsPusher = null;
 
 			_discovery?.Dispose();
 
