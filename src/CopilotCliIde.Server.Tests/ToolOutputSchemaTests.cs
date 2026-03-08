@@ -111,6 +111,34 @@ public class ToolOutputSchemaTests
 	}
 
 	[Fact]
+	public void OpenDiff_Output_ClosedViaTool()
+	{
+		var rpcResult = new DiffResult
+		{
+			Success = true,
+			Result = DiffOutcome.Rejected,
+			Trigger = DiffTrigger.ClosedViaTool,
+			TabName = "Edit: file.cs",
+		};
+
+		var toolOutput = new
+		{
+			success = rpcResult.Success,
+			result = rpcResult.Result,
+			trigger = rpcResult.Trigger,
+			tab_name = rpcResult.TabName,
+			message = rpcResult.Message,
+			error = rpcResult.Error,
+		};
+
+		var json = JsonSerializer.Serialize(toolOutput);
+		var doc = JsonDocument.Parse(json);
+
+		Assert.Equal(DiffTrigger.ClosedViaTool, doc.RootElement.GetProperty("trigger").GetString());
+		Assert.Equal(DiffOutcome.Rejected, doc.RootElement.GetProperty("result").GetString());
+	}
+
+	[Fact]
 	public void OpenDiff_Output_ErrorCase()
 	{
 		var rpcResult = new DiffResult

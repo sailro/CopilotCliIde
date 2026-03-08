@@ -528,7 +528,8 @@ public class TrafficReplayTests
 	{
 		var parser = LoadCapture(captureFile);
 		var response = parser.GetToolCallResponse("update_session_name");
-		Assert.NotNull(response);
+		if (response is null)
+			return; // Tool not called in this capture — skip validation
 
 		var result = response.Value.GetProperty("result");
 
@@ -811,9 +812,9 @@ public class TrafficReplayTests
 	#region Test C1 — Request-response ID correlation
 
 	/// <summary>
-	/// For every cli_to_vscode request with a parseable id, verifies there's exactly one
-	/// vscode_to_cli response with the same id. No orphaned responses, no missing responses.
-	/// Requests with truncated JSON (no parseable id) are skipped.
+	/// Verifies request-response ID correlation within sequence order.
+	/// For every response with a parseable ID, there should be a request with the same ID
+	/// that precedes it in sequence order. IDs may repeat across sessions — that's valid.
 	/// </summary>
 	[Fact]
 	public void AllCaptures_RequestResponseIds_AreCorrelated()
@@ -826,78 +827,64 @@ public class TrafficReplayTests
 			var captureName = Path.GetFileName(captureFile);
 			var parser = LoadCapture(captureFile);
 
-			// Collect request IDs (from entries where we can parse the id)
-			var requestIds = new Dictionary<long, int>(); // id -> count
+			// Collect all (seq, id) pairs for requests and responses
+			var requests = new List<(int Seq, long Id)>();
+			var responses = new List<(int Seq, long Id)>();
+
 			foreach (var entry in parser.Entries)
 			{
-				if (entry.Direction != "cli_to_vscode" || entry.JsonRpcMessage is null)
+				if (entry.JsonRpcMessage is null)
 					continue;
 
 				var msg = entry.JsonRpcMessage.Value;
 
-				// Notifications don't have id fields — skip them
-				if (!msg.TryGetProperty("id", out var idEl))
-					continue;
-
-				if (idEl.ValueKind == JsonValueKind.Number && idEl.TryGetInt64(out var idNum))
+				if (entry.Direction == "cli_to_vscode")
 				{
-					requestIds[idNum] = requestIds.GetValueOrDefault(idNum) + 1;
-				}
-			}
-
-			// Collect response IDs
-			var responseIds = new Dictionary<long, int>(); // id -> count
-			foreach (var entry in parser.Entries)
-			{
-				if (entry.Direction != "vscode_to_cli" || entry.JsonRpcMessage is null)
-					continue;
-
-				var msg = entry.JsonRpcMessage.Value;
-
-				// Notifications (method-bearing messages without id) are not responses
-				if (msg.TryGetProperty("method", out _) && !msg.TryGetProperty("id", out _))
-					continue;
-
-				if (msg.TryGetProperty("id", out var idEl)
-					&& idEl.ValueKind == JsonValueKind.Number
-					&& idEl.TryGetInt64(out var idNum))
-				{
-					responseIds[idNum] = responseIds.GetValueOrDefault(idNum) + 1;
-				}
-			}
-
-			// Every response id must have a matching request id
-			foreach (var (respId, count) in responseIds)
-			{
-				if (!requestIds.ContainsKey(respId))
-				{
-					// This is acceptable when the request JSON was truncated and the id
-					// couldn't be extracted. Only flag it if we have NO truncated requests.
-					var hasTruncatedRequests = parser.Entries.Any(e =>
-						e is { Direction: "cli_to_vscode", Event: not null, JsonRpcMessage: null });
-
-					if (!hasTruncatedRequests)
+					// Notifications don't have id fields — skip them
+					if (msg.TryGetProperty("id", out var idEl)
+						&& idEl.ValueKind == JsonValueKind.Number
+						&& idEl.TryGetInt64(out var idNum))
 					{
-						allErrors.Add(
-							$"{captureName}: Response id={respId} has no matching request");
+						requests.Add((entry.Seq, idNum));
 					}
-					// else: acceptable — request id was likely in a truncated frame
 				}
-
-				if (count > 1)
+				else if (entry.Direction == "vscode_to_cli")
 				{
-					allErrors.Add(
-						$"{captureName}: Response id={respId} appears {count} times (expected exactly 1)");
+					// Notifications (method-bearing messages without id) are not responses
+					if (msg.TryGetProperty("method", out _) && !msg.TryGetProperty("id", out _))
+						continue;
+
+					if (msg.TryGetProperty("id", out var idEl)
+						&& idEl.ValueKind == JsonValueKind.Number
+						&& idEl.TryGetInt64(out var idNum))
+					{
+						responses.Add((entry.Seq, idNum));
+					}
 				}
 			}
 
-			// Every request id should have a matching response id
-			foreach (var (reqId, _) in requestIds)
+			var hasTruncatedRequests = parser.Entries.Any(e =>
+				e is { Direction: "cli_to_vscode", Event: not null, JsonRpcMessage: null });
+
+			// For each response, verify there's a request with the same ID before it
+			foreach (var (respSeq, respId) in responses)
 			{
-				if (!responseIds.ContainsKey(reqId))
+				var hasMatchingRequest = requests.Any(r => r.Id == respId && r.Seq < respSeq);
+				if (!hasMatchingRequest && !hasTruncatedRequests)
 				{
 					allErrors.Add(
-						$"{captureName}: Request id={reqId} has no matching response");
+						$"{captureName}: Response id={respId} at seq={respSeq} has no preceding request");
+				}
+			}
+
+			// For each request, verify there's a response with the same ID after it
+			foreach (var (reqSeq, reqId) in requests)
+			{
+				var hasMatchingResponse = responses.Any(r => r.Id == reqId && r.Seq > reqSeq);
+				if (!hasMatchingResponse)
+				{
+					allErrors.Add(
+						$"{captureName}: Request id={reqId} at seq={reqSeq} has no subsequent response");
 				}
 			}
 		}
@@ -981,6 +968,165 @@ public class TrafficReplayTests
 		foreach (var vsCodeTool in vsCodeToolNames)
 		{
 			Assert.Contains(vsCodeTool, ourToolNames);
+		}
+	}
+
+	#endregion
+
+	#region Test B3 — open_diff response structure
+
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void OpenDiffResponse_HasExpectedStructure(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var responses = parser.GetAllToolCallResponses("open_diff");
+		if (responses.Count == 0)
+			return; // No open_diff calls in this capture — skip
+
+		var knownTriggers = new HashSet<string>
+		{
+			DiffTrigger.AcceptedViaButton,
+			DiffTrigger.RejectedViaButton,
+			DiffTrigger.ClosedViaTool,
+			DiffTrigger.ClosedViaTab,
+			DiffTrigger.Timeout,
+		};
+
+		foreach (var response in responses)
+		{
+			var result = response.GetProperty("result");
+
+			// MCP envelope: content array with type: "text"
+			Assert.True(result.TryGetProperty("content", out var content));
+			Assert.Equal(JsonValueKind.Array, content.ValueKind);
+			Assert.True(content.GetArrayLength() > 0, "open_diff content should not be empty");
+			var firstItem = content[0];
+			Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+			// Parse the inner JSON
+			var textValue = firstItem.GetProperty("text").GetString()!;
+			var doc = JsonDocument.Parse(textValue);
+			var root = doc.RootElement;
+
+			// Required fields
+			Assert.True(root.TryGetProperty("success", out var success),
+				"open_diff response missing 'success'");
+			Assert.True(success.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+			Assert.True(root.TryGetProperty("tab_name", out var tabName),
+				"open_diff response missing 'tab_name'");
+			Assert.Equal(JsonValueKind.String, tabName.ValueKind);
+
+			Assert.True(root.TryGetProperty("message", out var message),
+				"open_diff response missing 'message'");
+			Assert.Equal(JsonValueKind.String, message.ValueKind);
+
+			// When success == true, validate result and trigger
+			if (success.GetBoolean())
+			{
+				Assert.True(root.TryGetProperty("result", out var diffResult),
+					"open_diff success response missing 'result'");
+				var resultStr = diffResult.GetString();
+				Assert.True(resultStr == DiffOutcome.Saved || resultStr == DiffOutcome.Rejected,
+					$"open_diff result should be SAVED or REJECTED, got '{resultStr}'");
+
+				Assert.True(root.TryGetProperty("trigger", out var trigger),
+					"open_diff success response missing 'trigger'");
+				var triggerStr = trigger.GetString();
+				Assert.Contains(triggerStr, (ISet<string?>)knownTriggers);
+			}
+		}
+	}
+
+	#endregion
+
+	#region Test B4 — close_diff response structure
+
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void CloseDiffResponse_HasExpectedStructure(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var responses = parser.GetAllToolCallResponses("close_diff");
+		if (responses.Count == 0)
+			return; // No close_diff calls in this capture — skip
+
+		foreach (var response in responses)
+		{
+			var result = response.GetProperty("result");
+
+			// MCP envelope: content array with type: "text"
+			Assert.True(result.TryGetProperty("content", out var content));
+			Assert.Equal(JsonValueKind.Array, content.ValueKind);
+			Assert.True(content.GetArrayLength() > 0, "close_diff content should not be empty");
+			var firstItem = content[0];
+			Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+			// Parse the inner JSON
+			var textValue = firstItem.GetProperty("text").GetString()!;
+			var doc = JsonDocument.Parse(textValue);
+			var root = doc.RootElement;
+
+			// Required fields
+			Assert.True(root.TryGetProperty("success", out var success),
+				"close_diff response missing 'success'");
+			Assert.True(success.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+			Assert.True(root.TryGetProperty("already_closed", out var alreadyClosed),
+				"close_diff response missing 'already_closed'");
+			Assert.True(alreadyClosed.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+			Assert.True(root.TryGetProperty("tab_name", out var tabName),
+				"close_diff response missing 'tab_name'");
+			Assert.Equal(JsonValueKind.String, tabName.ValueKind);
+
+			Assert.True(root.TryGetProperty("message", out var message),
+				"close_diff response missing 'message'");
+			Assert.Equal(JsonValueKind.String, message.ValueKind);
+		}
+	}
+
+	#endregion
+
+	#region Test B5 — get_vscode_info response structure
+
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void GetVsCodeInfoResponse_HasExpectedStructure(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var responses = parser.GetAllToolCallResponses("get_vscode_info");
+		if (responses.Count == 0)
+			return; // No get_vscode_info calls in this capture — skip
+
+		foreach (var response in responses)
+		{
+			var result = response.GetProperty("result");
+
+			// MCP envelope: content array with type: "text"
+			Assert.True(result.TryGetProperty("content", out var content));
+			Assert.Equal(JsonValueKind.Array, content.ValueKind);
+			Assert.True(content.GetArrayLength() > 0, "get_vscode_info content should not be empty");
+			var firstItem = content[0];
+			Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+			// Parse the inner JSON
+			var textValue = firstItem.GetProperty("text").GetString()!;
+			var doc = JsonDocument.Parse(textValue);
+			var root = doc.RootElement;
+			Assert.Equal(JsonValueKind.Object, root.ValueKind);
+
+			// Common fields present in ALL captures (VS Code and VS)
+			Assert.True(root.TryGetProperty("appName", out var appName),
+				"get_vscode_info response missing 'appName'");
+			Assert.Equal(JsonValueKind.String, appName.ValueKind);
+			Assert.False(string.IsNullOrEmpty(appName.GetString()));
+
+			Assert.True(root.TryGetProperty("version", out var version),
+				"get_vscode_info response missing 'version'");
+			Assert.Equal(JsonValueKind.String, version.ValueKind);
+			Assert.False(string.IsNullOrEmpty(version.GetString()));
 		}
 	}
 

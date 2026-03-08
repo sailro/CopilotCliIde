@@ -124,17 +124,21 @@ public sealed partial class TrafficParser
 	/// Returns the response for a specific tools/call by tool name.
 	/// Uses JSON-RPC id correlation when possible; falls back to sequence-based
 	/// correlation when the request JSON is truncated.
+	/// Scopes matching to entries after the request's sequence number to avoid
+	/// cross-session ID collisions in multi-session captures.
 	/// </summary>
 	public JsonElement? GetToolCallResponse(string toolName)
 	{
 		// Strategy 1: Correlate via JSON-RPC id from a fully-parsed request
-		var requestId = FindToolCallRequestId(toolName);
-		if (requestId is not null)
+		var request = FindToolCallRequest(toolName);
+		if (request is not null)
 		{
+			var (requestId, requestSeq) = request.Value;
 			var match = Entries.FirstOrDefault(e =>
-			e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+			e.Seq > requestSeq
+			&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
 			&& HasProperty(e.JsonRpcMessage.Value, "result")
-			&& MatchesId(e.JsonRpcMessage.Value, requestId.Value));
+			&& MatchesId(e.JsonRpcMessage.Value, requestId));
 
 			if (match is not null)
 				return match.JsonRpcMessage;
@@ -142,11 +146,11 @@ public sealed partial class TrafficParser
 
 		// Strategy 2: Find the request event containing the tool name in raw text,
 		// then the next vscode_to_cli body with a result (tool call response pattern)
-		var requestSeq = FindToolCallRequestSeq(toolName);
-		if (requestSeq is not null)
+		var fallbackSeq = FindToolCallRequestSeq(toolName);
+		if (fallbackSeq is not null)
 		{
 			var match = Entries.FirstOrDefault(e =>
-			e.Seq > requestSeq.Value
+			e.Seq > fallbackSeq.Value
 			&& e is { Direction: "vscode_to_cli", Body: not null }
 			&& HasProperty(e.Body.Value, "result"));
 
@@ -155,6 +159,82 @@ public sealed partial class TrafficParser
 		}
 
 		return null;
+	}
+
+	/// <summary>
+	/// Returns all responses for a specific tool across all sessions in the capture.
+	/// Pairs each tools/call request with its closest matching response.
+	/// </summary>
+	public List<JsonElement> GetAllToolCallResponses(string toolName)
+	{
+		var results = new List<JsonElement>();
+
+		// Collect all requests for this tool (both parsed and raw-text matches)
+		var requestEntries = new List<(int Seq, JsonElement? Id)>();
+
+		foreach (var entry in Entries)
+		{
+			if (entry.Direction != "cli_to_vscode")
+				continue;
+
+			// Fully-parsed request
+			if (entry.JsonRpcMessage is not null)
+			{
+				var msg = entry.JsonRpcMessage.Value;
+				if (TryGetStringProperty(msg, "method") == "tools/call"
+				&& HasNestedStringValue(msg, "params", "name", toolName))
+				{
+					var id = msg.TryGetProperty("id", out var idEl) ? (JsonElement?)idEl.Clone() : null;
+					requestEntries.Add((entry.Seq, id));
+					continue;
+				}
+			}
+
+			// Raw text fallback for truncated JSON
+			var namePattern = $"\"name\":\"{toolName}\"";
+			if (entry.Event is not null
+			&& entry.Event.Contains("tools/call", StringComparison.Ordinal)
+			&& entry.Event.Contains(namePattern, StringComparison.Ordinal))
+			{
+				requestEntries.Add((entry.Seq, null));
+			}
+		}
+
+		// For each request, find its matching response
+		foreach (var (reqSeq, reqId) in requestEntries)
+		{
+			JsonElement? matched = null;
+
+			if (reqId is not null)
+			{
+				// Strategy 1: ID correlation scoped after the request
+				var match = Entries.FirstOrDefault(e =>
+				e.Seq > reqSeq
+				&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+				&& HasProperty(e.JsonRpcMessage.Value, "result")
+				&& MatchesId(e.JsonRpcMessage.Value, reqId.Value));
+
+				if (match is not null)
+					matched = match.JsonRpcMessage;
+			}
+
+			if (matched is null)
+			{
+				// Strategy 2: Next response after the request seq
+				var match = Entries.FirstOrDefault(e =>
+				e.Seq > reqSeq
+				&& e is { Direction: "vscode_to_cli", Body: not null }
+				&& HasProperty(e.Body.Value, "result"));
+
+				if (match is not null)
+					matched = match.JsonRpcMessage ?? match.Body;
+			}
+
+			if (matched is not null)
+				results.Add(matched.Value);
+		}
+
+		return results;
 	}
 
 	/// <summary>
@@ -262,9 +342,10 @@ public sealed partial class TrafficParser
 	// --- Tool call correlation helpers ---
 
 	/// <summary>
-	/// Finds the JSON-RPC id from a fully-parsed tools/call request for the given tool name.
+	/// Finds the JSON-RPC id and sequence number from the first fully-parsed
+	/// tools/call request for the given tool name.
 	/// </summary>
-	private JsonElement? FindToolCallRequestId(string toolName)
+	private (JsonElement Id, int Seq)? FindToolCallRequest(string toolName)
 	{
 		foreach (var entry in Entries)
 		{
@@ -276,7 +357,7 @@ public sealed partial class TrafficParser
 			&& HasNestedStringValue(msg, "params", "name", toolName)
 			&& msg.TryGetProperty("id", out var idEl))
 			{
-				return idEl.Clone();
+				return (idEl.Clone(), entry.Seq);
 			}
 		}
 
