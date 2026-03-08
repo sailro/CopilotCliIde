@@ -38,7 +38,7 @@ public class VsServiceRpc : IVsServiceRpc
 			var existingEntry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 			if (existingEntry.Key != null)
 			{
-				existingEntry.Value.Completion?.TrySetResult(("REJECTED", "closed_via_tool"));
+				existingEntry.Value.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
 				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 				CleanupDiff(existingEntry.Key);
 			}
@@ -54,7 +54,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			// Ultimate fallback: 1-hour timeout so we never block forever
 			var timeoutCts = new CancellationTokenSource(TimeSpan.FromHours(1));
-			timeoutCts.Token.Register(() => tcs.TrySetResult(("REJECTED", "timeout")), useSynchronizationContext: false);
+			timeoutCts.Token.Register(() => tcs.TrySetResult((DiffOutcome.Rejected, DiffTrigger.Timeout)), useSynchronizationContext: false);
 
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -103,21 +103,17 @@ public class VsServiceRpc : IVsServiceRpc
 			return new DiffResult
 			{
 				Success = true,
-				DiffId = diffId,
-				OriginalFilePath = originalFilePath,
-				ProposedFilePath = tempFile,
 				TabName = tabName,
-				UserAction = result == "SAVED" ? "accepted" : "rejected",
 				Result = result,
 				Trigger = trigger,
-				Message = result == "SAVED"
+				Message = result == DiffOutcome.Saved
 					? $"User accepted changes for {Path.GetFileName(originalFilePath)}"
 					: $"User rejected changes for {Path.GetFileName(originalFilePath)}"
 			};
 		}
 		catch (Exception ex)
 		{
-			return new DiffResult { Success = false, Error = ex.Message, OriginalFilePath = originalFilePath, TabName = tabName };
+			return new DiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}
 
@@ -129,7 +125,7 @@ public class VsServiceRpc : IVsServiceRpc
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 
 		// Signal rejection to unblock OpenDiffAsync if it's waiting
-		entry.Value.Completion?.TrySetResult(("REJECTED", "closed_via_tool"));
+		entry.Value.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
 
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
@@ -154,7 +150,6 @@ public class VsServiceRpc : IVsServiceRpc
 			{
 				Success = true,
 				TabName = diff.TabName,
-				OriginalFilePath = diff.OriginalPath,
 				Message = $"Diff \"{tabName}\" closed and changes rejected"
 			};
 		}
@@ -195,10 +190,7 @@ public class VsServiceRpc : IVsServiceRpc
 		{
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
 			var doc = dte?.ActiveDocument;
-			if (doc == null)
-				return new SelectionResult { Current = false };
-
-			if (doc.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
+			if (doc?.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
 				return new SelectionResult { Current = false };
 
 			var sel = textDoc.Selection;
@@ -341,15 +333,15 @@ public class VsServiceRpc : IVsServiceRpc
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
 			if (actionItem.Text.Contains("Accept"))
-				tcs.TrySetResult(("SAVED", "accepted_via_button"));
+				tcs.TrySetResult((DiffOutcome.Saved, DiffTrigger.AcceptedViaButton));
 			else if (actionItem.Text.Contains("Reject"))
-				tcs.TrySetResult(("REJECTED", "rejected_via_button"));
+				tcs.TrySetResult((DiffOutcome.Rejected, DiffTrigger.RejectedViaButton));
 		}
 
 		public void OnClosed(IVsInfoBarUIElement infoBarUIElement)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
-			tcs.TrySetResult(("REJECTED", "rejected_via_button"));
+			tcs.TrySetResult((DiffOutcome.Rejected, DiffTrigger.RejectedViaButton));
 		}
 	}
 
@@ -357,7 +349,7 @@ public class VsServiceRpc : IVsServiceRpc
 	{
 		public int OnClose(ref uint pgrfSaveOptions)
 		{
-			tcs.TrySetResult(("REJECTED", "closed_via_tab"));
+			tcs.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTab));
 			return VSConstants.S_OK;
 		}
 

@@ -22,8 +22,8 @@ public class ToolOutputSchemaTests
 		var rpcResult = new DiffResult
 		{
 			Success = true,
-			Result = "SAVED",
-			Trigger = "accepted_via_button",
+			Result = DiffOutcome.Saved,
+			Trigger = DiffTrigger.AcceptedViaButton,
 			TabName = "Edit: file.cs",
 			Message = "Changes saved",
 			Error = null,
@@ -50,8 +50,8 @@ public class ToolOutputSchemaTests
 		Assert.True(root.TryGetProperty("result", out var result));
 		Assert.True(root.TryGetProperty("trigger", out var trigger));
 
-		Assert.Equal("SAVED", result.GetString());
-		Assert.Equal("accepted_via_button", trigger.GetString());
+		Assert.Equal(DiffOutcome.Saved, result.GetString());
+		Assert.Equal(DiffTrigger.AcceptedViaButton, trigger.GetString());
 	}
 
 	[Fact]
@@ -60,8 +60,8 @@ public class ToolOutputSchemaTests
 		var rpcResult = new DiffResult
 		{
 			Success = true,
-			Result = "REJECTED",
-			Trigger = "rejected_via_button",
+			Result = DiffOutcome.Rejected,
+			Trigger = DiffTrigger.RejectedViaButton,
 			TabName = "Edit: file.cs",
 			Message = "Changes rejected",
 		};
@@ -79,8 +79,8 @@ public class ToolOutputSchemaTests
 		var json = JsonSerializer.Serialize(toolOutput);
 		var doc = JsonDocument.Parse(json);
 
-		Assert.Equal("REJECTED", doc.RootElement.GetProperty("result").GetString());
-		Assert.Equal("rejected_via_button", doc.RootElement.GetProperty("trigger").GetString());
+		Assert.Equal(DiffOutcome.Rejected, doc.RootElement.GetProperty("result").GetString());
+		Assert.Equal(DiffTrigger.RejectedViaButton, doc.RootElement.GetProperty("trigger").GetString());
 	}
 
 	[Fact]
@@ -89,8 +89,8 @@ public class ToolOutputSchemaTests
 		var rpcResult = new DiffResult
 		{
 			Success = true,
-			Result = "REJECTED",
-			Trigger = "closed_via_tab",
+			Result = DiffOutcome.Rejected,
+			Trigger = DiffTrigger.ClosedViaTab,
 			TabName = "Edit: file.cs",
 		};
 
@@ -107,7 +107,7 @@ public class ToolOutputSchemaTests
 		var json = JsonSerializer.Serialize(toolOutput);
 		var doc = JsonDocument.Parse(json);
 
-		Assert.Equal("closed_via_tab", doc.RootElement.GetProperty("trigger").GetString());
+		Assert.Equal(DiffTrigger.ClosedViaTab, doc.RootElement.GetProperty("trigger").GetString());
 	}
 
 	[Fact]

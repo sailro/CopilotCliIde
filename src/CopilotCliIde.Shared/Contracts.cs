@@ -51,22 +51,39 @@ public class SelectionPosition
 	public int Character { get; set; }
 }
 
+/// <summary>
+/// Resolution outcomes aligned with VS Code: "SAVED" or "REJECTED".
+/// </summary>
+public static class DiffOutcome
+{
+	public const string Saved = "SAVED";
+	public const string Rejected = "REJECTED";
+}
+
+/// <summary>
+/// What caused a diff to resolve.
+/// </summary>
+public static class DiffTrigger
+{
+	public const string AcceptedViaButton = "accepted_via_button";
+	public const string RejectedViaButton = "rejected_via_button";
+	public const string ClosedViaTab = "closed_via_tab";
+	public const string ClosedViaTool = "closed_via_tool";
+	public const string Timeout = "timeout";
+}
+
 public class DiffResult
 {
 	public bool Success { get; set; }
-	public string? DiffId { get; set; }
 	public string? Error { get; set; }
-	public string? OriginalFilePath { get; set; }
-	public string? ProposedFilePath { get; set; }
 	public string? TabName { get; set; }
 	public string? Message { get; set; }
-	public string? UserAction { get; set; }
 	/// <summary>
-	/// Resolution status aligned with VS Code: "SAVED" or "REJECTED".
+	/// Resolution status: <see cref="DiffOutcome.Saved"/> or <see cref="DiffOutcome.Rejected"/>.
 	/// </summary>
 	public string? Result { get; set; }
 	/// <summary>
-	/// What triggered the resolution (e.g. "accepted_via_button", "rejected_via_button", "closed_via_tab", "timeout").
+	/// What triggered the resolution. See <see cref="DiffTrigger"/> constants.
 	/// </summary>
 	public string? Trigger { get; set; }
 }
@@ -77,7 +94,6 @@ public class CloseDiffResult
 	public bool AlreadyClosed { get; set; }
 	public string? Error { get; set; }
 	public string? TabName { get; set; }
-	public string? OriginalFilePath { get; set; }
 	public string? Message { get; set; }
 }
 

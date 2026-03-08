@@ -64,22 +64,19 @@ public class DtoSerializationTests
 		var original = new DiffResult
 		{
 			Success = true,
-			DiffId = "diff-001",
-			OriginalFilePath = @"C:\src\file.cs",
-			ProposedFilePath = @"C:\temp\proposed.cs",
 			TabName = "Edit: file.cs",
 			Message = "Diff opened",
-			UserAction = "accepted",
+			Result = DiffOutcome.Saved,
+			Trigger = DiffTrigger.AcceptedViaButton,
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
 		var deserialized = JsonSerializer.Deserialize<DiffResult>(json, _jsonOptions)!;
 
 		Assert.Equal(original.Success, deserialized.Success);
-		Assert.Equal(original.DiffId, deserialized.DiffId);
-		Assert.Equal(original.OriginalFilePath, deserialized.OriginalFilePath);
 		Assert.Equal(original.TabName, deserialized.TabName);
-		Assert.Equal(original.UserAction, deserialized.UserAction);
+		Assert.Equal(original.Result, deserialized.Result);
+		Assert.Equal(original.Trigger, deserialized.Trigger);
 	}
 
 	[Fact]
@@ -96,7 +93,6 @@ public class DtoSerializationTests
 
 		Assert.False(deserialized.Success);
 		Assert.Equal("File not found", deserialized.Error);
-		Assert.Null(deserialized.DiffId);
 	}
 
 	[Fact]
@@ -107,7 +103,6 @@ public class DtoSerializationTests
 			Success = true,
 			AlreadyClosed = false,
 			TabName = "Edit: file.cs",
-			OriginalFilePath = @"C:\src\file.cs",
 			Message = "Closed",
 		};
 
