@@ -5,6 +5,16 @@
 - **Stack:** C#, .NET, MSBuild, VSSDK, StreamJsonRpc, MCP, Windows named pipes
 - **Created:** 2026-03-05
 
+## Core Context
+
+Ripley leads protocol analysis, reverse-engineering, and spec validation. Key decisions:
+- **Capture source truth (2026-03-08):** vs-1.0.7.ndjson is our code; vscode captures are ground truth
+- **Multi-session protocol analysis:** All contract changes verified correct; 4 test failures were infrastructure issues
+- **Deep capture analysis:** Confirmed 3 NDJSON files structurally identical across VS/VS Code, minor cosmetic differences only
+- **Test coverage gaps:** open_diff/close_diff/get_vscode_info response tests proposed but deferred pending stabilization
+- **Documentation:** 7 edits to protocol.md based on capture analysis; all P0/P1/P2 gaps addressed
+- **Protocol rules:** Always use PathUtils for file URIs; never raw Uri.ToString()
+
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->

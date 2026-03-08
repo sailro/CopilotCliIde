@@ -5,6 +5,16 @@
 - **Stack:** C#, .NET, MSBuild, VSSDK, StreamJsonRpc, MCP, Windows named pipes
 - **Created:** 2026-03-05
 
+## Core Context
+
+Bishop owns MCP server code, contract impact assessment, and HTTP response framing. Key decisions:
+- **Multi-session TrafficParser fix (2026-03-08):** Scope ID matching by sequence number to isolate sessions
+- **MCP tool schema alignment:** All schemas match VS Code captures exactly; `DiffOutcome`/`DiffTrigger` constants verified correct
+- **HTTP framing:** Lowercase headers, chunked encoding for SSE POST responses, atomic chunk writes
+- **Test seam:** RpcClient constructor for mocked IVsServiceRpc injection
+- **Server build:** `dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj` (net10.0)
+- **Test run:** `dotnet test src/CopilotCliIde.Server.Tests/CopilotCliIde.Server.Tests.csproj` (143 tests, all passing)
+
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->

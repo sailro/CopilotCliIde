@@ -5,6 +5,16 @@
 - **Stack:** C#, .NET, MSBuild, VSSDK, StreamJsonRpc, MCP, Windows named pipes
 - **Created:** 2026-03-05
 
+## Core Context
+
+Hudson owns test suite, coverage analysis, and test infrastructure. Key decisions:
+- **xUnit v3 migration (2026-03-05):** Migrated from v2 (2.9.3) to v3 (3.2.2); all 94 tests passed
+- **143 tests current status:** Multi-session capture fix resolved 4 failing tests; all now pass
+- **Test infrastructure:** 11 test files covering HTTP parsing, DTO serialization, tool discovery, protocol compatibility, traffic replay
+- **TrafficParser:** Now session-aware; GetToolCallResponse scopes by sequence number to isolate IDs across sessions
+- **Coverage gaps identified:** New tests needed for open_diff/close_diff/get_vscode_info response structures (P1 priority, deferred)
+- **Golden snapshots:** Removed; replaced with proxy-based capture approach for ground truth
+
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
