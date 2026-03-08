@@ -150,7 +150,7 @@ public class VsServiceRpc : IVsServiceRpc
 			{
 				Success = true,
 				TabName = diff.TabName,
-				Message = $"Diff \"{tabName}\" closed successfully"
+				Message = $"Diff closed: {tabName}"
 			};
 		}
 		catch (Exception ex)

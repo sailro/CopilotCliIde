@@ -275,3 +275,41 @@ Comprehensive protocol compatibility analysis of all 3 NDJSON capture files with
 **Report:** `.squad/decisions/inbox/ripley-capture-analysis-2026-03-08.md`
 
 
+
+### 2025-07-19 — Design-Time Build Diagnostic API Research
+
+Researched proper VS API for real-time diagnostic change notifications (equivalent of VS Code's `vscode.languages.onDidChangeDiagnostics`).
+
+**APIs evaluated (7 total):**
+1. **IVsSolutionBuildManager / IVsUpdateSolutionEvents** — explicit builds only, not design-time. ❌
+2. **Roslyn IDiagnosticService.DiagnosticsUpdated** — internal API, MEF-exported but not public. Roslyn is actively deprecating it for pull-based diagnostics. ⚠️ Too fragile.
+3. **Workspace.WorkspaceChanged** — `WorkspaceChangeKind.DiagnosticsChanged` does NOT exist. Tracks structure, not analysis results. ❌
+4. **ITableManagerProvider + ITableDataSink** — ✅ **Recommended.** Public, documented Table Manager API. Subscribe to `ITableDataSource` instances on `StandardTables.ErrorsTable` as a consumer `ITableDataSink`. Gets called by Roslyn when diagnostic data changes at the data layer, below WPF.
+5. **IErrorList / IErrorListService** — no change notification events. ❌
+6. **IVsDiagnosticsProvider** — does not exist. ❌
+7. **VS Code comparison** — `onDidChangeDiagnostics` wraps LSP `publishDiagnostics`. Our Option 4 is the closest public equivalent.
+
+**Key insight:** Our previous Error List WPF approach failed because we subscribed to the **UI layer** (WPF DataGrid events). The Table Manager API has a separate **data layer** (`ITableDataSource` → `ITableDataSink`) that is headless, thread-safe, and doesn't trigger WPF event storms. No new NuGet packages needed — everything is in `Microsoft.VisualStudio.SDK`.
+
+**Implementation plan:** Use `ITableDataSink` as a change notification trigger only; keep existing `ErrorListReader.CollectGrouped()` (DTE) for reading. Keep existing `BuildEvents`/`DocumentEvents` triggers as fallbacks. 200ms debounce + content dedup unchanged.
+
+**Report:** `.squad/decisions/inbox/ripley-design-build-api.md`
+
+### 2026-03-08 — VS API for Design-Time Diagnostic Change Notifications (Research Complete)
+
+Completed comprehensive research evaluating 7 VS API options for real-time diagnostic change notifications from Roslyn's data layer.
+
+**Evaluated options:**
+1. IVsSolutionBuildManager / IVsUpdateSolutionEvents — fires for explicit builds only, no improvement
+2. IDiagnosticService (internal) — technically ideal but too fragile, actively being sunset by Roslyn team
+3. Workspace.WorkspaceChanged — no DiagnosticsChanged kind; tracks structure, not analysis results
+4. **ITableManagerProvider + ITableDataSink** ✅ — only public API providing real-time change notifications
+5. IErrorList — no change notification events
+6. IVsDiagnosticsProvider — doesn't exist
+7. VS Code comparison — confirms Table Manager is closest public equivalent to LSP onDidChangeDiagnostics
+
+**Recommendation:** Option 4. Rationale: public stable API, no new dependencies, headless (no WPF storms), thread-safe, catches all diagnostic changes, integrates with existing 200ms debounce + dedup architecture.
+
+**Research artifact:** ripley-design-build-api.md with full evaluation, implementation patterns, pros/cons, risks, and design decisions. Ready for implementation handoff to Hicks.
+
+**Team impact:** Unblocks real-time diagnostic push notifications (P2 feature) and establishes pattern for future VS API research.

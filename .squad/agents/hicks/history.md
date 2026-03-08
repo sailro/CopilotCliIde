@@ -137,4 +137,51 @@ See `.squad/decisions.md` — "Whitespace Enforcement via Husky Pre-Commit Hook"
 
 **Build:** Clean, 0 warnings. 109 tests pass.
 
+### 2026-07-19 — ITableDataSink for Real-Time Diagnostic Notifications
 
+Implemented `ITableManagerProvider` + `ITableDataSink` subscription to get real-time diagnostic change notifications from Roslyn's data layer — the VS equivalent of VS Code's `onDidChangeDiagnostics`.
+
+**New file: `DiagnosticTableSink.cs`**
+- Implements `ITableDataSink` (14 interface members: `AddFactory`, `FactorySnapshotChanged`, `RemoveAllEntries`, `RemoveAllSnapshots`, `RemoveAllFactories`, etc.)
+- Pure notification trigger — every sink method calls `ScheduleDiagnosticsPush()` which feeds into the existing 200ms debounce + content dedup pipeline
+- Does NOT read diagnostics; reading stays in `ErrorListReader.CollectGrouped()`
+
+**Changes to `CopilotCliIdePackage.cs`**
+- `StartConnectionAsync()`: Gets `ITableManagerProvider` via MEF (`IComponentModel`), gets `ErrorsTable` manager, subscribes `DiagnosticTableSink` to all existing `ITableDataSource` instances
+- `SourcesChanged` handler: Subscribes to dynamically added sources (project load/unload). Uses `HashSet<ITableDataSource>` + `lock` to avoid double-subscription and ensure thread safety
+- `StopConnection()`: Unsubscribes `SourcesChanged`, disposes all source subscriptions, clears tracking collections
+- Existing `OnBuildDone` and `OnDocumentSaved` triggers kept as belt-and-suspenders fallbacks
+
+**Key design note:** `ITableDataSink` interface has 14 members — the 11 documented in Ripley's research plus 3 parameterless removal methods (`RemoveAllEntries`, `RemoveAllSnapshots`, `RemoveAllFactories`) that weren't in the research doc. Discovered via build error.
+
+**Threading:** Sink methods are called from background threads by Roslyn. `ScheduleDiagnosticsPush()` already guards against null callbacks and marshals to UI thread for Error List reading. The `_tableSubscriptionLock` protects the subscription tracking collections since `SourcesChanged` can fire from any thread while `StopConnection()` runs on UI thread.
+
+**Build:** Core compile clean (0 errors, 0 warnings). Server tests: 153 pass. VSIX deployment requires real MSBuild (known limitation of `dotnet msbuild`).
+
+
+
+
+### 2026-03-08T17-30-00Z — ITableDataSink Implementation (Live Diagnostics)
+
+Implemented real-time diagnostic notifications using ITableManagerProvider + ITableDataSink.
+
+**Created:** DiagnosticTableSink.cs (14-member ITableDataSink implementation)
+- Pure notification trigger; every sink method calls ScheduleDiagnosticsPush()
+- Feeds into existing 200ms debounce + content dedup + ErrorListReader.CollectGrouped() pipeline
+- Does NOT read diagnostics (reading stays in ErrorListReader)
+
+**Modified:** CopilotCliIdePackage.cs
+- **StartConnectionAsync():** Gets ITableManagerProvider via MEF, subscribes to all existing ITableDataSource instances
+- **SourcesChanged handler:** Dynamic source subscription; uses HashSet<ITableDataSource> + lock for thread safety (fires from background threads)
+- **StopConnection():** Unsubscribes, disposes all subscriptions, clears tracking
+- Kept existing OnBuildDone and DocumentSaved triggers as fallbacks
+
+**Key discovery:** ITableDataSink has 14 members, not 11 as typical examples show. Includes RemoveAllEntries, RemoveAllSnapshots, RemoveAllFactories.
+
+**Thread safety:** Sink methods called from Roslyn background threads; ScheduleDiagnosticsPush() already guards callbacks and marshals to UI thread for Error List reading. _tableSubscriptionLock protects subscription collections.
+
+**Build:** Extension builds clean. Server: 153 tests pass.
+
+**Team impact:** Unblocks real-time diagnostic push notifications (P2 feature). DiagnosticTableSink pattern available for future table API usage.
+
+See .squad/decisions.md — "ITableDataSink for Real-Time Diagnostic Notifications" section.

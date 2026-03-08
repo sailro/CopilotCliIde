@@ -6,6 +6,7 @@ using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Shell.TableManager;
 using StreamJsonRpc;
 using Task = System.Threading.Tasks.Task;
 
@@ -30,6 +31,10 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private uint _selectionMonitorCookie;
 	private CancellationTokenSource? _connectionCts;
 	private DebouncePusher? _diagnosticsPusher;
+	private ITableManager? _errorTableManager;
+	private readonly object _tableSubscriptionLock = new();
+	private readonly HashSet<ITableDataSource> _subscribedSources = new();
+	private readonly List<IDisposable> _tableSubscriptions = new();
 	private OutputLogger? _logger;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -101,6 +106,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		// Write lock file for Copilot CLI discovery
 		var workspaceFolders = GetWorkspaceFolders();
 		await _discovery!.WriteLockFileAsync(mcpPipeName, nonce, workspaceFolders);
+
+		// Subscribe to Error List data layer for real-time diagnostic notifications
+		SubscribeToErrorTableSources();
 	}
 
 	/// <summary>
@@ -112,6 +120,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		_mcpCallbacks = null;
 
+		UnsubscribeFromErrorTableSources();
 		_selectionTracker?.Reset();
 		_diagnosticsPusher?.Reset();
 
@@ -205,6 +214,77 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		_selectionTracker?.ResetDedupKey();
 		_diagnosticsPusher?.ResetDedupKey();
+	}
+
+	/// <summary>
+	/// Subscribes to the Error List's underlying data layer so we get notified
+	/// whenever any <see cref="ITableDataSource"/> (Roslyn, analyzers, build, etc.)
+	/// pushes new diagnostics. Each source gets its own <see cref="DiagnosticTableSink"/>
+	/// that funnels change notifications into <see cref="ScheduleDiagnosticsPush"/>.
+	/// </summary>
+	private void SubscribeToErrorTableSources()
+	{
+		try
+		{
+			var componentModel = (IComponentModel)GetGlobalService(typeof(SComponentModel));
+			var tableManagerProvider = componentModel.GetService<ITableManagerProvider>();
+			_errorTableManager = tableManagerProvider.GetTableManager(StandardTables.ErrorsTable);
+
+			lock (_tableSubscriptionLock)
+			{
+				foreach (var source in _errorTableManager.Sources)
+				{
+					SubscribeToSource(source);
+				}
+			}
+
+			_errorTableManager.SourcesChanged += OnErrorTableSourcesChanged;
+		}
+		catch (Exception ex)
+		{
+			_logger?.Log($"Failed to subscribe to Error List table: {ex.Message}");
+		}
+	}
+
+	private void SubscribeToSource(ITableDataSource source)
+	{
+		if (!_subscribedSources.Add(source)) return;
+
+		var subscription = source.Subscribe(new DiagnosticTableSink(ScheduleDiagnosticsPush));
+		_tableSubscriptions.Add(subscription);
+	}
+
+	private void OnErrorTableSourcesChanged(object sender, EventArgs e)
+	{
+		if (_errorTableManager == null) return;
+
+		lock (_tableSubscriptionLock)
+		{
+			foreach (var source in _errorTableManager.Sources)
+			{
+				SubscribeToSource(source);
+			}
+		}
+	}
+
+	private void UnsubscribeFromErrorTableSources()
+	{
+		if (_errorTableManager != null)
+		{
+			_errorTableManager.SourcesChanged -= OnErrorTableSourcesChanged;
+			_errorTableManager = null;
+		}
+
+		lock (_tableSubscriptionLock)
+		{
+			foreach (var sub in _tableSubscriptions)
+			{
+				try { sub.Dispose(); }
+				catch { /* Ignore */ }
+			}
+			_tableSubscriptions.Clear();
+			_subscribedSources.Clear();
+		}
 	}
 
 	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => ScheduleDiagnosticsPush();

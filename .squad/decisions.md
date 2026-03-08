@@ -1268,3 +1268,97 @@ New tool invocations in expanded captures: open_diff (3-6 per capture, 3 pattern
 
 Sebastien's contract changes verified correct: DiffOutcome and DiffTrigger constants match captures exactly. Removed fields confirmed absent. Tool schemas fully aligned with VS Code. 4 test failures were infrastructure issues (multi-session), not code issues. Minor cosmetic differences documented (message text, version strings). Recommendations: Multi-session ID collision FIXED by Bishop; new response tests pending; close_diff message cosmetic alignment optional.
 
+
+---
+
+## Research: VS API for Design-Time Build Diagnostic Change Notifications
+
+**Author:** Ripley (Lead)
+**Date:** 2025-07-19
+**Status:** Research complete — recommendation ready
+
+### Problem Statement
+
+Our extension only pushes diagnostics_changed after explicit builds (BuildEvents.OnBuildDone) and file saves (DocumentEvents.DocumentSaved). VS Code gets real-time diagnostic updates from Roslyn's LSP 	extDocument/publishDiagnostics. We need the VS equivalent to match that experience.
+
+We previously tried subscribing to Error List WPF table changes, but the WPF DataGrid's binding/formatting/sorting operations triggered excessive events, making it CPU-intensive. We need to go below the WPF layer.
+
+### API Options Evaluated
+
+**Option 1: IVsSolutionBuildManager / IVsUpdateSolutionEvents**
+- Fires for explicit user-initiated builds only, not Roslyn's background design-time compilation
+- Already what we have via BuildEvents.OnBuildDone
+- ❌ No improvement
+
+**Option 2: Roslyn IDiagnosticService.DiagnosticsUpdated (Internal API)**
+- internal to Roslyn; not public API
+- Could break on any VS update
+- Roslyn team actively moving away from this toward pull-based diagnostics for LSP
+- ⚠️ Too fragile
+
+**Option 3: Workspace.WorkspaceChanged (Roslyn Public API)**
+- No DiagnosticsChanged kind in WorkspaceChangeKind enum
+- Tracks structure (project/document add/remove/edit), not diagnostic output
+- Would need polling after document edit
+- ❌ Wrong abstraction level
+
+**Option 4: ITableManagerProvider + ITableDataSink (Table API)** ✅ **RECOMMENDED**
+- Public, documented API in Microsoft.VisualStudio.Shell.TableManager
+- Headless data layer beneath Error List WPF control
+- Thread-safe, callable from any thread
+- Catches ALL diagnostic changes — design-time, explicit builds, analyzer updates
+- No new NuGet packages (included via Microsoft.VisualStudio.SDK)
+- Integrates cleanly with existing 200ms debounce + content dedup architecture
+
+**Key design decisions:**
+- Use sink purely as **change notification trigger** (no reading)
+- Keep ErrorListReader.CollectGrouped() for actual diagnostics reading
+- Keep existing OnBuildDone and DocumentSaved triggers as fallbacks
+- 200ms debounce + content dedup already in place
+- Track subscriptions in HashSet<ITableDataSource> + lock for thread safety
+
+**Option 5: IErrorList / IErrorListService** — No change notification events; UI manipulation only
+**Option 6: IVsDiagnosticsProvider** — Does not exist
+**Option 7: VS Code Comparison** — VS Code uses LSP 	extDocument/publishDiagnostics; our approach taps into ITableDataSource → ITableDataSink (closest public equivalent)
+
+### Recommendation
+
+**Use Option 4: ITableManagerProvider + ITableDataSink** — the only public API providing real-time diagnostic change notifications.
+
+---
+
+## Decision: ITableDataSink for Real-Time Diagnostic Notifications
+
+**Author:** Hicks (Extension Dev)
+**Date:** 2026-07-19
+**Status:** Implemented
+
+### Context
+
+Our extension only pushed diagnostics_changed after explicit builds and file saves. Ripley researched the options and recommended ITableManagerProvider + ITableDataSink — the headless data layer beneath the Error List WPF control.
+
+### Decision
+
+Implemented Option 4: subscribe to ITableDataSink on the ErrorsTable manager as a notification-only trigger. The sink does not read diagnostics — it calls ScheduleDiagnosticsPush() which feeds into the existing 200ms debounce + content dedup + ErrorListReader.CollectGrouped() pipeline.
+
+### Implementation Details
+
+**New file: DiagnosticTableSink.cs**
+- Implements ITableDataSink (14 interface members)
+- Pure notification trigger — every sink method calls ScheduleDiagnosticsPush()
+- Does NOT read diagnostics
+
+**Changes to CopilotCliIdePackage.cs**
+- **StartConnectionAsync():** Gets ITableManagerProvider via MEF, subscribes to all existing ITableDataSource instances
+- **SourcesChanged handler:** Subscribes to dynamically added sources; uses HashSet<ITableDataSource> + lock for thread safety
+- **StopConnection():** Unsubscribes, disposes all subscriptions
+- Existing OnBuildDone and OnDocumentSaved triggers kept as fallbacks
+
+### Files Changed
+
+- **Created:** src/CopilotCliIde/DiagnosticTableSink.cs
+- **Modified:** src/CopilotCliIde/CopilotCliIdePackage.cs
+
+### Build Status
+
+- Extension: Builds clean (153 tests pass)

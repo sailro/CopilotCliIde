@@ -1,0 +1,27 @@
+Add live diagnostics via ITableDataSink + align close_diff message
+
+## Changes
+
+### Feature: Real-Time Diagnostic Notifications via Table Manager API
+- Created DiagnosticTableSink.cs: Implements ITableDataSink (14 members) as pure notification trigger
+- Modified CopilotCliIdePackage.cs: Added Table Manager subscription in StartConnectionAsync/StopConnection
+  - Subscribes to all ITableDataSource instances on ErrorsTable
+  - Dynamic source tracking with HashSet + lock for thread safety (SourcesChanged fires from background threads)
+  - Feeds into existing 200ms debounce + content dedup + ErrorListReader pipeline
+  - Kept OnBuildDone and DocumentSaved triggers as belt-and-suspenders fallbacks
+
+### Fix: close_diff Message Text Alignment
+- Modified VsServiceRpc.cs: Changed message from "Diff \"{tabName}\" closed successfully" to "Diff closed: {tabName}"
+  - Aligns with VS Code protocol message format
+
+### Orchestration & Decisions
+- Created .squad/orchestration-log/2026-03-08T17-30-00Z-ripley.md, 2026-03-08T17-30-00Z-hicks.md
+- Created .squad/log/2026-03-08T17-30-00Z-live-diagnostics.md
+- Merged .squad/decisions/inbox/{ripley-design-build-api,hicks-diagnostic-table-sink}.md → .squad/decisions.md
+- Updated agent history files with new learnings
+
+## Build Status
+- Extension: Builds clean (MSBuild required for VSIX)
+- Server: 153 tests pass
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
