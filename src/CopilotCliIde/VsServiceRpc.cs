@@ -32,6 +32,8 @@ public class VsServiceRpc : IVsServiceRpc
 		Logger?.Log($"Tool open_diff: {tabName} ({originalFilePath})");
 		try
 		{
+			originalFilePath = PathUtils.NormalizeFileUri(originalFilePath) ?? originalFilePath;
+
 			// Close any existing diff with the same tab name
 			var existingEntry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 			if (existingEntry.Key != null)
@@ -234,12 +236,7 @@ public class VsServiceRpc : IVsServiceRpc
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
-			string? filePath = null;
-			if (uri != null)
-			{
-				try { filePath = new Uri(uri).LocalPath; }
-				catch { filePath = uri; }
-			}
+			var filePath = PathUtils.NormalizeFileUri(uri);
 			var files = ErrorListReader.CollectGrouped(filePath, maxItems: 100);
 			return new DiagnosticsResult { Files = files };
 		}
@@ -259,6 +256,7 @@ public class VsServiceRpc : IVsServiceRpc
 		Logger?.Log($"Tool read_file: {filePath}");
 		try
 		{
+			filePath = PathUtils.NormalizeFileUri(filePath) ?? filePath;
 			var fullText = File.ReadAllText(filePath);
 			var allLines = fullText.Split('\n');
 			var totalLines = allLines.Length;

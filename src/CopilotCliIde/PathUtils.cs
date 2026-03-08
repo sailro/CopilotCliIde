@@ -32,6 +32,34 @@ internal static class PathUtils
 	}
 
 	/// <summary>
+	/// Converts a file URI (standard or VS Code-style with percent-encoded colon) to a
+	/// local Windows path. Non-URI strings pass through unchanged; null/empty returns null.
+	/// </summary>
+	/// <remarks>
+	/// <see cref="System.Uri.LocalPath"/> for percent-encoded URIs like
+	/// <c>file:///c%3A/Dev/file.cs</c> returns <c>/c:/Dev/file.cs</c> — with a leading
+	/// slash and forward slashes. This method decodes manually and normalises to a proper
+	/// Windows path (<c>c:\Dev\file.cs</c>).
+	/// </remarks>
+	/// <example>
+	/// <c>file:///c%3A/Dev/file.cs</c> → <c>c:\Dev\file.cs</c><br/>
+	/// <c>file:///C:/Dev/file.cs</c>   → <c>C:\Dev\file.cs</c><br/>
+	/// <c>C:\Dev\file.cs</c>           → <c>C:\Dev\file.cs</c> (passthrough)
+	/// </example>
+	public static string? NormalizeFileUri(string? uri)
+	{
+		if (string.IsNullOrEmpty(uri))
+			return null;
+
+		if (!uri!.StartsWith("file:///", StringComparison.OrdinalIgnoreCase))
+			return uri;
+
+		// Strip the file:/// prefix and percent-decode the remainder.
+		var path = Uri.UnescapeDataString(uri.Substring(8));
+		return path.Replace('/', '\\');
+	}
+
+	/// <summary>
 	/// Lowercases the drive letter of a Windows file path (e.g. <c>C:\Dev</c> → <c>c:\Dev</c>).
 	/// </summary>
 	/// <remarks>
