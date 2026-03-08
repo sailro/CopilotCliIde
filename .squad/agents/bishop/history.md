@@ -224,3 +224,21 @@ After the fresh vs-1.0.7 capture (taken post-fixes), audited `TrafficReplayTests
 
 Fixed `get_diagnostics` tool's `uri` parameter type to match VS Code's schema. Changed parameter from `string? uri = null` to `string uri = ""` so the MCP SDK generates `{"type": "string"}` instead of `{"type": ["string","null"]}`. Updated method body to use `string.IsNullOrEmpty(uri) ? null : uri` to preserve identical RPC behavior. Removed `knownVariations` HashSet from `AllCaptures_ToolInputSchemas_AreConsistent` test since the variation is now fixed at the source. Updated `GetDiagnosticsTool_UriIsOptional` test to assert `""` default instead of `null`. 141/142 tests pass — the one remaining failure (`AllCaptures_ToolInputSchemas_AreConsistent`) is expected because the vs-1.0.7 capture file still contains the old `["string","null"]` schema and needs recapture.
 
+### 2026-03-08 — HTTP Response Generation Refactor
+
+**User concern:** McpPipeServer was manually generating HTTP responses via string concatenation and maintaining a manual switch statement to map status codes to reason phrases. Sebastien pointed out .NET provides built-in HTTP types for this.
+
+**Changes made:**
+1. Added `using System.Net;` and `using System.Net.Http;` to McpPipeServer.cs
+2. Refactored `WriteHttpResponseAsync` to use `HttpResponseMessage.ReasonPhrase` for status code → text mapping instead of manual switch statement (lines 375-385)
+3. The `HttpResponseMessage((HttpStatusCode)statusCode)` constructor automatically resolves standard HTTP reason phrases ("OK", "Bad Request", "Internal Server Error", etc.)
+4. For unknown status codes, it returns "Unknown" instead of our previous fallback "Error"
+5. Response header building changed from raw string interpolation to StringBuilder with conditional append for cleaner formatting
+
+**Test updates:**
+- Updated `WriteHttpResponseAsync_UnknownStatusCode_UsesError` test to use status code 999 (truly unknown) instead of 500 (which is known "Internal Server Error")
+- Renamed test to `WriteHttpResponseAsync_UnknownStatusCode_UsesUnknown` to match actual behavior
+- Added test case for 500 status code to verify "Internal Server Error" text
+
+**Result:** Eliminated manual status code dictionary. Now using .NET's built-in HTTP types. 143 tests pass, build clean, format clean.
+
