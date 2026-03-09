@@ -885,6 +885,50 @@ None. All new files. Existing 109 tests untouched. The `ProtocolCompatibilityTes
 
 - Protocol version, server name, tool names/descriptions, tool parameter schemas, `taskSupport: forbidden` execution mode
 - `selection_changed` notification format
+
+---
+
+### Log Format Consistency & Position Accuracy in VsServiceRpc
+
+**Author:** Hicks (Extension Dev)
+**Date:** 2026-07-19
+**Status:** Implemented
+**Scope:** `src/CopilotCliIde/VsServiceRpc.cs`
+
+#### Context
+
+The Output pane showed two inconsistencies when comparing push event logs (from SelectionTracker/DiagnosticTracker) with tool invocation logs (from VsServiceRpc):
+
+1. **Separator ambiguity:** Push events used `:` after the event name (`Push selection_changed: file L1:5 → L1:20`), but tool logs used `→` (`Tool get_selection → file L1:5 → L1:20`). The arrow was overloaded — it served as both the name/details separator AND the position range separator, making logs hard to scan.
+
+2. **Column mismatch:** For the same cursor position, push events and tool results reported different column numbers. Push events (SelectionTracker) compute character offset via buffer positions (`selection.Start.Position - startLine.Start.Position`), counting each character including tabs as 1. Tool results (VsServiceRpc) used `DisplayColumn`, which expands tabs to their visual width (typically 4), inflating column numbers by 3 per tab.
+
+#### Decision
+
+**Format: Use `:` as the universal name/details separator**
+
+All log lines now follow the pattern `{Type} {name}: {details}`:
+- `Push selection_changed: VsServiceRpc.cs L238:20 → L238:37`
+- `Tool get_selection: VsServiceRpc.cs L238:20 → L238:37`
+
+The `→` arrow is reserved exclusively for position ranges (start → end).
+
+**Position: Use `LineCharOffset` instead of `DisplayColumn`**
+
+Changed `sel.TopPoint.DisplayColumn - 1` to `sel.TopPoint.LineCharOffset - 1` in `GetSelectionAsync`. Both are 1-based DTE properties, but:
+
+| Property | Tab handling | Use case |
+|---|---|---|
+| `DisplayColumn` | Tab = N visual columns (tab width) | Cursor rendering |
+| `LineCharOffset` | Tab = 1 character | Character-based offset (matches buffer math) |
+
+`LineCharOffset - 1` produces the same 0-based offset as SelectionTracker's `position - lineStart`, ensuring push events and tool results agree.
+
+#### Consequences
+
+- Output pane logs are now visually consistent and unambiguous across push events and tool calls.
+- Column numbers from `get_selection` tool match push event column numbers for the same cursor position, even in files using tabs.
+- Copilot CLI receives consistent position data regardless of whether it reads from a push event or polls via the `get_selection` tool.
 - File URI convention (`file:///c%3A/...`)
 - Capabilities (`tools.listChanged: true`)
 - CLI request methods and SSE wire format

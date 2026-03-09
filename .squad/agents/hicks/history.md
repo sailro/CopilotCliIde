@@ -40,3 +40,16 @@ Enhanced all 6 tool methods in `VsServiceRpc.cs` to log result details, matching
 - Error paths log with `→ error:` prefix for grep-ability
 
 **Build:** Server compiles clean (0 errors, 0 warnings). Formatter clean.
+
+### 2026-07-19 — Log Format Consistency & DisplayColumn Fix
+
+Fixed two inconsistencies in `VsServiceRpc.cs`:
+
+**1. Separator character:** Changed all tool log lines from `Tool {name} → {details}` to `Tool {name}: {details}`, matching the push event format (`Push selection_changed: ...`). The `→` arrow is now reserved exclusively for position ranges (`L1:5 → L1:20`), eliminating visual ambiguity.
+
+**2. DisplayColumn vs LineCharOffset:** `GetSelectionAsync` was using `sel.TopPoint.DisplayColumn` which expands tabs to their visual width (e.g. tab=4 columns). SelectionTracker uses buffer offsets where tab=1 character. Switched to `sel.TopPoint.LineCharOffset` (1-based character offset, tab=1) so both paths produce identical column numbers. Key DTE property differences:
+- `DisplayColumn`: visual column (tabs expanded to tab-width). Good for cursor display.
+- `LineCharOffset`: 1-based character position on the line (tab = 1 char). Matches buffer offset math.
+- `VirtualCharOffset`: includes virtual whitespace beyond line end.
+
+**Build:** Server compiles clean (0 errors, 0 warnings). Formatter clean.
