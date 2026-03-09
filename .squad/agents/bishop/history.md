@@ -319,3 +319,33 @@ Fixed critical bug in `TrafficParser.cs` where multi-session capture files (3–
 - **Tests from Ripley's extended capture analysis** — now validate across correct session boundaries.
 
 **Result:** All 143 tests now pass. Build clean, format clean.
+
+### 2026-03-08 — Live MCP Tool Integration Test via Named Pipe
+
+Exercised all 7 MCP tools by connecting directly to the running extension's named pipe and speaking raw HTTP/1.1 + JSON-RPC + SSE. Python with pywin32 (`win32file` overlapped I/O) was used to connect and exchange data.
+
+**All 7 tools confirmed working over the wire:**
+
+| Tool | Status | Response Summary |
+|------|--------|-----------------|
+| `get_vscode_info` | ✅ | VS 18.0, solution info, 5 projects, PID 32580 |
+| `get_selection` | ✅ | Cursor at VsServiceRpc.cs:236, proper `fileUrl` with `%3A` encoding |
+| `get_diagnostics` | ✅ | 2 errors in VsServiceRpc.cs, grouped by file with URI/severity/range |
+| `update_session_name` | ✅ | `{"success":true}` |
+| `close_diff` | ✅ | `{"success":true,"already_closed":true}` — correct no-op when no diff open |
+| `open_diff` | ✅ | Blocked until user accepted in VS. Returned `{"result":"SAVED","trigger":"accepted_via_button"}` |
+| `read_file` | ✅ | Full README.md content with line count metadata |
+
+**Protocol quirks discovered:**
+
+1. **Argument name casing matters.** `open_diff`/`close_diff` use snake_case params (`original_file_path`, `new_file_contents`, `tab_name`), while `read_file` uses camelCase (`filePath`, `startLine`, `maxLines`). Wrong casing silently returns generic error "An error occurred invoking 'X'." — no validation message about which arg is missing/wrong. This is an MCP SDK behavior, not our code.
+
+2. **Overlapped I/O required on Windows.** Named pipe reads block indefinitely without `FILE_FLAG_OVERLAPPED`. Must use overlapped reads with timeout events to avoid hanging on `open_diff` (which blocks server-side until user acts).
+
+3. **Read buffer noise.** Python's `win32file.ReadFile` with overlapped I/O returns a pre-allocated buffer; bytes beyond the actual read length contain garbage (Python stdlib source code from memory). Always slice to `GetOverlappedResult` byte count.
+
+4. **SSE chunked encoding is clean.** Responses use `transfer-encoding: chunked` with `text/event-stream` content type. Chunk framing is correct — `data:` lines contain valid JSON-RPC responses. Notifications return HTTP 202 with empty body.
+
+5. **Session ID format:** `vs-{guid-no-dashes}` (e.g., `vs-dbd89f1d898047c18a249b0d9ff26b17`). Required on all requests after initialize.
+
+6. **Connection reuse works.** A single pipe connection handled initialize + notification + 5 sequential tool calls without issues. No need for reconnection between calls.

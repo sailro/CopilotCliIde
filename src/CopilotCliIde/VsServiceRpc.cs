@@ -90,6 +90,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			// Block until user accepts, rejects, or closes the diff
 			var (result, trigger) = await tcs.Task.ConfigureAwait(false);
+			Logger?.Log($"Tool open_diff: {result} ({trigger})");
 
 			// Clean up
 			timeoutCts.Dispose();
@@ -109,22 +110,28 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch (Exception ex)
 		{
+			Logger?.Log($"Tool open_diff: error: {ex.Message}");
 			return new DiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}
 
 	public async Task<CloseDiffResult> CloseDiffByTabNameAsync(string tabName)
 	{
-		Logger?.Log($"Tool close_diff: {tabName}");
 		var entry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 		if (entry.Key == null)
+		{
+			Logger?.Log("Tool close_diff: already closed");
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
+		}
 
 		// Signal rejection to unblock OpenDiffAsync if it's waiting
 		entry.Value.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
 
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
+		{
+			Logger?.Log("Tool close_diff: already closed");
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
+		}
 
 		try
 		{
@@ -142,6 +149,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
 
+			Logger?.Log("Tool close_diff: closed");
 			return new CloseDiffResult
 			{
 				Success = true,
@@ -151,13 +159,13 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch (Exception ex)
 		{
+			Logger?.Log($"Tool close_diff: error: {ex.Message}");
 			return new CloseDiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}
 
 	public async Task<VsInfoResult> GetVsInfoAsync()
 	{
-		Logger?.Log("Tool get_vscode_info");
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		var result = new VsInfoResult { IdeName = "Visual Studio", AppName = "Visual Studio", ProcessId = Process.GetCurrentProcess().Id };
 		try
@@ -175,26 +183,33 @@ public class VsServiceRpc : IVsServiceRpc
 			}
 		}
 		catch { /* Ignore */ }
+
+		Logger?.Log(string.IsNullOrEmpty(result.SolutionName)
+			? "Tool get_vscode_info: (no solution)"
+			: $"Tool get_vscode_info: {result.SolutionName}, {result.Projects?.Count ?? 0} project(s)");
+
 		return result;
 	}
 
 	public async Task<SelectionResult> GetSelectionAsync()
 	{
-		Logger?.Log("Tool get_selection");
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
 			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
 			var doc = dte?.ActiveDocument;
 			if (doc?.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
+			{
+				Logger?.Log("Tool get_selection: (no editor)");
 				return new SelectionResult { Current = false };
+			}
 
 			var sel = textDoc.Selection;
 			var selectedText = sel.IsEmpty ? null : sel.Text;
 			if (selectedText?.Length > 100_000)
 				selectedText = selectedText.Substring(0, 100_000);
 
-			return new SelectionResult
+			var result = new SelectionResult
 			{
 				Current = true,
 				FilePath = PathUtils.ToLowerDriveLetter(doc.FullName),
@@ -202,29 +217,41 @@ public class VsServiceRpc : IVsServiceRpc
 				Text = selectedText,
 				Selection = new SelectionRange
 				{
-					Start = new SelectionPosition { Line = sel.TopPoint.Line - 1, Character = sel.TopPoint.DisplayColumn - 1 },
-					End = new SelectionPosition { Line = sel.BottomPoint.Line - 1, Character = sel.BottomPoint.DisplayColumn - 1 },
+					Start = new SelectionPosition { Line = sel.TopPoint.Line - 1, Character = sel.TopPoint.LineCharOffset - 1 },
+					End = new SelectionPosition { Line = sel.BottomPoint.Line - 1, Character = sel.BottomPoint.LineCharOffset - 1 },
 					IsEmpty = sel.IsEmpty
 				}
 			};
+
+			var s = result.Selection;
+			Logger?.Log($"Tool get_selection: {Path.GetFileName(result.FilePath ?? "")} L{(s.Start?.Line ?? 0) + 1}:{(s.Start?.Character ?? 0) + 1}{(s.IsEmpty ? "" : $" → L{(s.End?.Line ?? 0) + 1}:{(s.End?.Character ?? 0) + 1}")}");
+
+			return result;
 		}
 		catch
 		{
+			Logger?.Log("Tool get_selection: (no editor)");
 			return new SelectionResult { Current = false };
 		}
 	}
 
 	public async Task<DiagnosticsResult> GetDiagnosticsAsync(string? uri)
 	{
-		Logger?.Log($"Tool get_diagnostics: {uri ?? "(all)"}");
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 		try
 		{
 			var filePath = PathUtils.NormalizeFileUri(uri);
 			var files = ErrorListReader.CollectGrouped(filePath, maxItems: 100);
+			var totalDiagnostics = files.Sum(f => f.Diagnostics?.Count ?? 0);
+			var scope = filePath != null ? Path.GetFileName(filePath) : "(all)";
+			Logger?.Log($"Tool get_diagnostics: {scope} {files.Count} file(s), {totalDiagnostics} diagnostic(s)");
 			return new DiagnosticsResult { Files = files };
 		}
-		catch (Exception ex) { return new DiagnosticsResult { Error = ex.Message }; }
+		catch (Exception ex)
+		{
+			Logger?.Log($"Tool get_diagnostics: error: {ex.Message}");
+			return new DiagnosticsResult { Error = ex.Message };
+		}
 	}
 
 
@@ -237,7 +264,6 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public Task<ReadFileResult> ReadFileAsync(string filePath, int? startLine, int? maxLines)
 	{
-		Logger?.Log($"Tool read_file: {filePath}");
 		try
 		{
 			filePath = PathUtils.NormalizeFileUri(filePath) ?? filePath;
@@ -249,6 +275,9 @@ public class VsServiceRpc : IVsServiceRpc
 			var end = Math.Min(totalLines, start + count);
 			var slice = new string[end - start];
 			Array.Copy(allLines, start, slice, 0, end - start);
+
+			Logger?.Log($"Tool read_file: {Path.GetFileName(filePath)} ({totalLines} total, {end - start} returned)");
+
 			return Task.FromResult(new ReadFileResult
 			{
 				FilePath = filePath,
@@ -258,7 +287,11 @@ public class VsServiceRpc : IVsServiceRpc
 				LinesReturned = end - start
 			});
 		}
-		catch (Exception ex) { return Task.FromResult(new ReadFileResult { Error = ex.Message, FilePath = filePath }); }
+		catch (Exception ex)
+		{
+			Logger?.Log($"Tool read_file: error: {ex.Message}");
+			return Task.FromResult(new ReadFileResult { Error = ex.Message, FilePath = filePath });
+		}
 	}
 
 	private static void AddDiffInfoBar(IVsWindowFrame frame, DiffState state)
