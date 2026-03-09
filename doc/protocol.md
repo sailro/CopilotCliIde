@@ -214,7 +214,10 @@ is kept alive until the session ends or the pipe disconnects.
 ```http
 DELETE /mcp HTTP/1.1
 Authorization: Nonce abc123
+Mcp-Session-Id: session-a1b2c3d4
 ```
+
+The response body is empty.
 
 Returns `200 OK` and closes the connection.
 
@@ -270,9 +273,26 @@ compatibility.
 
 ### Tool Execution Mode
 
-All tools declare `taskSupport: "forbidden"` — they do not support MCP task-based
-execution. Tool calls use simple request/response semantics (except `open_diff`
+All tools declare `execution.taskSupport: "forbidden"` — they do not support MCP task-based
+execution. This property is nested inside an `execution` wrapper on each tool definition,
+**not** as a top-level `taskSupport` or under `annotations`:
+
+```json
+{
+  "name": "get_selection",
+  "description": "...",
+  "inputSchema": { ... },
+  "execution": {
+    "taskSupport": "forbidden"
+  }
+}
+```
+
+Tool calls use simple request/response semantics (except `open_diff`
 which is long-running but still uses request/response).
+
+> **Note:** No `annotations` property has been observed on any tool in wire captures.
+> The `execution` wrapper is the actual mechanism for declaring task support behavior.
 
 > **Schema variations:** VS Code's tool input schemas include
 > `"additionalProperties": false` and `"$schema": "http://json-schema.org/draft-07/schema#"`
@@ -606,9 +626,16 @@ or documents are saved.
 
 **Debounce:** ~200ms recommended.
 
-**Virtual URIs:** IDEs may optionally send diagnostics for virtual URIs (e.g., `git://` scheme
-for diff buffers) with empty diagnostics arrays `[]` to indicate the buffer exists but has
-no errors. Clients should handle both cases gracefully.
+**Virtual URIs:** IDEs may optionally send diagnostics for virtual URIs with empty diagnostics
+arrays `[]` to indicate the buffer exists but has no errors. Known virtual URI schemes:
+
+| Scheme | Usage |
+|--------|-------|
+| `git://` | Diff buffers (Git working tree comparisons) |
+| `copilot-cli-readonly:/` | Read-only buffers used by the CLI for proposed file content |
+
+Clients should handle virtual URIs gracefully — they may appear in both push notifications
+and tool responses.
 
 ### SSE Wire Format
 
@@ -660,10 +687,16 @@ Copilot CLI                    MCP Server                     IDE
     │──POST /mcp (initialize)──────►│                          │
     │◄─200 SSE (server capabilities)│                          │
     │                               │                          │
+    │──POST /mcp (initialized)─────►│                          │
+    │◄─202 Accepted                 │                          │
+    │                               │                          │
     │──GET /mcp (SSE stream)───────►│                          │
     │◄─200 (chunked SSE)────────────│                          │
     │                               │                          │
-    │  (connection established)     │                          │
+    │──POST /mcp (tools/list)──────►│                          │
+    │◄─200 SSE (tool definitions)───│                          │
+    │                               │                          │
+    │  (connection established, SSE stream remains open)       │
 ```
 
 ### Tool Call (get_selection)
@@ -735,8 +768,10 @@ IDE                            MCP Server                     Copilot CLI
 - [ ] Pipe / socket accepts HTTP/1.1 with nonce authentication
 - [ ] MCP server name is `"vscode-copilot-cli"`
 - [ ] All 6 tools registered with exact names and matching schemas
+- [ ] Tools declare `execution.taskSupport: "forbidden"` (not top-level `taskSupport`)
 - [ ] SSE stream serves chunked `text/event-stream` on GET
 - [ ] `selection_changed` pushed on editor changes (file switch, cursor move, selection)
 - [ ] `diagnostics_changed` pushed when diagnostics change
 - [ ] `open_diff` blocks until user action (no premature timeout)
 - [ ] File URIs follow the convention (lowercase drive letter, `%3A` colon on Windows)
+- [ ] `DELETE /mcp` supported for session teardown
