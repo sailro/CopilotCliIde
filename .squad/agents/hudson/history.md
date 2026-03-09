@@ -177,5 +177,15 @@ Completed final comprehensive test gap analysis of all 4 updated capture files (
 - **Edge case discovered:** vscode-0.38 sessions 2-4 all fail with HTTP 400 errors. The TrafficParser's ID-based correlation crosses session boundaries in these cases (same id=3 from session 2 matches response from session 5). This is a known limitation, not a bug — the parser correctly pairs by ID sequence order.
 - All 190 tests pass. No production code changes.
 
+### 2026-03-10 — Cross-Capture Consistency Tests (P2 Response Shape Alignment)
 
+- **6 new [Fact] tests added** in new file `CrossCaptureConsistencyTests.cs`, bringing total from 190 to 196. All pass.
+- **ToolResponseFields_VsHasAllVsCodeFields** — Compares tool response inner JSON field sets between vs-1.0.8 and vscode-* captures. VS Code is the reference. Flags missing fields as errors, extra fields as warnings. Excludes `get_vscode_info` (IDE-specific by design).
+- **SelectionChangedNotification_VsHasAllVsCodeFields** — Compares `selection_changed` params fields. Our notifications match VS Code exactly.
+- **DiagnosticsChangedNotification_VsHasAllVsCodeDiagnosticFields** — Compares diagnostic item fields in `diagnostics_changed`. VS Code: `[code, message, range, severity]`. VS: `[code, message, range, severity, source]`. Extra `source` is a known acceptable difference. No missing fields.
+- **DiagnosticsChangedNotification_RangeEndValues_Compared** — Documents range.end behavior across captures. VS Code has real end positions, VS extension also has non-zero ends. Report is informational (always passes).
+- **InitializeResponse_VsHasAllVsCodeStructure** — Compares `capabilities`, `serverInfo` fields. VS has extra `logging` capability (known acceptable). All VS Code fields present.
+- **ToolInputSchemas_VsIsSupersetOfVsCode** — Verifies VS tool schemas are a superset of VS Code's. VS has extra `read_file` tool (acceptable). All shared tool schemas match exactly.
+- **Key finding from data analysis:** Both VS and VS Code have `code` in diagnostics (contrary to earlier assumption). The real difference is VS has extra `source` field. All VS Code fields are present in our extension.
+- **Design:** Uses `[Fact]` tests (not Theory) since these are cross-capture comparisons. Known acceptable differences documented as constants. Tests pass with current implementation while clearly flagging any future drift.
 
