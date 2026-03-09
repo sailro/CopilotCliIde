@@ -313,3 +313,40 @@ Completed comprehensive research evaluating 7 VS API options for real-time diagn
 **Research artifact:** ripley-design-build-api.md with full evaluation, implementation patterns, pros/cons, risks, and design decisions. Ready for implementation handoff to Hicks.
 
 **Team impact:** Unblocks real-time diagnostic push notifications (P2 feature) and establishes pattern for future VS API research.
+
+### 2026-03-09 — Deep Protocol Inspection: 4 Capture Files vs protocol.md
+
+Performed systematic analysis of all 4 capture files (vscode-0.38, vscode-0.39, vscode-insiders-0.39, vs-1.0.8) against doc/protocol.md. Used Python to parse raw HTTP captures (two entry types: `event` for raw HTTP, `body` for pre-parsed SSE JSON).
+
+**Key findings (15 total, detailed in `.squad/decisions/inbox/ripley-protocol-findings.md`):**
+
+1. **No protocol changes between 0.38→0.39** — tool schemas, server info, and protocol version are identical across all VS Code captures.
+2. **`execution.taskSupport` not `annotations`** — protocol.md references annotations but actual schema uses `"execution": {"taskSupport": "forbidden"}` wrapper. No `annotations` field observed in any capture.
+3. **DELETE /mcp is a 0.39+ feature** — not present in 0.38 capture. Targets the SSE stream session ID.
+4. **LLM retry pattern documented** — CLI sometimes forges requests without Mcp-Session-Id (12 errors in 0.38, 6 in 0.39, 0 in insiders/VS). Improving across versions.
+5. **Multi-session lifecycle** — CLI reuses SSE from Session 1, creates new sessions per conversation turn, sends DELETE on exit. Not documented in protocol.md.
+6. **VS session ID rotation (known bug)** — Our extension generates new session ID per response (29 unique IDs vs VS Code's 4). CLI adapts but this is non-compliant.
+7. **Diagnostic schema differences** — VS Code returns `code` (no `source`); our extension returns `source` (no `code`). VS extension also zeros out `range.end`.
+8. **Virtual URI schemes** — `copilot-cli-readonly:/` scheme not documented in protocol.md.
+9. **Duplicate `tools/list`** — CLI always sends 2 tools/list calls in initial session.
+
+**Protocol.md updates needed:** 8 items (1 high: multi-session lifecycle, 2 medium: execution schema fix + LLM retries, 5 low).
+**Code fixes needed:** 4 items (1 high: session ID rotation, 2 medium: diagnostic range.end + code field, 1 low: schema extras).
+
+### 2026-03-09 — Deep Protocol Inspection & Findings Consolidation
+
+Completed final systematic analysis of all 4 capture files (vscode-0.38, vscode-0.39, vscode-insiders-0.39, vs-1.0.8) in parallel with Bishop and Hudson. Identified 15 protocol observations across 4 sources with detailed classification.
+
+**Final Protocol Assessment:**
+- Protocol is **stable 0.38→0.39** — zero structural changes
+- Multi-session lifecycle is the core protocol pattern (SSE + re-initialize + DELETE)
+- Our extension implements the protocol correctly with 1 critical bug (session ID rotation)
+
+**Findings Summary (15 total):**
+- 8 protocol.md updates needed (1 High, 2 Medium, 5 Low severity)
+- 2 critical code bugs (Session ID rotation P1, diagnostics bugs P2)
+- 5 cosmetic divergences (VS-specific, acceptable)
+
+**Deliverable:** Orchestration log written to `.squad/orchestration-log/2026-03-09T20-31-14Z-ripley.md` with full actionable summary per finding.
+
+

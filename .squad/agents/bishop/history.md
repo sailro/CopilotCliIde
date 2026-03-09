@@ -349,3 +349,54 @@ Exercised all 7 MCP tools by connecting directly to the running extension's name
 5. **Session ID format:** `vs-{guid-no-dashes}` (e.g., `vs-dbd89f1d898047c18a249b0d9ff26b17`). Required on all requests after initialize.
 
 6. **Connection reuse works.** A single pipe connection handled initialize + notification + 5 sequential tool calls without issues. No need for reconnection between calls.
+
+### 2026-03-10 — Deep Capture Inspection: vs-1.0.8 vs VS Code (0.38, 0.39, Insiders 0.39)
+
+Compared all four NDJSON capture files field-by-field across every protocol dimension. Full report in `.squad/decisions/inbox/bishop-server-alignment.md`.
+
+**Confirmed PERFECT MATCH (no action needed):**
+- `selection_changed` notification format — identical across all 4 captures
+- `get_selection` tool response — field names, nesting, casing all match
+- `open_diff` / `close_diff` tool response — field names, result/trigger values identical
+- `update_session_name` response — identical
+- Initialize handshake — protocolVersion, serverInfo name/title/version all match
+- GET SSE headers — `cache-control: no-cache, no-transform` present in both
+
+**Remaining real gaps (5 actionable, 3 cosmetic):**
+1. **`get_diagnostics` code field absent** — VS omits `code` entirely (not null, absent from JSON). VS Code always sends actual codes (`CS1585`, `IDE1007`). Extension-side data quality issue — Error List may not expose error codes.
+2. **`get_diagnostics` range end always (0,0)** — VS sends zero-width ranges. VS Code sends proper end positions. Extension-side — likely only start position extracted from Error List.
+3. **POST SSE missing `cache-control` header** — Our GET SSE has it; POST SSE doesn't. VS Code includes it on both.
+4. **`get_diagnostics` uri schema has `"default": ""`** — MCP SDK auto-generates from C# parameter default. VS Code schemas don't include it.
+5. **Tool schemas lack `$schema`/`additionalProperties: false`** — MCP SDK vs VS Code's manual Zod schema generation.
+6. **`open_diff` message uses filename only** — VS: `"BuildErrorLevelExtensions.cs"`, VS Code: full path. Cosmetic.
+7. **`close_diff` message format** — VS: `"Diff closed: {name}"`, VS Code: `"Diff \"{name}\" closed successfully"`. Cosmetic.
+8. **HTTP 202 framing** — VS uses `content-length: 0` + `mcp-session-id`; VS Code uses chunked empty body, no session ID. Both valid.
+
+**Key insight from captures:** VS Code 0.38 `get_diagnostics` tool response also omits `source` field (only has `code`). Our VS response has `source` but no `code` — they're complementary data. The `diagnostics_changed` notification in VS 1.0.8 correctly includes both `code` (always null) and `source`, while VS Code notifications include `code` (with value) but no `source`. The `source` we provide is useful VS-specific context.
+
+**DELETE /mcp lifecycle confirmed correct:** VS returns 200 + content-length: 0 and breaks connection. VS Code returns chunked empty body. Both clean up properly.
+
+### 2026-03-09 — Deep Server Alignment Inspection & Gap Analysis
+
+Completed final comprehensive comparison of vs-1.0.8 server output vs all three VS Code captures (0.38, 0.39, Insiders 0.39). Used structured field-by-field analysis across all protocol dimensions.
+
+**Alignment Summary:**
+- **Tier 1 (Actionable):** 5 differences requiring attention (1 P1, 1 P1, 1 P2, 2 P3)
+- **Tier 2 (Cosmetic):** 3 non-breaking divergences (message text, response framing)
+- **Tier 3 (Confirmed Correct):** 6 areas with PERFECT MATCH across captures
+
+**Key findings:**
+- `get_diagnostics` missing `code` field (P1) — Error List may not expose error codes; investigate VS API
+- `get_diagnostics` range.end always (0,0) (P1) — Extension only extracts start position, not end
+- POST SSE missing `cache-control` header (P2) — Trivial add to McpPipeServer
+- Tool schemas lack `additionalProperties`/`$schema` (P3) — MCP SDK vs VS Code schema generation
+
+**Perfect matches (no changes needed):**
+- selection_changed, get_selection, open_diff, close_diff, update_session_name — IDENTICAL field names, nesting, casing
+- Initialize handshake, DELETE lifecycle — correct
+
+**Assessment:** Our server is very well aligned overall. Alignment work from prior sessions has paid off. Remaining gaps are edge cases and cosmetic differences.
+
+**Deliverable:** Orchestration log written to `.squad/orchestration-log/2026-03-09T20-31-14Z-bishop.md` with prioritized action items.
+
+

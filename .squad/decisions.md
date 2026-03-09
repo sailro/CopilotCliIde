@@ -1273,6 +1273,160 @@ Methods now normalized:
 **Any new RPC method that accepts a file path or URI from a CLI tool must apply `PathUtils.NormalizeFileUri()` at the top of the method body.** Pattern: `paramName = PathUtils.NormalizeFileUri(paramName) ?? paramName;`
 
 
+---
+
+## Capture Deep Inspection: 2026-03-09 Multi-Agent Analysis
+
+**Date:** 2026-03-09T20:31:14Z  
+**Agents:** Ripley (Protocol Lead), Bishop (Server Dev), Hudson (Tester)  
+**Mode:** Parallel background analysis  
+**Status:** ✅ COMPLETE
+
+### Executive Summary
+
+Three agents performed deep inspection of 4 updated capture files (vs-1.0.8, vscode-0.38, vscode-0.39, vscode-insiders-0.39) to identify protocol gaps, server alignment issues, and test coverage shortfalls. **Key finding:** Our extension is very well aligned overall. 1 critical bug found (session ID rotation); 5 actionable alignment issues identified; 11 test gaps documented.
+
+---
+
+### Protocol Analysis: Ripley (Lead)
+
+**Finding:** 15 protocol observations across 4 captures. Protocol **stable 0.38→0.39**. 8 updates to protocol.md needed, 2 code bugs identified.
+
+#### Key Findings (Protocol Documentation)
+
+| # | Finding | Severity | Action |
+|---|---------|----------|--------|
+| 1 | `execution.taskSupport` nested location wrong in doc | Medium | Fix schema location |
+| 2 | `annotations` documented but never observed | Low | Remove or clarify |
+| 4 | DELETE /mcp timing (introduced 0.39) | Low | Add version note |
+| 5 | LLM retry pattern (400 errors on missing session ID) | Medium | New section |
+| 6 | HTTP 406 Not Acceptable error | Low | Add error table |
+| 12 | Multi-session lifecycle not documented | High | New subsection |
+| 13 | `copilot-cli-readonly:/` virtual URI scheme | Low | Expand docs |
+| 14 | Duplicate `tools/list` calls (×2 every session) | Low | Add note |
+
+#### Key Findings (Code Issues)
+
+| # | Finding | Severity | Action |
+|---|---------|----------|--------|
+| 8 | **Session ID rotation bug** | **P1-Critical** | Server generates new ID per response; should maintain single session ID |
+| 9 | Diagnostics `code` field missing | P2 | Extract from DTE error code |
+| 9 | Diagnostics `range.end` always zeroed | P2 | Use actual end position |
+
+#### Protocol Stability Conclusion
+
+- vscode-0.38 and vscode-0.39 are **identical** in tool schemas, capabilities, and versioning
+- VS 1.0.8 correctly implements the protocol with intentional IDE-specific divergences
+- Multi-session pattern (SSE session + re-initialize per turn + DELETE cleanup) is the designed behavior
+
+**Status:** Findings documented in `.squad/decisions/inbox/ripley-protocol-findings.md`
+
+---
+
+### Server Alignment Analysis: Bishop (Server Dev)
+
+**Finding:** Our v1.0.8 server is **very well aligned** with VS Code. Tiered findings: 5 actionable, 3 cosmetic, 6 confirmed-correct.
+
+#### Tier 1: Actionable Differences
+
+| # | Issue | Priority | Effort |
+|---|-------|----------|--------|
+| 1 | `get_diagnostics` missing `code` field | P1 | Medium |
+| 2 | `get_diagnostics` range.end always (0,0) | P1 | Medium |
+| 3 | POST SSE responses missing `cache-control` header | P2 | Trivial |
+| 4 | `get_diagnostics` uri schema has extra `default: ""` | P3 | Low |
+| 5 | Tool schemas missing `additionalProperties`/`$schema` metadata | P3 | Low |
+
+#### Tier 2: Cosmetic (Non-Breaking)
+
+- `open_diff` message uses filename vs full path
+- `close_diff` message format differs
+- HTTP 202 response framing (both valid)
+
+#### Tier 3: Confirmed Correct ✅
+
+- `selection_changed` notification format — **PERFECT MATCH** across all captures
+- `open_diff` / `close_diff` tool response format — **PERFECT MATCH** (field names, snake_case, values)
+- `get_selection` response format — **PERFECT MATCH**
+- `update_session_name` response — **PERFECT MATCH**
+- `get_vscode_info` fields intentionally IDE-specific — **BY DESIGN**
+- Initialize response extra `logging` capability — **HARMLESS**
+
+**Status:** Findings documented in `.squad/decisions/inbox/bishop-server-alignment.md`
+
+---
+
+### Test Coverage Analysis: Hudson (Tester)
+
+**Finding:** 173 tests passing as baseline. 11 test gaps identified: 2 P1-Critical, 6 P2-Important, 2 P3-Nice-to-have, 1 resolved.
+
+#### P1-Critical Gaps (Must Address)
+
+| # | Gap | Why Critical | Effort |
+|---|-----|--------------|--------|
+| 1 | DELETE /mcp disconnect validation | Session cleanup signal; affects protocol compliance | Small |
+| 2 | HTTP 400 retry sequence not tested | LLM error path; vs-1.0.8 should have zero 400s | Medium |
+
+#### P2-Important Gaps (Should Address)
+
+| # | Gap | Impact | Effort |
+|---|-----|--------|--------|
+| 3 | HTTP 406 Not Acceptable error | Content negotiation failure; indicates Accept header enforcement | Small (part of #2) |
+| 4 | `body: 0` parser robustness | Non-object body handling; regression risk on refactor | Small |
+| 5 | GET /mcp SSE stream initiation | Push notification subscription; if broken, no notifications | Medium |
+| 6 | Multi-session boundary regression | Core parser fix from recent update; regression risk | Medium |
+| 8 | open_diff → close_diff lifecycle pairing | Complex blocking semantics; incomplete coverage | Medium |
+| 9 | Cross-capture output format consistency | Response format divergence detection | Medium |
+
+#### P3-Nice-to-Have
+
+- HTTP 202 Accepted response validation (Small)
+- `read_file` tool capture (Deferred — never called in captures)
+
+**Estimated Effort:** 8-10 new test methods covering ~15-20 test executions
+
+**Status:** Findings documented in `.squad/decisions/inbox/hudson-test-gaps.md`
+
+---
+
+### Consolidated Action Items
+
+#### Immediate (Sprint Priority)
+
+**Ripley (Protocol):**
+- Update protocol.md with multi-session lifecycle section (High priority)
+- Fix execution schema location documentation
+- Document LLM retry pattern and 400/406 errors
+
+**Bishop (Server):**
+- Investigate VS Error List API for `code` field and range end position (Tier 1-P1)
+- Add `cache-control: no-cache, no-transform` header to POST SSE responses (Tier 1-P2)
+
+**Hudson (Tester):**
+- Implement P1-Critical tests: DELETE /mcp (Gap 1), HTTP 400/406 retry (Gap 2)
+- Implement P2-Important tests: Multi-session boundary (Gap 6), lifecycle pairing (Gap 8)
+
+#### Medium-Term
+
+- Fix session ID rotation bug in server (Ripley finding #8)
+- Implement remaining P2-Important tests
+- Populate `code` field in diagnostics (Ripley finding #9)
+
+#### Long-Term
+
+- Implement P3-Nice-to-have tests
+- Add captures exercising `get_vscode_info`, `open_diff`, `close_diff` tools
+- Protocol.md refresh script automation
+
+---
+
+### Multi-Agent Decision: Test Coverage Prioritization
+
+**Consensus:** Focus on P1-Critical tests first (DELETE /mcp, HTTP 400 retry). These close the most significant gap (session disconnect and error resilience). P2-Important tests provide incremental coverage of protocol edge cases and parser robustness.
+
+**Orchestration logs written:** `2026-03-09T20-31-14Z-ripley.md`, `2026-03-09T20-31-14Z-bishop.md`, `2026-03-09T20-31-14Z-hudson.md`
+
+---
 
 ### Multi-Session Capture Support
 

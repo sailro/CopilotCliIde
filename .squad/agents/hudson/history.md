@@ -109,3 +109,46 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-huds
 - **Fixed nullable warning** in B3: cast `knownTriggers` to `ISet<string?>` for `Assert.Contains` overload compatibility with xUnit v3.
 - All 153 tests pass. No production code changes.
 
+### 2026-03-09 — Deep Capture Inspection: Post-Update Test Gap Analysis
+
+- **173 tests passing** as baseline (confirmed via `dotnet test`).
+- **4 captures analyzed**: vs-1.0.8 (108 entries, our extension), vscode-0.38 (140 entries), vscode-0.39 (124 entries), vscode-insiders-0.39 (113 entries).
+- **Key structural change**: All captures are now `type: "raw"` only. Bodies are parsed JSON objects where available, but HTTP frames dominate. Multiple MCP sessions per capture (3-4 each) identified by `Mcp-Session-Id` headers, with JSON-RPC ID resets across sessions.
+- **DELETE /mcp disconnect**: New protocol pattern in 3 of 4 captures (not in vscode-0.38). Followed by `body: 0` integer response. No test coverage.
+- **HTTP 400 retry sequences**: 17 retries in vscode-0.38, 6 in vscode-0.39. Error: "Session ID must be a single, defined, string value". No test coverage. Our extension (vs-1.0.8) has zero 400s.
+- **HTTP 406 Not Acceptable**: One instance in vscode-0.38 — content negotiation failure. No test coverage.
+- **GET /mcp SSE stream**: Present in all captures (seq ~5-6). Not tested in any replay or integration test.
+- **Cross-capture diagnostic fields**: `source` field present in vs-1.0.8 diagnostics_changed but absent in VS Code 0.38. `code` field present in all but values differ (string codes vs null).
+- **open_diff/close_diff lifecycle**: Rich patterns in captures — vscode-0.38 shows close_diff before open_diff (LLM cleaning up previous diffs). No lifecycle pairing test exists.
+- **Snapshots/ directory removed**: ProtocolCompatibilityTests and JsonSchemaComparer no longer exist. Not a gap — approach shifted to capture-based replay.
+- **11 gaps identified** (2 P1-Critical, 6 P2-Important, 2 P3-Nice-to-have, 1 resolved). Full report at `.squad/decisions/inbox/hudson-test-gaps.md`.
+
+### 2026-03-09 — Deep Test Coverage Inspection & Gap Analysis
+
+Completed final comprehensive test gap analysis of all 4 updated capture files (vs-1.0.8, vscode-0.38, vscode-0.39, vscode-insiders-0.39) with 173 tests as baseline.
+
+**Gap Summary (11 total):**
+
+**P1-Critical (must address):**
+1. **DELETE /mcp disconnect not validated** — 3 of 4 captures show DELETE followed by empty body. Tests should validate request/response structure and session cleanup. Effort: Small.
+2. **HTTP 400 retry sequence not tested** — vscode-0.38 has 17 retries, vscode-0.39 has 6, our vs-1.0.8 has 0. Tests should verify error format and eventual success. Effort: Medium.
+
+**P2-Important (should address):**
+3. HTTP 406 Not Acceptable error (Small, part of #2)
+4. `body: 0` non-object parser robustness (Small)
+5. GET /mcp SSE stream initiation validation (Medium)
+6. Multi-session MCP-Session-Id boundary regression (Medium) — core parser fix, high regression risk
+7. open_diff → close_diff lifecycle pairing (Medium) — blocking semantics validation
+8. Cross-capture output format consistency (Medium) — response shape divergence detection
+
+**P3-Nice-to-Have:**
+9. HTTP 202 Accepted response validation (Small)
+10. `read_file` tool capture (Deferred — never invoked)
+11. Snapshot staleness (Resolved — approach shifted to capture-based replay)
+
+**Assessment:** 8-10 new test methods needed (~15-20 test executions total). Prioritize P1-Critical first (DELETE, HTTP 400), then P2-Important (multi-session boundary, lifecycle, consistency).
+
+**Deliverable:** Orchestration log written to `.squad/orchestration-log/2026-03-09T20-31-14Z-hudson.md` with detailed gap prioritization.
+
+
+
