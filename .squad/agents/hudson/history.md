@@ -189,3 +189,16 @@ Completed final comprehensive test gap analysis of all 4 updated capture files (
 - **Key finding from data analysis:** Both VS and VS Code have `code` in diagnostics (contrary to earlier assumption). The real difference is VS has extra `source` field. All VS Code fields are present in our extension.
 - **Design:** Uses `[Fact]` tests (not Theory) since these are cross-capture comparisons. Known acceptable differences documented as constants. Tests pass with current implementation while clearly flagging any future drift.
 
+### 2026-03-10 — CrossCaptureConsistencyTests STRICT REWRITE
+
+- **Rewritten `CrossCaptureConsistencyTests.cs` to be fully strict** per Sebastien's directive: "VS Code captures are the reference. If we don't match, tests fail."
+- **Removed ALL "known acceptable" exemptions:** `DiagnosticExtraFieldSource`, `ExtraCapabilityLogging`, `GetVsCodeInfoToolName` exclusion. Only `read_file` kept as allowed extra tool (deliberate VS-specific addition).
+- **6 tests remain** (same count, renamed for clarity). 2 pass, 4 fail — each failure is a concrete work item:
+  1. **`ToolResponseFields_ExactMatchWithVsCode` — FAIL.** `get_vscode_info`: MISSING 6 fields (`appRoot`, `language`, `machineId`, `sessionId`, `uriScheme`, `shell`). EXTRA 6 fields (`ideName`, `solutionPath`, `solutionName`, `solutionDirectory`, `projects`, `processId`). Response needs complete redesign.
+  2. **`InitializeResponse_ExactMatchWithVsCode` — FAIL.** Extra `logging` capability advertised; VS Code doesn't have it. Must remove.
+  3. **`DiagnosticsChangedNotification_DiagnosticFields_ExactMatchWithVsCode` — FAIL.** Extra `source` field in diagnostic items; VS Code has `[code, message, range, severity]`, we have `[code, message, range, severity, source]`. Must drop `source`.
+  4. **`ToolInputSchemas_StrictMatchWithVsCode` — FAIL.** 4 tools (`open_diff`, `close_diff`, `get_diagnostics`, `update_session_name`) missing `additionalProperties: false`. Must add to input schemas.
+- **2 tests PASS:** `SelectionChangedNotification_ExactMatchWithVsCode` (our notifications already match), `DiagnosticsChangedNotification_RangeEnd_MustNotBeZeroed` (we do return non-zero end positions).
+- **All 190 other tests still pass.** No production code changed.
+- **New `CompareSchemas` helper** compares properties, required, and `additionalProperties` for strict schema matching.
+
