@@ -76,6 +76,21 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-bish
 
 **Next:** Phase 2 (handshake integration test) — Bishop to lead, with Hudson's Phase 1 golden infrastructure as foundation.
 
+### 2026-03-09T20:44:31Z — P1 Error Code and Range.End Implementation
+
+Orchestration log written to `.squad/orchestration-log/2026-03-09T20-44-31Z-bishop.md`. Refactored ErrorListReader to access error codes via IErrorList table control API, with DTE fallback. Documented range.end limitation and aligned close_diff message field.
+
+**Outcome:** ✅ SUCCESS. ErrorListReader dual-path implementation complete:
+- **Primary path:** `IErrorList` / `IWpfTableControl2` (via `SVsErrorList` service) → accesses `StandardTableKeyNames.ErrorCode`
+- **Fallback path:** DTE `ErrorItems` when table control unavailable (no code field)
+- Both `get_diagnostics` RPC tool and `diagnostics_changed` push now return error codes
+- Range.end limitation documented: VS Error List only exposes start-line/column (no end position)
+- Close_diff message field aligned with VS Code protocol expectations
+
+**Build status:** Clean build, 173 tests passing. No test changes required.
+
+**Technical note:** Full diagnostic span support would require hosting Roslyn directly — out of scope. Current dual-path is maintainable and performant.
+
 ### 2026-03-07 — Golden Snapshots Replaced with Real VS Code Extension Data
 
 Extracted protocol reference data directly from VS Code Insiders Copilot Chat extension v0.39.2026030604 (`dist/extension.js`, ~19MB minified). Replaced all 8 golden snapshot files in `src/CopilotCliIde.Server.Tests/Snapshots/` with the actual wire-format structures VS Code produces.
@@ -400,3 +415,13 @@ Completed final comprehensive comparison of vs-1.0.8 server output vs all three 
 **Deliverable:** Orchestration log written to `.squad/orchestration-log/2026-03-09T20-31-14Z-bishop.md` with prioritized action items.
 
 
+
+### 2026-03-09 — Diagnostics P1 Fixes: Error Code + End Position + close_diff Message
+
+**Error code (P1):** Rewrote `ErrorListReader.CollectGrouped()` to prefer the modern `IErrorList` / `IWpfTableControl2` table API over DTE `ErrorItems`. The table API exposes `StandardTableKeyNames.ErrorCode` (e.g., "CS1585", "IDE1007") which the DTE `ErrorItem` interface does not. `DiagnosticItem.Code` is now populated. DTE remains as a fallback path (does not populate Code).
+
+**End position (P1):** Investigated both DTE and Table Manager APIs. VS's Error List stores only start-line/column — no end-of-diagnostic span. VS Code can provide accurate end positions because it accesses Roslyn's diagnostic spans directly. End position is set equal to start position. Documented this limitation in the `ErrorListReader` class doc. This is a VS Error List surface limitation, not fixable at the extension level.
+
+**close_diff message (P2):** Changed the non-already-closed success message from `"Diff closed: {tabName}"` to `"Diff \"{tabName}\" closed successfully"` to match VS Code's format.
+
+**Build:** Extension (msbuild) and server tests (173 passing) verified. No regressions.

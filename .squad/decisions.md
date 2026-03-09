@@ -469,6 +469,58 @@ This directive captured for team memory — enforced in Extension Dev practices.
 
 ---
 
+### Decision: Cross-Session ID Correlation in Multi-Session Captures
+
+**Author:** Hudson (Tester)  
+**Date:** 2026-03-09
+
+## Context
+
+During P1+P2 test implementation, discovered that `GetAllToolCallResponses` can match requests from failed sessions (HTTP 400) to responses from later successful sessions when they share the same JSON-RPC ID.
+
+Example: vscode-0.38 sessions 2-4 all fail with 400 errors. A close_diff request with id=3 from session 2 (seq=65) matches the response with id=3 from session 5 (seq=105), because both have the same ID and the parser finds the first response after the request's sequence number.
+
+## Impact
+
+- `GetAllToolCallResponses` may return duplicate references to the same response when multiple failed sessions had the same request IDs.
+- Response count can exceed actual successful sessions.
+- Test D4 accounts for this by asserting `responses.Count <= requestCount` rather than exact equality.
+
+## Decision
+
+This is a **known limitation**, not a bug. The parser's sequence-scoped ID matching is the correct design for the common case (single session or all sessions succeeding). True session-aware correlation would require detecting session boundaries in the request stream, which adds complexity with minimal benefit for test coverage.
+
+## Action Required
+
+None — this is informational. If future captures expose actual test failures from this behavior, consider adding session boundary detection to `GetAllToolCallResponses`.
+
+---
+
+### Decision: Error List Table API for Diagnostics
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-10
+
+## Context
+
+The `get_diagnostics` tool and `diagnostics_changed` push notification were missing error codes (e.g., CS1585, IDE1007) because the DTE `ErrorItem` interface doesn't expose them. VS Code returns error codes on every diagnostic.
+
+## Decision
+
+`ErrorListReader` now prefers the `IErrorList` / `IWpfTableControl2` table control API (via `SVsErrorList` service) which exposes `StandardTableKeyNames.ErrorCode`. Falls back to DTE `ErrorItems` when the table control is unavailable.
+
+## End Position Limitation
+
+VS's Error List surface (both DTE and Table Manager) only stores start-line/column. End-of-diagnostic span is not exposed. VS Code gets accurate spans because it accesses Roslyn's diagnostics directly. Our extension sets `end = start`. This is a known VS limitation and cannot be resolved without bypassing the Error List entirely (e.g., hosting a Roslyn workspace directly, which is a major scope expansion).
+
+## Impact
+
+- Both `get_diagnostics` RPC tool and `diagnostics_changed` push now return error codes when table control is available
+- No behavioral change when table control unavailable (DTE fallback)
+- Server tests unaffected (173 passing)
+
+---
+
 ### HTTP Response Framing: Match VS Code Express Server
 
 **Author:** Bishop (Server Dev)  

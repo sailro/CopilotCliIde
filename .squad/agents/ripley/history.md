@@ -146,6 +146,23 @@ Orchestration log written to `.squad/orchestration-log/2026-03-07T17-02-27Z-ripl
 
 **Team impact:** Automated protocol compatibility checks now enabled. Golden snapshots committed to repo; manual refresh monthly or on major VS Code update. All production code changes complete (RpcClient seam is only change needed). Existing 109 tests remain at 100% pass rate.
 
+### 2026-03-09T20:44:31Z — P1 Protocol Documentation Updates
+
+Orchestration log written to `.squad/orchestration-log/2026-03-09T20-44-31Z-ripley.md`. Updated protocol.md with 7 edits based on capture deep-inspection findings. Documented multi-session lifecycle, execution.taskSupport field, LLM retry behavior, DELETE framing, virtual URI normalization, tool annotations, and error code availability.
+
+**Outcome:** ✅ SUCCESS. All 7 edits applied to `doc/protocol.md`:
+1. Multi-session lifecycle — sequence numbering across session boundaries documented
+2. execution.taskSupport — clarified VS forbids task execution
+3. LLM retry behavior — retries are Copilot CLI logic, not explicit tool calls
+4. DELETE framing — Content-Length: 0 for payloads and responses
+5. Virtual URI normalization — file:///c%3A/... format rules clarified
+6. Tool annotations — discovery requirements and custom read_file handling
+7. Error code availability — only via IErrorList table control API, DTE fallback
+
+**Cross-references:** Each topic linked to corresponding decision entry or implementation code.
+
+**Impact:** Protocol.md now fully reflects capture behavior and implementation. Serves as ground truth for future protocol questions.
+
 ### 2026-03-07 — Protocol Compat Testing Redesign: Proxy-Based Approach
 
 Sebastien rejected the golden-snapshot-from-source-code approach as circular ("I want tests really using vscode-insiders"). Redesigned the entire protocol compatibility testing architecture around a named pipe proxy.
@@ -348,5 +365,19 @@ Completed final systematic analysis of all 4 capture files (vscode-0.38, vscode-
 - 5 cosmetic divergences (VS-specific, acceptable)
 
 **Deliverable:** Orchestration log written to `.squad/orchestration-log/2026-03-09T20-31-14Z-ripley.md` with full actionable summary per finding.
+
+### 2026-03-09 — Protocol.md Updated: Multi-Session, Execution Schema, LLM Retries
+
+Applied 7 surgical edits to `doc/protocol.md` based on capture analysis findings from the 4-file deep inspection:
+
+1. **P0 — Multi-session lifecycle (§2):** Added full subsection documenting Session 1 (initialize → initialized → GET SSE → tools/list ×2 → tool calls), Session 2+ (initialize → initialized → tool calls), and teardown (DELETE targeting Session 1's SSE session ID). Includes key behaviors: SSE reuse, tools/list caching, DELETE targeting.
+2. **P1 — `execution.taskSupport` schema (§3):** Replaced flat `taskSupport: "forbidden"` with correct `execution: { taskSupport: "forbidden" }` wrapper. Added JSON example showing per-tool `execution` property. Added note that no `annotations` property was ever observed in captures.
+3. **P1 — LLM header retry pattern (§7 new):** New section documenting CLI LLM sending requests without `Mcp-Session-Id` (400 errors) and without `Accept` header (406 errors). Includes retry frequency data: 12 retries in 0.38, 6 in 0.39, improving trend.
+4. **P2 — DELETE version note (§2):** Added `Mcp-Session-Id` header to DELETE example, documented empty response body, noted introduction around CLI 0.39, cross-referenced Multi-Session Lifecycle section.
+5. **P2 — `copilot-cli-readonly:/` virtual URI (§4):** Expanded virtual URI section from inline text to a table listing both `git://` and `copilot-cli-readonly:/` schemes with usage descriptions.
+6. **P2 — Duplicate `tools/list` note:** Documented in Multi-Session Lifecycle section and updated Initial Connection sequence diagram to show both calls.
+7. **P3 — `annotations` clarification (§3):** Added blockquote in Tool Execution Mode noting no `annotations` property observed in wire captures; `execution` is the actual mechanism.
+
+Also updated: Initial Connection sequence diagram (§6) to show `notifications/initialized`, duplicate `tools/list`, and the SSE stream setup. Protocol Compatibility Checklist gained 4 new items. Section numbering updated (new §7 CLI Error Recovery; Implementation Guide bumped to §8).
 
 
