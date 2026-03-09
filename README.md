@@ -2,7 +2,7 @@
 
 A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) to interact with Visual Studio via the `/ide` command — the same way it works with VS Code.
 
-<img alt="copilot" src="https://github.com/user-attachments/assets/7f1c42ce-235b-4179-a40e-ba8758a6c6fe" />
+<img alt="copilot-cli with VS ide support" src="https://github.com/user-attachments/assets/8115c1a3-de87-44a8-b4e6-dbf79fad4626" />
 
 ## Getting Started
 
@@ -56,7 +56,7 @@ The extension logs all bridge activity to a dedicated **"Copilot CLI IDE"** pane
 
 This real-time log is useful for debugging connectivity issues, verifying that the CLI can see your edits, and monitoring the bridge during active sessions.
 
-<img alt="output" src="https://github.com/user-attachments/assets/dfec519f-13fc-450c-afb5-c6b22eee079f" />
+<img alt="output pane in VS" src="https://github.com/user-attachments/assets/dfec519f-13fc-450c-afb5-c6b22eee079f" />
 
 ## Protocol
 
