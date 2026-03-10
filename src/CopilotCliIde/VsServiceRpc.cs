@@ -28,7 +28,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName)
 	{
-		VsServices.Instance.Logger?.Log($"Tool open_diff: {tabName} ({originalFilePath})");
+		VsServices.Instance.Logger?.Log($"Tool open_diff: {tabName} ({Path.GetFileName(originalFilePath)})");
 		try
 		{
 			originalFilePath = PathUtils.NormalizeFileUri(originalFilePath) ?? originalFilePath;
@@ -121,7 +121,7 @@ public class VsServiceRpc : IVsServiceRpc
 		var entry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 		if (entry.Key == null)
 		{
-			VsServices.Instance.Logger?.Log("Tool close_diff: already closed");
+			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (already closed)");
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 		}
 
@@ -130,7 +130,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
 		{
-			VsServices.Instance.Logger?.Log("Tool close_diff: already closed");
+			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (already closed)");
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 		}
 
@@ -150,7 +150,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
 
-			VsServices.Instance.Logger?.Log("Tool close_diff: closed");
+			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (closed)");
 			return new CloseDiffResult
 			{
 				Success = true,
@@ -160,7 +160,7 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch (Exception ex)
 		{
-			VsServices.Instance.Logger?.Log($"Tool close_diff: error: {ex.Message}");
+			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (error: {ex.Message})");
 			return new CloseDiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}

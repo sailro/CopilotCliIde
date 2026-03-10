@@ -91,7 +91,7 @@ Bidirectional `StreamJsonRpc` over named pipes:
 
 - Never let exceptions propagate to VS — catch and log or silently ignore.
 - Use `{ /* Ignore */ }` for non-critical catch blocks (pipe disconnects, COM exceptions during shutdown).
-- Diagnostic logs go to `~/.copilot/ide/vs-error-{pid}.log` and `vs-connection-{pid}.log`.
+- Diagnostic logs go to the **"Copilot CLI IDE"** pane in the VS Output Window (`View → Output`).
 
 ### open_diff Blocking
 
