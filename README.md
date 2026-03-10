@@ -1,4 +1,5 @@
 # Copilot CLI IDE Bridge for Visual Studio
+[![Build status](https://github.com/sailro/CopilotCliIde/workflows/CI/badge.svg)](https://github.com/sailro/CopilotCliIde/actions?query=workflow%3ACI)
 
 A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) to interact with Visual Studio via the `/ide` command — the same way it works with VS Code.
 
