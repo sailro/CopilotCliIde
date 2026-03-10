@@ -67,9 +67,7 @@ public static class DiffTrigger
 {
 	public const string AcceptedViaButton = "accepted_via_button";
 	public const string RejectedViaButton = "rejected_via_button";
-	public const string ClosedViaTab = "closed_via_tab";
 	public const string ClosedViaTool = "closed_via_tool";
-	public const string Timeout = "timeout";
 }
 
 public class DiffResult
@@ -99,20 +97,14 @@ public class CloseDiffResult
 
 public class VsInfoResult
 {
-	public string? IdeName { get; set; }
-	public string? AppName { get; set; }
 	public string? Version { get; set; }
-	public string? SolutionPath { get; set; }
-	public string? SolutionName { get; set; }
-	public string? SolutionDirectory { get; set; }
-	public List<ProjectInfo>? Projects { get; set; }
-	public int ProcessId { get; set; }
-}
-
-public class ProjectInfo
-{
-	public string? Name { get; set; }
-	public string? FullName { get; set; }
+	public string? AppName { get; set; }
+	public string? AppRoot { get; set; }
+	public string? Language { get; set; }
+	public string? MachineId { get; set; }
+	public string? SessionId { get; set; }
+	public string? UriScheme { get; set; }
+	public string? Shell { get; set; }
 }
 
 public class SelectionResult
@@ -142,7 +134,6 @@ public class DiagnosticItem
 	public string? Message { get; set; }
 	public string? Severity { get; set; }
 	public DiagnosticRange? Range { get; set; }
-	public string? Source { get; set; }
 	public string? Code { get; set; }
 }
 

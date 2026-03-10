@@ -537,8 +537,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 					},
 					message = d.Message,
 					severity = d.Severity,
-					code = d.Code,
-					source = d.Source
+					code = d.Code
 				})
 			})
 		});
