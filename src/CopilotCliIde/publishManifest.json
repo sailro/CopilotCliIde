@@ -4,7 +4,7 @@
   "identity": {
     "internalName": "copilotcliide"
   },
-  "overview": "README.md",
+  "overview": "../../README.md",
   "publisher": "SebastienLebretonPersonal",
   "repo": "https://github.com/sailro/CopilotCliIde"
 }
