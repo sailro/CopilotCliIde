@@ -18,6 +18,10 @@ public sealed record TrafficEntry
 
 	// Extracted JSON-RPC message — from body directly, or parsed out of the HTTP frame
 	public JsonElement? JsonRpcMessage { get; init; }
+
+	// MCP session ID from HTTP headers — client session on requests, server session on responses.
+	// Enables cross-session request→response correlation when JSON-RPC ids collide.
+	public string? McpSessionId { get; init; }
 }
 
 // Parses NDJSON traffic captures from PipeProxy into structured, queryable data.
@@ -25,6 +29,10 @@ public sealed record TrafficEntry
 public sealed partial class TrafficParser
 {
 	public IReadOnlyList<TrafficEntry> Entries { get; }
+
+	// Maps client MCP session ID → set of server session IDs observed in handshake responses.
+	// Built from non-blocking handshake entries (initialize, notifications, tools/list) using FIFO matching.
+	private readonly Dictionary<string, HashSet<string>> _sessionMap = [];
 
 	private TrafficParser(List<TrafficEntry> entries)
 	{
@@ -34,6 +42,7 @@ public sealed partial class TrafficParser
 	public static TrafficParser Load(string ndjsonPath)
 	{
 		var entries = new List<TrafficEntry>();
+		string? pendingServerSession = null;
 
 		foreach (var rawLine in File.ReadLines(ndjsonPath))
 		{
@@ -87,10 +96,85 @@ public sealed partial class TrafficParser
 				}
 			}
 
+			// Extract MCP session ID from HTTP headers
+			if (entry.Event is not null)
+			{
+				var sessionId = ExtractMcpSessionId(entry.Event);
+				if (sessionId is not null)
+				{
+					entry = entry with { McpSessionId = sessionId };
+
+					// HTTP response → store for propagation to next response body
+					if (entry.Direction == "vscode_to_cli" && IsHttpStatusResponse(entry.Event))
+						pendingServerSession = sessionId;
+				}
+			}
+
+			// Propagate server session from HTTP response header to its body entry.
+			// Body entries with JSON-RPC id+result immediately follow their HTTP 200 OK.
+			if (entry.Direction == "vscode_to_cli"
+				&& entry.McpSessionId is null
+				&& entry.JsonRpcMessage is not null
+				&& HasProperty(entry.JsonRpcMessage.Value, "result")
+				&& HasProperty(entry.JsonRpcMessage.Value, "id")
+				&& pendingServerSession is not null)
+			{
+				entry = entry with { McpSessionId = pendingServerSession };
+				pendingServerSession = null;
+			}
+
 			entries.Add(entry);
 		}
 
-		return new TrafficParser(entries);
+		var parser = new TrafficParser(entries);
+		parser.BuildSessionMap();
+		return parser;
+	}
+
+	// Builds client→server session mapping from non-blocking handshake entries.
+	// The server reuses its session ID after the notification ack, so the notification
+	// 202 response's mcp-session-id matches the subsequent tools/call 200 OK.
+	private void BuildSessionMap()
+	{
+		var pendingRequests = new List<(int Seq, string ClientSession)>();
+
+		foreach (var entry in Entries)
+		{
+			if (entry.Direction == "cli_to_vscode" && entry.McpSessionId is not null)
+			{
+				// Skip tools/call requests — they may block (e.g., open_diff) and
+				// their HTTP responses arrive out of FIFO order.
+				var isToolsCall = false;
+				if (entry.JsonRpcMessage is not null)
+					isToolsCall = TryGetStringProperty(entry.JsonRpcMessage.Value, "method") == "tools/call";
+				else if (entry.Event is not null)
+					isToolsCall = entry.Event.Contains("\"method\":\"tools/call\"", StringComparison.Ordinal);
+
+				if (!isToolsCall)
+					pendingRequests.Add((entry.Seq, entry.McpSessionId));
+			}
+			else if (entry.Direction == "vscode_to_cli"
+				&& entry.McpSessionId is not null
+				&& entry.Event is not null
+				&& IsHttpStatusResponse(entry.Event))
+			{
+				// Match to earliest pending request (FIFO — safe for non-blocking handshake)
+				pendingRequests.Sort((a, b) => a.Seq.CompareTo(b.Seq));
+				var idx = pendingRequests.FindIndex(r => r.Seq < entry.Seq);
+				if (idx >= 0)
+				{
+					var req = pendingRequests[idx];
+					pendingRequests.RemoveAt(idx);
+
+					if (!_sessionMap.TryGetValue(req.ClientSession, out var serverSessions))
+					{
+						serverSessions = [];
+						_sessionMap[req.ClientSession] = serverSessions;
+					}
+					serverSessions.Add(entry.McpSessionId);
+				}
+			}
+		}
 	}
 
 	public JsonElement? GetInitializeResponse()
@@ -153,7 +237,7 @@ public sealed partial class TrafficParser
 		var results = new List<JsonElement>();
 
 		// Collect all requests for this tool (both parsed and raw-text matches)
-		var requestEntries = new List<(int Seq, JsonElement? Id)>();
+		var requestEntries = new List<(int Seq, JsonElement? Id, string? ClientSession)>();
 
 		foreach (var entry in Entries)
 		{
@@ -168,7 +252,7 @@ public sealed partial class TrafficParser
 				&& HasNestedStringValue(msg, "params", "name", toolName))
 				{
 					var id = msg.TryGetProperty("id", out var idEl) ? (JsonElement?)idEl.Clone() : null;
-					requestEntries.Add((entry.Seq, id));
+					requestEntries.Add((entry.Seq, id, entry.McpSessionId));
 					continue;
 				}
 			}
@@ -180,31 +264,53 @@ public sealed partial class TrafficParser
 			&& entry.Event.Contains(namePattern, StringComparison.Ordinal))
 			{
 				var extractedId = TryExtractIdFromText(entry.Event);
-				requestEntries.Add((entry.Seq, extractedId));
+				requestEntries.Add((entry.Seq, extractedId, entry.McpSessionId));
 			}
 		}
 
 		// For each request, find its matching response
-		foreach (var (reqSeq, reqId) in requestEntries)
+		foreach (var (reqSeq, reqId, clientSession) in requestEntries)
 		{
 			JsonElement? matched = null;
 
 			if (reqId is not null)
 			{
-				// Strategy 1: ID correlation scoped after the request
-				var match = Entries.FirstOrDefault(e =>
-				e.Seq > reqSeq
-				&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
-				&& HasProperty(e.JsonRpcMessage.Value, "result")
-				&& MatchesId(e.JsonRpcMessage.Value, reqId.Value));
+				// Resolve valid server sessions for this request's client session
+				HashSet<string>? validServerSessions = null;
+				if (clientSession is not null)
+					_sessionMap.TryGetValue(clientSession, out validServerSessions);
 
-				if (match is not null)
-					matched = match.JsonRpcMessage;
+				// Strategy 1: Session-aware ID correlation (when session info available)
+				if (validServerSessions is not null)
+				{
+					var match = Entries.FirstOrDefault(e =>
+					e.Seq > reqSeq
+					&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+					&& HasProperty(e.JsonRpcMessage.Value, "result")
+					&& MatchesId(e.JsonRpcMessage.Value, reqId.Value)
+					&& e.McpSessionId is not null && validServerSessions.Contains(e.McpSessionId));
+
+					if (match is not null)
+						matched = match.JsonRpcMessage;
+				}
+
+				// Strategy 2: ID correlation without session (fallback)
+				if (matched is null)
+				{
+					var match = Entries.FirstOrDefault(e =>
+					e.Seq > reqSeq
+					&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+					&& HasProperty(e.JsonRpcMessage.Value, "result")
+					&& MatchesId(e.JsonRpcMessage.Value, reqId.Value));
+
+					if (match is not null)
+						matched = match.JsonRpcMessage;
+				}
 			}
 
 			if (matched is null && reqId is null)
 			{
-				// Strategy 2: Only when no ID is available at all (truly truncated).
+				// Strategy 3: Only when no ID is available at all (truly truncated).
 				// Requires MCP tool response structure (result.content) to avoid
 				// matching initialize or tools/list responses across sessions.
 				var match = Entries.FirstOrDefault(e =>
@@ -434,4 +540,19 @@ public sealed partial class TrafficParser
 
 	[GeneratedRegex(@"""id""\s*:\s*(\d+)")]
 	private static partial Regex IdInTextRegex();
+
+	// --- MCP session correlation helpers ---
+
+	// Extracts mcp-session-id from HTTP request/response headers (case-insensitive).
+	private static string? ExtractMcpSessionId(string httpFrame)
+	{
+		var match = McpSessionIdRegex().Match(httpFrame);
+		return match.Success ? match.Groups[1].Value.Trim() : null;
+	}
+
+	private static bool IsHttpStatusResponse(string httpFrame) =>
+		httpFrame.StartsWith("HTTP/1.1 ", StringComparison.Ordinal);
+
+	[GeneratedRegex(@"[Mm]cp-[Ss]ession-[Ii]d:\s*([^\r\n]+)", RegexOptions.None)]
+	private static partial Regex McpSessionIdRegex();
 }
