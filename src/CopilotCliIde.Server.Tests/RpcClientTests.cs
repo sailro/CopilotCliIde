@@ -144,7 +144,6 @@ public class RpcClientTests
 						{
 							Severity = "error",
 							Message = "CS0103: The name 'x' does not exist",
-							Source = "WebApp",
 							Code = "CS0103",
 							Range = new DiagnosticRange
 							{

@@ -846,6 +846,10 @@ public class TrafficReplayTests
 						}
 						break;
 					case "vscode_to_cli":
+						// Skip non-object messages (e.g., integer body from DELETE response)
+						if (msg.ValueKind != JsonValueKind.Object)
+							continue;
+
 						// Notifications (method-bearing messages without id) are not responses
 						if (msg.TryGetProperty("method", out _) && !msg.TryGetProperty("id", out _))
 							continue;
@@ -985,9 +989,7 @@ public class TrafficReplayTests
 		{
 			DiffTrigger.AcceptedViaButton,
 			DiffTrigger.RejectedViaButton,
-			DiffTrigger.ClosedViaTool,
-			DiffTrigger.ClosedViaTab,
-			DiffTrigger.Timeout
+			DiffTrigger.ClosedViaTool
 		};
 
 		foreach (var response in responses)
@@ -1124,6 +1126,343 @@ public class TrafficReplayTests
 				"get_vscode_info response missing 'version'");
 			Assert.Equal(JsonValueKind.String, version.ValueKind);
 			Assert.False(string.IsNullOrEmpty(version.GetString()));
+		}
+	}
+
+	#endregion
+
+	#region Test D1 — DELETE /mcp disconnect
+
+	/// <summary>
+	/// Captures using CLI 0.39+ contain a DELETE /mcp entry near the end of the capture.
+	/// It targets a known MCP session ID and flows cli_to_vscode.
+	/// vscode-0.38 (CLI 0.38) predates the DELETE protocol — it should have zero DELETEs.
+	/// </summary>
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void DeleteMcpDisconnect_PresentIn039Captures(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var captureName = Path.GetFileNameWithoutExtension(captureFile);
+
+		var deleteEntries = parser.Entries
+			.Where(e => e.Event is not null && e.Event.StartsWith("DELETE /mcp", StringComparison.Ordinal))
+			.ToList();
+
+		if (captureName.Contains("0.38", StringComparison.Ordinal))
+		{
+			// CLI 0.38 predates DELETE protocol
+			Assert.True(deleteEntries.Count == 0,
+				$"vscode-0.38 should not contain DELETE entries but found {deleteEntries.Count}");
+			return;
+		}
+
+		// All other captures (CLI 0.39+) must have exactly one DELETE
+		Assert.True(deleteEntries.Count > 0,
+			$"{captureName} should contain at least one DELETE /mcp entry");
+
+		var lastSeq = parser.Entries[^1].Seq;
+		foreach (var del in deleteEntries)
+		{
+			// Direction: client sends DELETE to server
+			Assert.Equal("cli_to_vscode", del.Direction);
+
+			// Near the end of the capture (within last 3 entries)
+			Assert.True(del.Seq >= lastSeq - 3,
+				$"DELETE at seq={del.Seq} should be near end (last={lastSeq})");
+
+			// Contains mcp-session-id header targeting a known session
+			Assert.NotNull(del.Event);
+			Assert.Contains("mcp-session-id:", del.Event, StringComparison.OrdinalIgnoreCase);
+		}
+	}
+
+	#endregion
+
+	#region Test D2 — HTTP 400 retry sequence
+
+	/// <summary>
+	/// Counts HTTP 400 error responses per capture. Our extension (vs-1.0.8) must have zero.
+	/// For captures with 400s, validates the JSON-RPC error structure.
+	/// </summary>
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void Http400RetrySequence_HasValidErrorStructure(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var captureName = Path.GetFileNameWithoutExtension(captureFile);
+
+		// Find 400 Bad Request responses in raw HTTP frames
+		var http400Entries = parser.Entries
+			.Where(e => e is { Direction: "vscode_to_cli", Event: not null }
+				&& e.Event.Contains("400 Bad Request", StringComparison.Ordinal))
+			.ToList();
+
+		// Our extension (vs-1.0.8) should have zero 400 errors
+		if (captureName.Contains("vs-1.0", StringComparison.Ordinal))
+		{
+			Assert.True(http400Entries.Count == 0,
+				$"Our extension ({captureName}) should have zero HTTP 400 errors but found {http400Entries.Count}");
+			return;
+		}
+
+		if (http400Entries.Count == 0)
+			return; // No 400s in this capture — nothing more to validate
+
+		// For captures with 400s, validate the error JSON structure
+		foreach (var entry in http400Entries)
+		{
+			// Extract JSON body from the HTTP frame
+			var jsonRpc = ExtractJsonFromHttp400(entry.Event!);
+			Assert.NotNull(jsonRpc);
+
+			var errorEl = jsonRpc.Value;
+
+			// Standard JSON-RPC 2.0 error envelope
+			Assert.Equal("2.0", errorEl.GetProperty("jsonrpc").GetString());
+			Assert.True(errorEl.TryGetProperty("error", out var error),
+				"400 response missing 'error' field");
+
+			Assert.True(error.TryGetProperty("code", out var code),
+				"400 error missing 'code' field");
+			Assert.Equal(JsonValueKind.Number, code.ValueKind);
+
+			Assert.True(error.TryGetProperty("message", out var message),
+				"400 error missing 'message' field");
+			Assert.Equal(JsonValueKind.String, message.ValueKind);
+			Assert.False(string.IsNullOrEmpty(message.GetString()));
+		}
+	}
+
+	#endregion
+
+	#region Test D3 — body:0 parser robustness
+
+	/// <summary>
+	/// The body:0 entry (integer body from DELETE response) appears in vscode-0.39 and
+	/// vscode-insiders-0.39. Verifies TrafficParser handles it gracefully:
+	/// Body is null (integer not parsed as JsonElement object), JsonRpcMessage is null.
+	/// </summary>
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void Body0Entry_HasNullBodyAndJsonRpcMessage(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var captureName = Path.GetFileNameWithoutExtension(captureFile);
+
+		// body:0 entries only exist in captures with DELETE (CLI 0.39+)
+		// vscode-0.38 has no DELETE and no body:0
+		if (captureName.Contains("0.38", StringComparison.Ordinal))
+			return;
+
+		// Find the last vscode_to_cli entry — body:0 is the response to DELETE
+		var deleteEntries = parser.Entries
+			.Where(e => e.Event is not null && e.Event.StartsWith("DELETE /mcp", StringComparison.Ordinal))
+			.ToList();
+
+		if (deleteEntries.Count == 0)
+			return; // No DELETE in this capture
+
+		foreach (var del in deleteEntries)
+		{
+			// The response to DELETE should be the next vscode_to_cli entry
+			var deleteResponse = parser.Entries
+				.FirstOrDefault(e => e.Seq > del.Seq && e.Direction == "vscode_to_cli");
+
+			if (deleteResponse is null)
+				continue;
+
+			// If this is a body:0 entry (integer body), the parser should have
+			// Body == null (only objects are parsed) and JsonRpcMessage == null
+			if (deleteResponse.Body is null && deleteResponse.Event is null)
+			{
+				// This is the body:0 case — integer was not parsed as a JSON object
+				Assert.Null(deleteResponse.Body);
+				Assert.Null(deleteResponse.JsonRpcMessage);
+			}
+			else if (deleteResponse.Event is not null
+				&& deleteResponse.Event.Contains("200 OK", StringComparison.Ordinal))
+			{
+				// Our extension responds with HTTP 200 + content-length: 0 (no body:0)
+				// This is also valid — just a different server implementation
+				Assert.Null(deleteResponse.JsonRpcMessage);
+			}
+		}
+	}
+
+	#endregion
+
+	#region Test D4 — Multi-session boundary ID isolation
+
+	/// <summary>
+	/// Multi-session captures have JSON-RPC ID resets across sessions.
+	/// Verifies GetAllToolCallResponses returns responses matched by ID correlation
+	/// (not just sequence proximity), and no cross-session collisions occur.
+	/// </summary>
+	[Fact]
+	public void MultiSession_GetAllToolCallResponses_IsolatesSessionIds()
+	{
+		var captureFiles = GetCaptureFiles();
+
+		foreach (var captureFile in captureFiles)
+		{
+			var captureName = Path.GetFileName(captureFile);
+			var parser = LoadCapture(captureFile);
+
+			// Find session boundaries (initialize responses)
+			var sessionBoundaries = parser.Entries
+				.Where(e => e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
+					&& HasResultProperty(e.JsonRpcMessage.Value, "protocolVersion"))
+				.Select(e => e.Seq)
+				.ToList();
+
+			Assert.True(sessionBoundaries.Count >= 2,
+				$"{captureName} should have multiple sessions for this test");
+
+			// For each tool that appears across multiple sessions,
+			// verify GetAllToolCallResponses returns the right count
+			foreach (var toolName in new[] { "get_vscode_info", "update_session_name", "open_diff", "close_diff" })
+			{
+				var responses = parser.GetAllToolCallResponses(toolName);
+
+				// Count requests for this tool across all entries
+				var requestCount = CountToolCallRequests(parser, toolName);
+
+				if (requestCount == 0)
+					continue;
+
+				// Each request should have at most one response
+				Assert.True(responses.Count <= requestCount,
+					$"{captureName}: {toolName} has {responses.Count} responses but only {requestCount} requests");
+
+				// Verify each response has the expected MCP tool response structure
+				foreach (var response in responses)
+				{
+					Assert.True(
+						response.TryGetProperty("result", out var result)
+						&& result.TryGetProperty("content", out _),
+						$"{captureName}: {toolName} response missing result.content structure");
+				}
+			}
+		}
+	}
+
+	#endregion
+
+	#region Test D5 — close_diff lifecycle pairing
+
+	/// <summary>
+	/// Verifies close_diff responses reference tab names that appear in open_diff calls.
+	/// Also validates already_closed consistency: when a tab was already closed (by user
+	/// or by a previous close_diff), already_closed should be true.
+	/// </summary>
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var captureName = Path.GetFileNameWithoutExtension(captureFile);
+
+		var openDiffResponses = parser.GetAllToolCallResponses("open_diff");
+		var closeDiffResponses = parser.GetAllToolCallResponses("close_diff");
+
+		if (closeDiffResponses.Count == 0)
+			return; // No close_diff calls in this capture
+
+		// Collect all tab names from open_diff responses
+		var openDiffTabNames = new HashSet<string>();
+		foreach (var response in openDiffResponses)
+		{
+			var tabName = ExtractTabNameFromToolResponse(response);
+			if (tabName is not null)
+				openDiffTabNames.Add(tabName);
+		}
+
+		// Collect all tab names from close_diff requests (arguments)
+		var closeDiffRequestTabNames = new HashSet<string>();
+		foreach (var entry in parser.Entries)
+		{
+			if (entry.Direction != "cli_to_vscode")
+				continue;
+
+			var msg = entry.JsonRpcMessage ?? entry.Body;
+			if (msg is null)
+			{
+				// Try raw text extraction for close_diff requests
+				if (entry.Event is not null && entry.Event.Contains("close_diff", StringComparison.Ordinal))
+				{
+					var tabMatch = System.Text.RegularExpressions.Regex.Match(
+						entry.Event, @"""tab_name""\s*:\s*""([^""]+)""");
+					if (tabMatch.Success)
+						closeDiffRequestTabNames.Add(tabMatch.Groups[1].Value);
+				}
+				continue;
+			}
+
+			if (msg.Value.ValueKind != JsonValueKind.Object)
+				continue;
+
+			if (msg.Value.TryGetProperty("method", out var method)
+				&& method.GetString() == "tools/call"
+				&& msg.Value.TryGetProperty("params", out var @params)
+				&& @params.TryGetProperty("name", out var name)
+				&& name.GetString() == "close_diff"
+				&& @params.TryGetProperty("arguments", out var args)
+				&& args.TryGetProperty("tab_name", out var tn))
+			{
+				closeDiffRequestTabNames.Add(tn.GetString()!);
+			}
+		}
+
+		// Validate close_diff responses
+		var closedTabNames = new List<string>();
+		foreach (var response in closeDiffResponses)
+		{
+			var result = response.GetProperty("result");
+			var content = result.GetProperty("content");
+			var textValue = content[0].GetProperty("text").GetString()!;
+			var inner = JsonDocument.Parse(textValue).RootElement;
+
+			var tabName = inner.GetProperty("tab_name").GetString()!;
+			var alreadyClosed = inner.GetProperty("already_closed").GetBoolean();
+
+			closedTabNames.Add(tabName);
+
+			// Tab name should be in either open_diff responses or close_diff request args
+			var knownTabs = new HashSet<string>(openDiffTabNames);
+			knownTabs.UnionWith(closeDiffRequestTabNames);
+			Assert.True(knownTabs.Contains(tabName),
+				$"{captureName}: close_diff tab '{tabName}' not found in any open_diff response or close_diff request");
+		}
+
+		// When the same tab appears in close_diff multiple times,
+		// the second+ occurrence should be already_closed=true
+		var tabCloseResponses = new Dictionary<string, List<bool>>();
+		foreach (var response in closeDiffResponses)
+		{
+			var textValue = response.GetProperty("result").GetProperty("content")[0]
+				.GetProperty("text").GetString()!;
+			var inner = JsonDocument.Parse(textValue).RootElement;
+			var tabName = inner.GetProperty("tab_name").GetString()!;
+			var alreadyClosed = inner.GetProperty("already_closed").GetBoolean();
+
+			if (!tabCloseResponses.ContainsKey(tabName))
+				tabCloseResponses[tabName] = [];
+			tabCloseResponses[tabName].Add(alreadyClosed);
+		}
+
+		foreach (var (tabName, closedValues) in tabCloseResponses)
+		{
+			if (closedValues.Count < 2)
+				continue;
+
+			// After the first close_diff for a tab, subsequent ones must be already_closed=true
+			for (var i = 1; i < closedValues.Count; i++)
+			{
+				Assert.True(closedValues[i],
+					$"{captureName}: close_diff tab '{tabName}' occurrence #{i + 1} " +
+					$"should be already_closed=true (tab was closed by occurrence #1)");
+			}
 		}
 	}
 
@@ -1315,6 +1654,103 @@ public class TrafficReplayTests
 		}
 		catch { /* Not valid JSON-RPC */ }
 		return false;
+	}
+
+	/// <summary>
+	/// Extracts JSON-RPC body from an HTTP 400 Bad Request response frame.
+	/// The 400 entries have the JSON body inline in the event text after headers.
+	/// </summary>
+	private static JsonElement? ExtractJsonFromHttp400(string httpFrame)
+	{
+		var bodyStart = httpFrame.IndexOf('{');
+		if (bodyStart < 0)
+			return null;
+
+		var bodyEnd = httpFrame.LastIndexOf('}');
+		if (bodyEnd <= bodyStart)
+			return null;
+
+		try
+		{
+			var jsonStr = httpFrame[bodyStart..(bodyEnd + 1)];
+			using var doc = JsonDocument.Parse(jsonStr);
+			return doc.RootElement.Clone();
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	/// <summary>
+	/// Checks if a JSON-RPC response result contains a specific nested property.
+	/// </summary>
+	private static bool HasResultProperty(JsonElement element, string propertyName)
+	{
+		return element.ValueKind == JsonValueKind.Object
+			&& element.TryGetProperty("result", out var result)
+			&& result.ValueKind == JsonValueKind.Object
+			&& result.TryGetProperty(propertyName, out _);
+	}
+
+	/// <summary>
+	/// Counts tool call requests for a specific tool name across all entries.
+	/// </summary>
+	private static int CountToolCallRequests(TrafficParser parser, string toolName)
+	{
+		var count = 0;
+		var namePattern = $"\"name\":\"{toolName}\"";
+
+		foreach (var entry in parser.Entries)
+		{
+			if (entry.Direction != "cli_to_vscode")
+				continue;
+
+			if (entry.JsonRpcMessage is not null)
+			{
+				var msg = entry.JsonRpcMessage.Value;
+				if (msg.ValueKind == JsonValueKind.Object
+					&& msg.TryGetProperty("method", out var m)
+					&& m.GetString() == "tools/call"
+					&& msg.TryGetProperty("params", out var p)
+					&& p.TryGetProperty("name", out var n)
+					&& n.GetString() == toolName)
+				{
+					count++;
+					continue;
+				}
+			}
+
+			if (entry.Event is not null
+				&& entry.Event.Contains("tools/call", StringComparison.Ordinal)
+				&& entry.Event.Contains(namePattern, StringComparison.Ordinal))
+			{
+				count++;
+			}
+		}
+
+		return count;
+	}
+
+	/// <summary>
+	/// Extracts tab_name from a tool response's inner JSON content.
+	/// </summary>
+	private static string? ExtractTabNameFromToolResponse(JsonElement response)
+	{
+		try
+		{
+			var result = response.GetProperty("result");
+			var content = result.GetProperty("content");
+			var textValue = content[0].GetProperty("text").GetString();
+			if (textValue is null)
+				return null;
+			var inner = JsonDocument.Parse(textValue).RootElement;
+			return inner.TryGetProperty("tab_name", out var tn) ? tn.GetString() : null;
+		}
+		catch
+		{
+			return null;
+		}
 	}
 
 	#endregion

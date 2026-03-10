@@ -131,41 +131,49 @@ public class DtoSerializationTests
 	}
 
 	[Fact]
-	public void VsInfoResult_WithProjects()
+	public void VsInfoResult_RoundTrip()
 	{
 		var original = new VsInfoResult
 		{
-			IdeName = "Visual Studio",
-			SolutionPath = @"C:\src\MySolution.sln",
-			SolutionName = "MySolution",
-			SolutionDirectory = @"C:\src",
-			ProcessId = 12345,
-			Projects =
-			[
-				new ProjectInfo { Name = "WebApp", FullName = @"C:\src\WebApp\WebApp.csproj" },
-				new ProjectInfo { Name = "WebApp.Tests", FullName = @"C:\src\WebApp.Tests\WebApp.Tests.csproj" }
-			]
+			Version = "18.0",
+			AppName = "Visual Studio",
+			AppRoot = @"C:\Program Files\Microsoft Visual Studio\2025\Enterprise\Common7\IDE",
+			Language = "en",
+			MachineId = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+			SessionId = "d290f1ee-6c54-4b01-90e6-d701748f08511234567890123",
+			UriScheme = "visualstudio",
+			Shell = @"C:\WINDOWS\system32\cmd.exe"
 		};
 
 		var json = JsonSerializer.Serialize(original, _jsonOptions);
 		var deserialized = JsonSerializer.Deserialize<VsInfoResult>(json, _jsonOptions)!;
 
-		Assert.Equal("Visual Studio", deserialized.IdeName);
-		Assert.Equal(2, deserialized.Projects!.Count);
-		Assert.Equal("WebApp", deserialized.Projects[0].Name);
-		Assert.Equal("WebApp.Tests", deserialized.Projects[1].Name);
-		Assert.Equal(12345, deserialized.ProcessId);
+		Assert.Equal("18.0", deserialized.Version);
+		Assert.Equal("Visual Studio", deserialized.AppName);
+		Assert.Equal(original.AppRoot, deserialized.AppRoot);
+		Assert.Equal("en", deserialized.Language);
+		Assert.Equal(original.MachineId, deserialized.MachineId);
+		Assert.Equal(original.SessionId, deserialized.SessionId);
+		Assert.Equal("visualstudio", deserialized.UriScheme);
+		Assert.Equal(original.Shell, deserialized.Shell);
 	}
 
 	[Fact]
-	public void VsInfoResult_NullProjects()
+	public void VsInfoResult_Defaults()
 	{
-		var result = new VsInfoResult { IdeName = "VS" };
+		var result = new VsInfoResult();
 
 		var json = JsonSerializer.Serialize(result, _jsonOptions);
 		var deserialized = JsonSerializer.Deserialize<VsInfoResult>(json, _jsonOptions)!;
 
-		Assert.Null(deserialized.Projects);
+		Assert.Null(deserialized.Version);
+		Assert.Null(deserialized.AppName);
+		Assert.Null(deserialized.AppRoot);
+		Assert.Null(deserialized.Language);
+		Assert.Null(deserialized.MachineId);
+		Assert.Null(deserialized.SessionId);
+		Assert.Null(deserialized.UriScheme);
+		Assert.Null(deserialized.Shell);
 	}
 
 	[Fact]
@@ -185,7 +193,6 @@ public class DtoSerializationTests
 						{
 							Severity = "Error",
 							Message = "CS0103: The name 'x' does not exist",
-							Source = "WebApp",
 							Code = "CS0103",
 							Range = new DiagnosticRange
 							{
@@ -205,7 +212,6 @@ public class DtoSerializationTests
 						{
 							Severity = "Warning",
 							Message = "CS0168: Variable declared but never used",
-							Source = "WebApp",
 							Code = "CS0168",
 							Range = new DiagnosticRange
 							{
@@ -333,19 +339,4 @@ public class DtoSerializationTests
 		Assert.Equal(deserialized.Start.Character, deserialized.End.Character);
 	}
 
-	[Fact]
-	public void ProjectInfo_RoundTrip()
-	{
-		var original = new ProjectInfo
-		{
-			Name = "MyProject",
-			FullName = @"C:\repos\MySolution\MyProject\MyProject.csproj"
-		};
-
-		var json = JsonSerializer.Serialize(original, _jsonOptions);
-		var deserialized = JsonSerializer.Deserialize<ProjectInfo>(json, _jsonOptions)!;
-
-		Assert.Equal(original.Name, deserialized.Name);
-		Assert.Equal(original.FullName, deserialized.FullName);
-	}
 }

@@ -11,13 +11,11 @@ namespace CopilotCliIde.Server.Tests;
 /// </summary>
 public class CrossCaptureConsistencyTests
 {
-	private const string VsCaptureName = "vs-1.0.8.ndjson";
-	private static readonly string[] VsCodeCaptureNames =
-	[
-		"vscode-0.38.ndjson",
-		"vscode-0.39.ndjson",
-		"vscode-insiders-0.39.ndjson"
-	];
+	/// <summary>
+	/// Our capture starts with "vs-" (there should be exactly one).
+	/// Everything else is VS Code reference. No hardcoded filenames.
+	/// </summary>
+	private const string VsCapturePrefix = "vs-";
 
 	/// <summary>
 	/// <c>read_file</c> is a deliberate VS-specific extra tool. It is the ONLY
@@ -403,23 +401,22 @@ public class CrossCaptureConsistencyTests
 	private static TrafficParser LoadVsCapture()
 	{
 		var dir = FindCapturesDir();
-		var path = Path.Combine(dir, VsCaptureName);
-		Assert.True(File.Exists(path), $"VS capture not found: {path}");
-		return TrafficParser.Load(path);
+		var files = Directory.GetFiles(dir, "*.ndjson")
+			.Where(f => Path.GetFileName(f).StartsWith(VsCapturePrefix, StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		Assert.True(files.Count == 1,
+			$"Expected exactly 1 VS capture (starting with '{VsCapturePrefix}'), found {files.Count} in {dir}");
+		return TrafficParser.Load(files[0]);
 	}
 
 	private static List<(string Name, TrafficParser Parser)> LoadVsCodeCaptures()
 	{
 		var dir = FindCapturesDir();
-		var result = new List<(string Name, TrafficParser Parser)>();
-		foreach (var name in VsCodeCaptureNames)
-		{
-			var path = Path.Combine(dir, name);
-			if (File.Exists(path))
-				result.Add((name, TrafficParser.Load(path)));
-		}
-
-		Assert.True(result.Count > 0, "No VS Code capture files found");
+		var result = Directory.GetFiles(dir, "*.ndjson")
+			.Where(f => !Path.GetFileName(f).StartsWith(VsCapturePrefix, StringComparison.OrdinalIgnoreCase))
+			.Select(f => (Path.GetFileName(f), TrafficParser.Load(f)))
+			.ToList();
+		Assert.True(result.Count > 0, "No VS Code reference captures found");
 		return result;
 	}
 

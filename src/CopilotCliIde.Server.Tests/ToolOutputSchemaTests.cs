@@ -84,13 +84,13 @@ public class ToolOutputSchemaTests
 	}
 
 	[Fact]
-	public void OpenDiff_Output_ClosedViaTab()
+	public void OpenDiff_Output_ClosedViaTool_Rejection()
 	{
 		var rpcResult = new DiffResult
 		{
 			Success = true,
 			Result = DiffOutcome.Rejected,
-			Trigger = DiffTrigger.ClosedViaTab,
+			Trigger = DiffTrigger.ClosedViaTool,
 			TabName = "Edit: file.cs"
 		};
 
@@ -107,7 +107,7 @@ public class ToolOutputSchemaTests
 		var json = JsonSerializer.Serialize(toolOutput);
 		var doc = JsonDocument.Parse(json);
 
-		Assert.Equal(DiffTrigger.ClosedViaTab, doc.RootElement.GetProperty("trigger").GetString());
+		Assert.Equal(DiffTrigger.ClosedViaTool, doc.RootElement.GetProperty("trigger").GetString());
 	}
 
 	[Fact]
@@ -247,7 +247,6 @@ public class ToolOutputSchemaTests
 								Start = new SelectionPosition { Line = 5, Character = 0 },
 								End = new SelectionPosition { Line = 5, Character = 3 }
 							},
-							Source = "csharp",
 							Code = "CS0103"
 						}
 					]

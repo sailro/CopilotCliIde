@@ -337,21 +337,31 @@ Returns information about the IDE instance.
 
 ```json
 {
-  "ideName": "Your IDE Name",
-  "appName": "Your IDE Name",
-  "version": "1.0.0",
-  "processId": 12345
+  "version": "1.111.0",
+  "appName": "Visual Studio Code",
+  "appRoot": "c:\\Users\\user\\AppData\\Local\\Programs\\Microsoft VS Code\\...\\resources\\app",
+  "language": "en",
+  "machineId": "71b362fc28cdb055fbf64ad8c09dceb80aa215fb914fd4df2dfe4eb7d98e2d25",
+  "sessionId": "397a91c4-1301-46b1-a499-66d64890db421773085295590",
+  "uriScheme": "vscode",
+  "shell": "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ideName` | string | IDE identifier (e.g. `"Visual Studio Code"`, `"IntelliJ IDEA"`) |
-| `appName` | string | Application display name |
 | `version` | string | IDE version string |
-| `processId` | number | OS process ID |
+| `appName` | string | Application display name (e.g. `"Visual Studio Code"`) |
+| `appRoot` | string | Path to the IDE's application root directory |
+| `language` | string | UI language code (e.g. `"en"`) |
+| `machineId` | string | Stable machine identifier (hashed) |
+| `sessionId` | string | IDE session identifier |
+| `uriScheme` | string | URI scheme for the IDE (e.g. `"vscode"`, `"vscode-insiders"`) |
+| `shell` | string | Path to the default shell |
 
-Implementations may include additional fields as appropriate for their IDE.
+> **Note:** These are the fields observed in VS Code. Other IDE implementations may
+> return different fields as appropriate — the CLI does not enforce a specific schema
+> for this tool's response.
 
 ---
 
@@ -420,7 +430,6 @@ Returns language diagnostics (errors, warnings, information) from the IDE.
           "start": { "line": 5, "character": 10 },
           "end": { "line": 5, "character": 13 }
         },
-        "source": "typescript",
         "code": "2304"
       }
     ]
@@ -435,7 +444,6 @@ Returns language diagnostics (errors, warnings, information) from the IDE.
 | `diagnostics[].message` | string | Diagnostic message text |
 | `diagnostics[].severity` | string | `"error"`, `"warning"`, or `"information"` |
 | `diagnostics[].range` | Range | Location in file (0-based line/character) |
-| `diagnostics[].source` | string? | Diagnostic source (e.g. language service name). May be absent depending on the language service — not all providers populate this field. |
 | `diagnostics[].code` | string? | Diagnostic code (e.g. `"2304"`, `"E0001"`) |
 
 ---
@@ -461,8 +469,7 @@ until the user accepts, rejects, or closes the diff tab.
   "result": "SAVED",
   "trigger": "accepted_via_button",
   "tab_name": "refactor-auth",
-  "message": "User accepted changes for auth.ts",
-  "error": null
+  "message": "User accepted changes for auth.ts"
 }
 ```
 
@@ -473,7 +480,6 @@ until the user accepts, rejects, or closes the diff tab.
 | `trigger` | string | What caused the resolution (see table below) |
 | `tab_name` | string | The tab name passed in |
 | `message` | string? | Human-readable status message |
-| `error` | string? | Error message if `success` is false |
 
 **Trigger values:**
 
@@ -481,9 +487,7 @@ until the user accepts, rejects, or closes the diff tab.
 |---------|---------|
 | `accepted_via_button` | User clicked Accept |
 | `rejected_via_button` | User clicked Reject |
-| `closed_via_tab` | User closed the diff tab |
 | `closed_via_tool` | Another `open_diff` or `close_diff` call replaced this diff |
-| `timeout` | Ultimate fallback timeout |
 
 > **Blocking behavior:** The MCP server MUST skip its normal 30-second timeout for
 > `open_diff` calls. The tool blocks the HTTP response until the user acts. Copilot
@@ -508,8 +512,7 @@ Programmatically closes a diff tab opened by `open_diff`.
   "success": true,
   "already_closed": false,
   "tab_name": "refactor-auth",
-  "message": "Diff \"refactor-auth\" closed and changes rejected",
-  "error": null
+  "message": "Diff \"refactor-auth\" closed and changes rejected"
 }
 ```
 
@@ -519,7 +522,6 @@ Programmatically closes a diff tab opened by `open_diff`.
 | `already_closed` | boolean | `true` if no active diff with that tab name was found |
 | `tab_name` | string | Echo of the tab name |
 | `message` | string? | Status message |
-| `error` | string? | Error message if `success` is false |
 
 Closing a diff via this tool signals `REJECTED` with trigger `closed_via_tool` to
 any pending `open_diff` call.

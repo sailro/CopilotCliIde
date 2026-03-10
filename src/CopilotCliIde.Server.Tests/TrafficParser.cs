@@ -68,10 +68,19 @@ public sealed partial class TrafficParser
 				Type = root.GetProperty("type").GetString()!
 			};
 
-			if (root.TryGetProperty("body", out var bodyEl))
+			if (root.TryGetProperty("body", out var bodyEl) && bodyEl.ValueKind == JsonValueKind.Object)
 			{
 				var cloned = bodyEl.Clone();
-				entry = entry with { Body = cloned, JsonRpcMessage = cloned };
+				entry = entry with { Body = cloned };
+
+				// Only treat as JSON-RPC message if it has recognizable fields;
+				// empty bodies ({}) from truncated captures should fall through
+				// to event extraction below.
+				if (HasProperty(cloned, "jsonrpc") || HasProperty(cloned, "method")
+					|| HasProperty(cloned, "id") || HasProperty(cloned, "result") || HasProperty(cloned, "error"))
+				{
+					entry = entry with { JsonRpcMessage = cloned };
+				}
 			}
 
 			if (root.TryGetProperty("event", out var eventEl))
@@ -196,7 +205,8 @@ public sealed partial class TrafficParser
 			&& entry.Event.Contains("tools/call", StringComparison.Ordinal)
 			&& entry.Event.Contains(namePattern, StringComparison.Ordinal))
 			{
-				requestEntries.Add((entry.Seq, null));
+				var extractedId = TryExtractIdFromText(entry.Event);
+				requestEntries.Add((entry.Seq, extractedId));
 			}
 		}
 
@@ -218,13 +228,15 @@ public sealed partial class TrafficParser
 					matched = match.JsonRpcMessage;
 			}
 
-			if (matched is null)
+			if (matched is null && reqId is null)
 			{
-				// Strategy 2: Next response after the request seq
+				// Strategy 2: Only when no ID is available at all (truly truncated).
+				// Requires MCP tool response structure (result.content) to avoid
+				// matching initialize or tools/list responses across sessions.
 				var match = Entries.FirstOrDefault(e =>
 				e.Seq > reqSeq
 				&& e is { Direction: "vscode_to_cli", Body: not null }
-				&& HasProperty(e.Body.Value, "result"));
+				&& HasNestedProperty(e.Body.Value, "result", "content"));
 
 				if (match is not null)
 					matched = match.JsonRpcMessage ?? match.Body;
@@ -445,4 +457,28 @@ public sealed partial class TrafficParser
 
 	[GeneratedRegex(@"data:\s*(\{.+\})", RegexOptions.Singleline)]
 	private static partial Regex SseDataRegex();
+
+	/// <summary>
+	/// Extracts the JSON-RPC "id" from raw event text using regex.
+	/// Works even when the full JSON is truncated, since "id" appears early.
+	/// </summary>
+	private static JsonElement? TryExtractIdFromText(string text)
+	{
+		var match = IdInTextRegex().Match(text);
+		if (!match.Success)
+			return null;
+
+		try
+		{
+			using var doc = JsonDocument.Parse(match.Groups[1].Value);
+			return doc.RootElement.Clone();
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	[GeneratedRegex(@"""id""\s*:\s*(\d+)")]
+	private static partial Regex IdInTextRegex();
 }

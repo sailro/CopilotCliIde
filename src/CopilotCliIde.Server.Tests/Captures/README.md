@@ -43,6 +43,26 @@ Tests automatically discover all `.ndjson` files in this directory.
 
 The version refers to the Copilot Chat extension version (`github.copilot-chat`).
 
+## Calling MCP tools directly
+
+Use `tools/mcp-call.mjs` to call any MCP tool on a connected IDE's named pipe.
+It discovers the pipe from `~/.copilot/ide/*.lock` automatically and performs the
+full MCP handshake (initialize → notifications/initialized → tools/call).
+
+```bash
+# Quick tool calls
+node tools/mcp-call.mjs get_selection
+node tools/mcp-call.mjs get_vscode_info
+node tools/mcp-call.mjs get_diagnostics '{"uri":""}'
+node tools/mcp-call.mjs update_session_name '{"name":"test"}'
+
+# Blocking tool calls (open_diff waits for user action — 1h timeout)
+node tools/mcp-call.mjs open_diff '{"original_file_path":"c:\\Dev\\file.cs","new_file_contents":"...","tab_name":"test"}'
+node tools/mcp-call.mjs close_diff '{"tab_name":"test"}'
+```
+
+Tool response JSON is printed to stdout, diagnostics to stderr.
+
 ## What the tests check
 
 - All tool names are from the known set (no unexpected tools)
