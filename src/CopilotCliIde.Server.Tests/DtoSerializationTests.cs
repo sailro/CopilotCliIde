@@ -3,10 +3,6 @@ using CopilotCliIde.Shared;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests that shared DTOs serialize/deserialize correctly.
-/// These DTOs cross the RPC boundary between VS and the MCP server.
-/// </summary>
 public class DtoSerializationTests
 {
 	private static readonly JsonSerializerOptions _jsonOptions = new()

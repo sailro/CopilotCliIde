@@ -2,11 +2,6 @@ using System.Text.Json;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests that the JSON-RPC notification format matches what Copilot CLI expects.
-/// The format is: {"jsonrpc":"2.0","method":"...","params":{...}}
-/// Wrapped in SSE: event: message\ndata: {json}\n\n
-/// </summary>
 public class NotificationFormatTests
 {
 	[Fact]

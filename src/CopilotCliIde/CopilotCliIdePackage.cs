@@ -75,11 +75,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 	}
 
-	/// <summary>
-	/// Creates new pipes, starts the MCP server process, and writes a lock file
-	/// so Copilot CLI can discover this VS instance. Called on first load and
-	/// each time a solution is opened.
-	/// </summary>
+	// Creates pipes, launches MCP server, writes lock file for CLI discovery.
 	private async Task StartConnectionAsync()
 	{
 		await JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -114,11 +110,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		_diagnosticTracker.Subscribe();
 	}
 
-	/// <summary>
-	/// Tears down the current connection: removes the lock file, kills the MCP
-	/// server process, and disposes the RPC pipe. Copilot CLI will see the lock
-	/// file disappear and disconnect — matching VS Code's close-folder behavior.
-	/// </summary>
+	// Tears down connection: removes lock file, kills server, disposes pipe.
 	private void StopConnection()
 	{
 		_mcpCallbacks = null;
@@ -207,12 +199,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		});
 	}
 
-	/// <summary>
-	/// Clears dedup keys on both selection and diagnostics pushers so the next
-	/// event is always sent — even if the content hasn't changed since the last
-	/// push. Called when a new CLI client connects (the new client hasn't seen
-	/// any prior notifications).
-	/// </summary>
+	// Clears dedup keys so a newly connected CLI client gets fresh notifications.
 	private void ResetNotificationState()
 	{
 		_selectionTracker?.ResetDedupKey();

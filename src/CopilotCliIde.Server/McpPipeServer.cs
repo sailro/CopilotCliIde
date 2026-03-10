@@ -9,11 +9,6 @@ using ModelContextProtocol.Server;
 
 namespace CopilotCliIde.Server;
 
-/// <summary>
-/// Hosts an MCP server on a Windows named pipe so Copilot CLI can connect via /ide.
-/// Copilot CLI connects via HTTP (Streamable HTTP MCP transport) over the named pipe.
-/// We use a raw HTTP listener on the named pipe to handle requests.
-/// </summary>
 public sealed class McpPipeServer : IAsyncDisposable
 {
 	private string? _nonce;
@@ -100,10 +95,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		}
 	}
 
-	/// <summary>
-	/// Handles a single pipe connection. The CLI sends HTTP requests (Streamable HTTP MCP transport)
-	/// over the pipe. We use StreamableHttpServerTransport to handle the MCP session properly.
-	/// </summary>
 	private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
 	{
 		StreamableHttpServerTransport? transport = null;
@@ -435,12 +426,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		return ValueTask.CompletedTask;
 	}
 
-	/// <summary>
-	/// Resets notification dedup state in VS and pushes the current selection
-	/// and diagnostics to the newly connected SSE client. The dedup reset
-	/// ensures VS re-sends events even if the content hasn't changed since
-	/// the previous CLI session.
-	/// </summary>
+	// Resets VS dedup state and pushes current selection + diagnostics to the new SSE client.
 	private async Task PushInitialStateAsync()
 	{
 		try { await _rpcClient!.VsServices!.ResetNotificationStateAsync(); }
@@ -450,11 +436,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		await PushCurrentDiagnosticsAsync();
 	}
 
-	/// <summary>
-	/// Fetches the current selection from VS via RPC and pushes it to all
-	/// connected SSE clients. Called when a new SSE client connects so
-	/// copilot-cli immediately shows the active file.
-	/// </summary>
 	private async Task PushCurrentSelectionAsync()
 	{
 		try
@@ -473,11 +454,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		catch { /* VS not ready or no active editor — nothing to push */ }
 	}
 
-	/// <summary>
-	/// Fetches the current diagnostics from VS via RPC and pushes them to all
-	/// connected SSE clients. Called when a new SSE client connects so
-	/// copilot-cli has the current Error List state immediately.
-	/// </summary>
 	private async Task PushCurrentDiagnosticsAsync()
 	{
 		try
@@ -497,10 +473,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		catch { /* VS not ready or no diagnostics */ }
 	}
 
-	/// <summary>
-	/// Formats and pushes a selection_changed notification to all connected SSE clients.
-	/// Used by both the initial push on connect and the real-time event forwarding.
-	/// </summary>
 	public Task PushSelectionChangedAsync(SelectionNotification notification)
 	{
 		return PushNotificationAsync("selection_changed", new
@@ -517,10 +489,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		});
 	}
 
-	/// <summary>
-	/// Formats and pushes a diagnostics_changed notification to all connected SSE clients.
-	/// Used by both the initial push on connect and the real-time event forwarding.
-	/// </summary>
 	public Task PushDiagnosticsChangedAsync(DiagnosticsChangedNotification notification)
 	{
 		return PushNotificationAsync("diagnostics_changed", new
@@ -543,9 +511,6 @@ public sealed class McpPipeServer : IAsyncDisposable
 		});
 	}
 
-	/// <summary>
-	/// Pushes a JSON-RPC notification to all connected SSE clients.
-	/// </summary>
 	public async Task PushNotificationAsync(string method, object? @params)
 	{
 		var notification = JsonSerializer.Serialize(new { jsonrpc = "2.0", method, @params });

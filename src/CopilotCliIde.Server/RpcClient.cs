@@ -10,10 +10,7 @@ public sealed class RpcClient : IDisposable
 	private JsonRpc? _rpc;
 	public IVsServiceRpc? VsServices { get; private set; }
 
-	/// <summary>
-	/// Test constructor: injects a pre-configured <see cref="IVsServiceRpc"/>
-	/// so tests can bypass the real named-pipe connection.
-	/// </summary>
+	// Test-only: injects a pre-configured IVsServiceRpc to bypass the real named-pipe connection.
 	internal RpcClient(IVsServiceRpc vsServices)
 	{
 		VsServices = vsServices;
@@ -21,14 +18,8 @@ public sealed class RpcClient : IDisposable
 
 	public RpcClient() { }
 
-	/// <summary>
-	/// Event raised when VS notifies the MCP server of a selection change.
-	/// </summary>
 	public event Func<SelectionNotification, Task>? SelectionChanged;
 
-	/// <summary>
-	/// Event raised when VS notifies the MCP server of diagnostics changes.
-	/// </summary>
 	public event Func<DiagnosticsChangedNotification, Task>? DiagnosticsChanged;
 
 	public async Task ConnectAsync(string pipeName, CancellationToken ct = default)

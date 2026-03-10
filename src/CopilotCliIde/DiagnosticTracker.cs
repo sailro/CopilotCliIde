@@ -6,12 +6,8 @@ using Task = System.Threading.Tasks.Task;
 
 namespace CopilotCliIde;
 
-/// <summary>
-/// Monitors the Error List data layer for diagnostic changes and pushes
-/// debounced, deduplicated notifications to Copilot CLI via a callback.
-/// Uses ITableManagerProvider/ITableDataSink — the VS equivalent of
-/// VS Code's <c>onDidChangeDiagnostics</c>.
-/// </summary>
+// Monitors the Error List data layer (ITableManagerProvider/ITableDataSink) and pushes
+// debounced, deduplicated diagnostic notifications to Copilot CLI.
 internal sealed class DiagnosticTracker : IDisposable
 {
 	private readonly IComponentModel _componentModel;
@@ -43,12 +39,7 @@ internal sealed class DiagnosticTracker : IDisposable
 		_pusher = new DebouncePusher(OnDebounceElapsed);
 	}
 
-	/// <summary>
-	/// Subscribes to the Error List's underlying data layer so we get notified
-	/// whenever any <see cref="ITableDataSource"/> (Roslyn, analyzers, build, etc.)
-	/// pushes new diagnostics. Each source gets its own <see cref="DiagnosticTableSink"/>
-	/// that funnels change notifications into <see cref="SchedulePush"/>.
-	/// </summary>
+	// Subscribes to each ITableDataSource in the Error List so diagnostic changes funnel into SchedulePush.
 	public void Subscribe()
 	{
 		try
@@ -72,9 +63,6 @@ internal sealed class DiagnosticTracker : IDisposable
 		}
 	}
 
-	/// <summary>
-	/// Stops monitoring, disposes all source subscriptions, and clears tracking state.
-	/// </summary>
 	public void Unsubscribe()
 	{
 		_errorTableManager?.SourcesChanged -= OnErrorTableSourcesChanged;
@@ -92,20 +80,12 @@ internal sealed class DiagnosticTracker : IDisposable
 		}
 	}
 
-	/// <summary>
-	/// Triggers a debounced diagnostics push (200ms, matching VS Code).
-	/// Called by build/save event handlers and <see cref="DiagnosticTableSink"/>.
-	/// </summary>
 	public void SchedulePush()
 	{
 		if (_getCallbacks() == null) return;
 		_pusher.Schedule();
 	}
 
-	/// <summary>
-	/// Clears the dedup key so the next event is always sent, even if
-	/// the content hasn't changed. Called when a new CLI client connects.
-	/// </summary>
 	public void ResetDedupKey() => _pusher.ResetDedupKey();
 
 	public void Dispose()
@@ -135,11 +115,7 @@ internal sealed class DiagnosticTracker : IDisposable
 		}
 	}
 
-	/// <summary>
-	/// Fires 200ms after the last diagnostics change trigger. Collects
-	/// current Error List items on the UI thread and pushes them to the CLI.
-	/// Deduplicates by comparing a fingerprint of the diagnostics content.
-	/// </summary>
+	// Collects Error List items on UI thread, deduplicates by fingerprint, and pushes to CLI.
 	private void OnDebounceElapsed()
 	{
 		var callbacks = _getCallbacks();

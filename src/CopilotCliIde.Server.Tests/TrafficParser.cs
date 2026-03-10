@@ -3,9 +3,6 @@ using System.Text.RegularExpressions;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// A single entry from the PipeProxy NDJSON traffic capture.
-/// </summary>
 public sealed record TrafficEntry
 {
 	public DateTimeOffset Timestamp { get; init; }
@@ -13,24 +10,20 @@ public sealed record TrafficEntry
 	public required string Direction { get; init; }
 	public required string Type { get; init; }
 
-	/// <summary>Already-parsed JSON body (from TrafficLogger when raw data was valid JSON).</summary>
+	// Already-parsed JSON body (when raw data was valid JSON)
 	public JsonElement? Body { get; init; }
 
-	/// <summary>Raw HTTP frame text (when body couldn't be parsed).</summary>
+	// Raw HTTP frame text (when body couldn't be parsed)
 	public string? Event { get; init; }
 
-	/// <summary>Extracted JSON-RPC message — from body directly, or parsed out of the HTTP frame in event.</summary>
+	// Extracted JSON-RPC message — from body directly, or parsed out of the HTTP frame
 	public JsonElement? JsonRpcMessage { get; init; }
 }
 
-/// <summary>
-/// Parses NDJSON traffic captures from the PipeProxy tool into structured, queryable data.
-/// Each line is a JSON object with ts, seq, dir, type, and either "body" (parsed JSON-RPC)
-/// or "event" (raw HTTP frames needing extraction).
-/// </summary>
+// Parses NDJSON traffic captures from PipeProxy into structured, queryable data.
+// Each line has ts, seq, dir, type, and either "body" (parsed JSON-RPC) or "event" (raw HTTP frames).
 public sealed partial class TrafficParser
 {
-	/// <summary>All parsed traffic entries in capture order.</summary>
 	public IReadOnlyList<TrafficEntry> Entries { get; }
 
 	private TrafficParser(List<TrafficEntry> entries)
@@ -38,9 +31,6 @@ public sealed partial class TrafficParser
 		Entries = entries;
 	}
 
-	/// <summary>
-	/// Loads and parses an NDJSON traffic capture file.
-	/// </summary>
 	public static TrafficParser Load(string ndjsonPath)
 	{
 		var entries = new List<TrafficEntry>();
@@ -103,9 +93,6 @@ public sealed partial class TrafficParser
 		return new TrafficParser(entries);
 	}
 
-	/// <summary>
-	/// Returns the initialize response (vscode_to_cli with result.protocolVersion).
-	/// </summary>
 	public JsonElement? GetInitializeResponse()
 	{
 		return Entries
@@ -116,9 +103,6 @@ public sealed partial class TrafficParser
 		.FirstOrDefault();
 	}
 
-	/// <summary>
-	/// Returns the first tools/list response (vscode_to_cli with result.tools).
-	/// </summary>
 	public JsonElement? GetToolsListResponse()
 	{
 		return Entries
@@ -129,13 +113,7 @@ public sealed partial class TrafficParser
 		.FirstOrDefault();
 	}
 
-	/// <summary>
-	/// Returns the response for a specific tools/call by tool name.
-	/// Uses JSON-RPC id correlation when possible; falls back to sequence-based
-	/// correlation when the request JSON is truncated.
-	/// Scopes matching to entries after the request's sequence number to avoid
-	/// cross-session ID collisions in multi-session captures.
-	/// </summary>
+	// Uses JSON-RPC id correlation; falls back to sequence-based when request JSON is truncated.
 	public JsonElement? GetToolCallResponse(string toolName)
 	{
 		// Strategy 1: Correlate via JSON-RPC id from a fully-parsed request
@@ -170,10 +148,6 @@ public sealed partial class TrafficParser
 		return null;
 	}
 
-	/// <summary>
-	/// Returns all responses for a specific tool across all sessions in the capture.
-	/// Pairs each tools/call request with its closest matching response.
-	/// </summary>
 	public List<JsonElement> GetAllToolCallResponses(string toolName)
 	{
 		var results = new List<JsonElement>();
@@ -249,10 +223,6 @@ public sealed partial class TrafficParser
 		return results;
 	}
 
-	/// <summary>
-	/// Returns all notifications with the specified method (e.g., "selection_changed").
-	/// Each element is the full JSON-RPC notification body (with jsonrpc, method, params).
-	/// </summary>
 	public List<JsonElement> GetNotifications(string method)
 	{
 		return [.. Entries
@@ -263,10 +233,7 @@ public sealed partial class TrafficParser
 
 	// --- HTTP frame extraction ---
 
-	/// <summary>
-	/// Extracts a JSON-RPC body from a raw HTTP frame string.
-	/// Handles chunked encoding (hex size lines), SSE event data, and plain JSON.
-	/// </summary>
+	// Extracts JSON-RPC body from raw HTTP frame; handles chunked encoding, SSE, and plain JSON.
 	internal static JsonElement? ExtractJsonFromHttpFrame(string httpFrame)
 	{
 		// Split headers from body on double CRLF
@@ -289,11 +256,7 @@ public sealed partial class TrafficParser
 		return !match.Success ? null : TryParseJson(match.Groups[1].Value.Trim());
 	}
 
-	/// <summary>
-	/// Finds the first '{' in the text and brace-matches to extract a complete JSON object.
-	/// Handles chunked encoding where hex size lines precede the JSON body.
-	/// Returns null if the JSON is truncated (no matching closing brace).
-	/// </summary>
+	// Brace-matches to extract a complete JSON object; returns null if truncated.
 	private static JsonElement? ExtractJsonWithBraceMatching(string text)
 	{
 		var jsonStart = text.IndexOf('{');
@@ -353,10 +316,6 @@ public sealed partial class TrafficParser
 
 	// --- Tool call correlation helpers ---
 
-	/// <summary>
-	/// Finds the JSON-RPC id and sequence number from the first fully-parsed
-	/// tools/call request for the given tool name.
-	/// </summary>
 	private (JsonElement Id, int Seq)? FindToolCallRequest(string toolName)
 	{
 		foreach (var entry in Entries)
@@ -376,10 +335,7 @@ public sealed partial class TrafficParser
 		return null;
 	}
 
-	/// <summary>
-	/// Finds the sequence number of a tools/call request by searching raw event text.
-	/// Used as a fallback when the request JSON is truncated and can't be fully parsed.
-	/// </summary>
+	// Fallback for when request JSON is truncated and can't be fully parsed.
 	private int? FindToolCallRequestSeq(string toolName)
 	{
 		var namePattern = $"\"name\":\"{toolName}\"";
@@ -458,10 +414,7 @@ public sealed partial class TrafficParser
 	[GeneratedRegex(@"data:\s*(\{.+\})", RegexOptions.Singleline)]
 	private static partial Regex SseDataRegex();
 
-	/// <summary>
-	/// Extracts the JSON-RPC "id" from raw event text using regex.
-	/// Works even when the full JSON is truncated, since "id" appears early.
-	/// </summary>
+	// Extracts JSON-RPC "id" via regex — works even when the full JSON is truncated.
 	private static JsonElement? TryExtractIdFromText(string text)
 	{
 		var match = IdInTextRegex().Match(text);

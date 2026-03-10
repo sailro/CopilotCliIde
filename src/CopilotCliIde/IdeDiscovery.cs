@@ -3,9 +3,6 @@ using System.Text.Json;
 
 namespace CopilotCliIde;
 
-/// <summary>
-/// Manages lock files in ~/.copilot/ide/ so Copilot CLI can discover this VS instance.
-/// </summary>
 public sealed class IdeDiscovery : IDisposable
 {
 	private string? _lockFilePath;

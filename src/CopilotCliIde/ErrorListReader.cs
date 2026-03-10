@@ -7,34 +7,12 @@ using Microsoft.VisualStudio.Text;
 
 namespace CopilotCliIde;
 
-/// <summary>
-/// Reads Error List items and returns them grouped by file as
-/// <see cref="FileDiagnostics"/> DTOs. Shared between the on-demand RPC
-/// path (<see cref="VsServiceRpc.GetDiagnosticsAsync"/>) and the push
-/// notification path (<see cref="CopilotCliIdePackage"/>).
-/// <para>
-/// Prefers the modern <see cref="IErrorList"/> table control API which
-/// exposes error codes (<c>StandardTableKeyNames.ErrorCode</c>) and
-/// 0-based positions. Falls back to DTE <c>ErrorItems</c> when the
-/// table control is unavailable (e.g., Error List window never opened).
-/// </para>
-/// <para>
-/// <b>End position:</b> When available, the table API's
-/// <c>StandardTableKeyNames.PersistentSpan</c> provides an
-/// <see cref="ITrackingSpan"/> with the full diagnostic range (start
-/// and end). The DTE fallback path still sets end equal to start.
-/// </para>
-/// </summary>
+// Reads Error List items grouped by file. Prefers the modern IErrorList table control
+// (exposes error codes and 0-based positions). Falls back to DTE ErrorItems when
+// the table control is unavailable. PersistentSpan provides full diagnostic ranges
+// when available; the DTE path sets end equal to start.
 internal static class ErrorListReader
 {
-	/// <summary>
-	/// Collects Error List items grouped by file. Must be called on the UI thread.
-	/// </summary>
-	/// <param name="filterFilePath">
-	/// Optional file path filter. When non-null, only diagnostics whose
-	/// filename matches (case-insensitive) are included.
-	/// </param>
-	/// <param name="maxItems">Maximum number of Error List items to read.</param>
 	internal static List<FileDiagnostics> CollectGrouped(string? filterFilePath = null, int maxItems = 200)
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
@@ -53,10 +31,6 @@ internal static class ErrorListReader
 		return [.. fileGroups.Values];
 	}
 
-	/// <summary>
-	/// Reads Error List entries via <see cref="IErrorList.TableControl"/>.
-	/// Returns false if the service or table control is unavailable.
-	/// </summary>
 	private static bool TryCollectFromTableControl(
 		Dictionary<string, FileDiagnostics> fileGroups, string? filterFilePath, int maxItems)
 	{
@@ -139,11 +113,7 @@ internal static class ErrorListReader
 		return true;
 	}
 
-	/// <summary>
-	/// Reads Error List entries via DTE <c>ErrorItems</c>. Used as a fallback
-	/// when the table control is unavailable. Does not populate <c>Code</c>
-	/// because the DTE <c>ErrorItem</c> interface does not expose error codes.
-	/// </summary>
+	// DTE fallback — does not populate Code (DTE ErrorItem has no error code field).
 	private static void CollectFromDte(
 		Dictionary<string, FileDiagnostics> fileGroups, string? filterFilePath, int maxItems)
 	{

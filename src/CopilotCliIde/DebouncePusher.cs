@@ -1,19 +1,11 @@
 namespace CopilotCliIde;
 
-/// <summary>
-/// Encapsulates a 200ms debounce timer with content-based deduplication.
-/// Used by both selection and diagnostics push notifications to avoid
-/// redundant RPC calls and coalesce rapid-fire events.
-/// </summary>
+// 200ms debounce timer with content-based deduplication for push notifications.
 internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 {
 	private Timer? _timer;
 	private string? _lastKey;
 
-	/// <summary>
-	/// Resets the 200ms debounce window. The callback fires once,
-	/// 200ms after the last call to Schedule().
-	/// </summary>
 	public void Schedule()
 	{
 		if (_timer == null)
@@ -22,11 +14,6 @@ internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 			_timer.Change(200, Timeout.Infinite);
 	}
 
-	/// <summary>
-	/// Returns true if <paramref name="key"/> matches the last accepted key
-	/// (meaning the notification would be redundant). Otherwise records it
-	/// as the new last key and returns false.
-	/// </summary>
 	public bool IsDuplicate(string key)
 	{
 		if (key == _lastKey)
@@ -36,16 +23,8 @@ internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 		return false;
 	}
 
-	/// <summary>
-	/// Clears only the dedup key so the next event is always sent, even if
-	/// the content hasn't changed. Called when a new CLI client connects.
-	/// </summary>
 	public void ResetDedupKey() => _lastKey = null;
 
-	/// <summary>
-	/// Clears the dedup key and disposes the timer. Called on connection
-	/// stop so the next connection starts fresh.
-	/// </summary>
 	public void Reset()
 	{
 		_lastKey = null;

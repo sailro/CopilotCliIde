@@ -2,18 +2,9 @@ using System.Text.Json;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Guards against drift between the diagnostics_changed push notification and
-/// the get_diagnostics tool response. The push path sends incremental updates
-/// per URI; the pull path returns a snapshot. For each URI in a get_diagnostics
-/// response, the diagnostics must match the accumulated state from preceding
-/// diagnostics_changed notifications.
-/// </summary>
+// Guards against drift between diagnostics_changed push and get_diagnostics pull paths.
 public class DiagnosticsConsistencyTests
 {
-	/// <summary>
-	/// Returns all .ndjson files from the Captures/ directory as test data.
-	/// </summary>
 	public static TheoryData<string> CaptureFiles()
 	{
 		var data = new TheoryData<string>();
@@ -22,12 +13,7 @@ public class DiagnosticsConsistencyTests
 		return data;
 	}
 
-	/// <summary>
-	/// For every get_diagnostics tool call in the capture, each URI in the response
-	/// must match the most recent diagnostics_changed notification for that URI.
-	/// diagnostics_changed is accumulative — each notification replaces the diagnostics
-	/// for the URIs it includes, so we maintain running state.
-	/// </summary>
+	// diagnostics_changed is accumulative — each notification replaces diagnostics for its URIs.
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void GetDiagnostics_MatchesAccumulatedDiagnosticsChanged(string captureFile)

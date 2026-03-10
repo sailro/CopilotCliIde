@@ -5,16 +5,9 @@ using ModelContextProtocol.Server;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Validates that all MCP tools are correctly attributed and discoverable.
-/// Tool names MUST match VS Code's Copilot Chat extension exactly — this is a compatibility contract.
-/// </summary>
 public class ToolDiscoveryTests
 {
-	/// <summary>
-	/// The canonical set of MCP tool names that Copilot CLI expects.
-	/// These must match VS Code's Copilot Chat extension.
-	/// </summary>
+	// Tool names must match VS Code's Copilot Chat extension exactly — compatibility contract.
 	private static readonly HashSet<string> _expectedToolNames =
 	[
 		"get_vscode_info",

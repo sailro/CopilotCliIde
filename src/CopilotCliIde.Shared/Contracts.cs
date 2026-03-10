@@ -4,9 +4,6 @@ using StreamJsonRpc;
 
 namespace CopilotCliIde.Shared;
 
-/// <summary>
-/// RPC contract for VS services exposed to the MCP server process.
-/// </summary>
 [JsonRpcContract]
 public partial interface IVsServiceRpc
 {
@@ -19,10 +16,6 @@ public partial interface IVsServiceRpc
 	Task ResetNotificationStateAsync();
 }
 
-/// <summary>
-/// Callback interface the VS extension calls on the MCP server process
-/// to push real-time notifications (e.g., selection changes).
-/// </summary>
 [JsonRpcContract]
 public partial interface IMcpServerCallbacks
 {
@@ -51,18 +44,12 @@ public class SelectionPosition
 	public int Character { get; set; }
 }
 
-/// <summary>
-/// Resolution outcomes aligned with VS Code: "SAVED" or "REJECTED".
-/// </summary>
 public static class DiffOutcome
 {
 	public const string Saved = "SAVED";
 	public const string Rejected = "REJECTED";
 }
 
-/// <summary>
-/// What caused a diff to resolve.
-/// </summary>
 public static class DiffTrigger
 {
 	public const string AcceptedViaButton = "accepted_via_button";
@@ -76,13 +63,9 @@ public class DiffResult
 	public string? Error { get; set; }
 	public string? TabName { get; set; }
 	public string? Message { get; set; }
-	/// <summary>
-	/// Resolution status: <see cref="DiffOutcome.Saved"/> or <see cref="DiffOutcome.Rejected"/>.
-	/// </summary>
+	// SAVED or REJECTED
 	public string? Result { get; set; }
-	/// <summary>
-	/// What triggered the resolution. See <see cref="DiffTrigger"/> constants.
-	/// </summary>
+	// See DiffTrigger constants
 	public string? Trigger { get; set; }
 }
 

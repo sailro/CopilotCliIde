@@ -3,10 +3,6 @@ using CopilotCliIde.Server;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests for the HTTP request/response parsing layer in McpPipeServer.
-/// This is the raw HTTP-over-pipe protocol that Copilot CLI speaks.
-/// </summary>
 public class HttpParsingTests
 {
 	[Fact]

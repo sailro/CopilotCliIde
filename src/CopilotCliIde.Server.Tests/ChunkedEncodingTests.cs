@@ -2,10 +2,6 @@ using System.Text;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests for the chunked transfer-encoding parser.
-/// This is critical — Copilot CLI sends chunked bodies over the pipe.
-/// </summary>
 public class ChunkedEncodingTests
 {
 	[Fact]

@@ -2,18 +2,10 @@ using System.Text.Json;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Guards against drift between the selection_changed push notification and
-/// the get_selection tool response. For every get_selection call in a capture,
-/// the response must match the most recent selection_changed notification —
-/// same text, filePath, fileUrl, and selection coordinates.
-/// </summary>
+// Guards against drift between selection_changed push and get_selection pull paths.
 public class SelectionConsistencyTests
 {
 
-	/// <summary>
-	/// Returns all .ndjson files from the Captures/ directory as test data.
-	/// </summary>
 	public static TheoryData<string> CaptureFiles()
 	{
 		var data = new TheoryData<string>();
@@ -22,11 +14,6 @@ public class SelectionConsistencyTests
 		return data;
 	}
 
-	/// <summary>
-	/// For every get_selection tool call in the capture, the response must match the
-	/// most recent selection_changed notification. This validates that the push and
-	/// pull paths produce identical data for the same editor state.
-	/// </summary>
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void GetSelection_MatchesPrecedingSelectionChanged(string captureFile)

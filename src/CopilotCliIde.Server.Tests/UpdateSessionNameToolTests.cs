@@ -2,9 +2,6 @@ using CopilotCliIde.Server.Tools;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests for UpdateSessionNameTool — the only tool that doesn't need RPC.
-/// </summary>
 public class UpdateSessionNameToolTests
 {
 	[Fact]

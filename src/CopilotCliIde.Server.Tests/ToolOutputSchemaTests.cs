@@ -3,11 +3,6 @@ using CopilotCliIde.Shared;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests that MCP tool outputs match VS Code's expected JSON schema.
-/// Tools like open_diff and close_diff remap DTOs to anonymous objects
-/// with snake_case keys — these tests verify the wire format.
-/// </summary>
 public class ToolOutputSchemaTests
 {
 	private static readonly JsonSerializerOptions _camelCaseOptions = new()

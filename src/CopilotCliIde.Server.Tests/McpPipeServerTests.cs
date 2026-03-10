@@ -1,8 +1,5 @@
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests for McpPipeServer lifecycle and properties (non-connection tests).
-/// </summary>
 public class McpPipeServerTests
 {
 	[Fact]

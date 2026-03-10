@@ -2,16 +2,8 @@ using Microsoft.VisualStudio.Shell.TableManager;
 
 namespace CopilotCliIde;
 
-/// <summary>
-/// Lightweight <see cref="ITableDataSink"/> that triggers a debounced
-/// diagnostics push whenever Roslyn (or any other Error List data source)
-/// updates its snapshot. This is the data-layer equivalent of VS Code's
-/// <c>onDidChangeDiagnostics</c>.
-/// <para>
-/// The sink does NOT read diagnostics — it only signals that something
-/// changed. Actual collection happens via <see cref="ErrorListReader"/>.
-/// </para>
-/// </summary>
+// Triggers a debounced diagnostics push whenever any Error List data source updates.
+// Does NOT read diagnostics — only signals change. Actual collection is in ErrorListReader.
 internal sealed class DiagnosticTableSink(Action onChanged) : ITableDataSink
 {
 	public bool IsStable

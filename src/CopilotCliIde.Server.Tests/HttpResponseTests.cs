@@ -3,9 +3,6 @@ using CopilotCliIde.Server;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests for HTTP response writing — status codes, headers, body encoding.
-/// </summary>
 public class HttpResponseTests
 {
 	[Theory]

@@ -3,11 +3,6 @@ using Microsoft.VisualStudio.Shell.Interop;
 
 namespace CopilotCliIde;
 
-/// <summary>
-/// Writes timestamped log lines to a dedicated VS Output Window pane
-/// ("Copilot CLI IDE") for real-time visibility of tool invocations
-/// received and push events sent.
-/// </summary>
 internal sealed class OutputLogger
 {
 	private static readonly Guid _paneGuid = new("b8c2e7a1-3d4f-4e6a-9b8c-1a2b3c4d5e6f");
@@ -15,10 +10,6 @@ internal sealed class OutputLogger
 
 	private OutputLogger(IVsOutputWindowPane pane) => _pane = pane;
 
-	/// <summary>
-	/// Creates the output pane. Must be called on the UI thread.
-	/// Returns null if the Output Window service is unavailable.
-	/// </summary>
 	public static OutputLogger? Create()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();

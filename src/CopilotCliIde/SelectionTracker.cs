@@ -9,11 +9,6 @@ using Microsoft.VisualStudio.TextManager.Interop;
 
 namespace CopilotCliIde;
 
-/// <summary>
-/// Tracks the active editor's selection/caret position and pushes
-/// debounced, deduplicated notifications to Copilot CLI via a callback.
-/// Uses native VS editor APIs (IWpfTextView, IVsMonitorSelection) — no DTE COM interop.
-/// </summary>
 internal sealed class SelectionTracker : IDisposable
 {
 	private readonly IVsEditorAdaptersFactoryService _editorAdaptersFactory;
@@ -38,12 +33,8 @@ internal sealed class SelectionTracker : IDisposable
 		_pusher = new DebouncePusher(OnDebounceElapsed);
 	}
 
-	/// <summary>
-	/// Checks the active text view and subscribes to its selection/caret events.
-	/// Called when the active window frame changes and on initial load.
-	/// When a frame is provided, the text view is obtained directly from it
-	/// (avoids IVsTextManager timing issues where GetActiveView hasn't updated yet).
-	/// </summary>
+	// When a frame is provided, the text view is obtained directly from it
+	// (avoids IVsTextManager timing issues where GetActiveView hasn't updated yet).
 	public void TrackActiveView(IVsWindowFrame? frame = null)
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
@@ -90,10 +81,6 @@ internal sealed class SelectionTracker : IDisposable
 		_trackedView = null;
 	}
 
-	/// <summary>
-	/// Clears pending state and resets the debounce timer.
-	/// Called on connection stop so the next connection starts fresh.
-	/// </summary>
 	public void Reset()
 	{
 		_pendingKey = null;
@@ -101,10 +88,6 @@ internal sealed class SelectionTracker : IDisposable
 		_pusher.Reset();
 	}
 
-	/// <summary>
-	/// Clears only the dedup key so the next event is always sent, even if
-	/// the content hasn't changed. Called when a new CLI client connects.
-	/// </summary>
 	public void ResetDedupKey() => _pusher.ResetDedupKey();
 
 	public void Dispose()
@@ -117,11 +100,7 @@ internal sealed class SelectionTracker : IDisposable
 
 	private void OnViewClosed(object? sender, EventArgs e) => UntrackView();
 
-	/// <summary>
-	/// Reads the current selection from the tracked IWpfTextView, captures
-	/// the data on the UI thread, and schedules a debounced push (200ms)
-	/// to Copilot CLI. Matches VS Code's 200ms selection debounce.
-	/// </summary>
+	// Captures selection data on UI thread and schedules a 200ms debounced push.
 	private void PushCurrentSelection()
 	{
 		if (_getCallbacks() == null || _trackedView == null) return;
@@ -173,10 +152,7 @@ internal sealed class SelectionTracker : IDisposable
 		catch { /* Don't crash VS */ }
 	}
 
-	/// <summary>
-	/// Fires 200ms after the last selection change. Sends the captured
-	/// notification off the UI thread, with deduplication as a second filter.
-	/// </summary>
+	// Sends the captured notification off the UI thread with dedup as a second filter.
 	private void OnDebounceElapsed()
 	{
 		var notification = _pendingNotification;
@@ -200,10 +176,7 @@ internal sealed class SelectionTracker : IDisposable
 		});
 	}
 
-	/// <summary>
-	/// Receives IVsMonitorSelection callbacks when the active window frame changes.
-	/// Triggers TrackActiveView to subscribe to the new editor's events.
-	/// </summary>
+	// Receives IVsMonitorSelection callbacks when the active window frame changes.
 	internal sealed class SelectionEventSink(SelectionTracker tracker) : IVsSelectionEvents
 	{
 		public int OnSelectionChanged(IVsHierarchy pHierOld, uint itemidOld, IVsMultiItemSelect pMISOld, ISelectionContainer pSCOld,

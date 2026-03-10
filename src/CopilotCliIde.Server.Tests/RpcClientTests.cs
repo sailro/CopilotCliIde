@@ -2,9 +2,6 @@ using CopilotCliIde.Shared;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests for RpcClient behavior that doesn't require an actual pipe connection.
-/// </summary>
 public class RpcClientTests
 {
 	[Fact]

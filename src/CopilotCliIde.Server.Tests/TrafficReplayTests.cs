@@ -6,18 +6,11 @@ using NSubstitute;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Replay comparison tests that validate our MCP server against real VS Code Insiders
-/// traffic captured via the PipeProxy tool. Tests 1-6 are pure capture analysis;
-/// test 7 starts our actual MCP server and compares tool names.
-/// </summary>
+// Replay tests that validate our MCP server against real VS Code traffic captures.
 public class TrafficReplayTests
 {
 
-	/// <summary>
-	/// Returns all .ndjson files from the Captures/ directory as test data.
-	/// Drop a new capture in Captures/ and it's automatically validated.
-	/// </summary>
+	// Drop a new .ndjson capture in Captures/ and it's automatically validated.
 	public static TheoryData<string> CaptureFiles()
 	{
 		var data = new TheoryData<string>();
@@ -338,10 +331,6 @@ public class TrafficReplayTests
 
 	#region Test A1 — Cross-capture tool input schema consistency
 
-	/// <summary>
-	/// Compares each tool's inputSchema (property names, types, required) across ALL capture files.
-	/// Flags any unexpected differences.
-	/// </summary>
 	[Fact]
 	public void AllCaptures_ToolInputSchemas_AreConsistent()
 	{
@@ -807,11 +796,7 @@ public class TrafficReplayTests
 
 	#region Test C1 — Request-response ID correlation
 
-	/// <summary>
-	/// Verifies request-response ID correlation within sequence order.
-	/// For every response with a parseable ID, there should be a request with the same ID
-	/// that precedes it in sequence order. IDs may repeat across sessions — that's valid.
-	/// </summary>
+	// IDs may repeat across sessions in multi-session captures — that's valid.
 	[Fact]
 	public void AllCaptures_RequestResponseIds_AreCorrelated()
 	{
@@ -1133,11 +1118,7 @@ public class TrafficReplayTests
 
 	#region Test D1 — DELETE /mcp disconnect
 
-	/// <summary>
-	/// Captures using CLI 0.39+ contain a DELETE /mcp entry near the end of the capture.
-	/// It targets a known MCP session ID and flows cli_to_vscode.
-	/// vscode-0.38 (CLI 0.38) predates the DELETE protocol — it should have zero DELETEs.
-	/// </summary>
+	// CLI 0.39+ sends DELETE /mcp on disconnect; CLI 0.38 predates this protocol.
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void DeleteMcpDisconnect_PresentIn039Captures(string captureFile)
@@ -1181,10 +1162,7 @@ public class TrafficReplayTests
 
 	#region Test D2 — HTTP 400 retry sequence
 
-	/// <summary>
-	/// Counts HTTP 400 error responses per capture. Our extension (vs-1.0.8) must have zero.
-	/// For captures with 400s, validates the JSON-RPC error structure.
-	/// </summary>
+	// Our extension must have zero 400s; validates JSON-RPC error structure in captures that do.
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void Http400RetrySequence_HasValidErrorStructure(string captureFile)
@@ -1238,11 +1216,7 @@ public class TrafficReplayTests
 
 	#region Test D3 — body:0 parser robustness
 
-	/// <summary>
-	/// The body:0 entry (integer body from DELETE response) appears in vscode-0.39 and
-	/// vscode-insiders-0.39. Verifies TrafficParser handles it gracefully:
-	/// Body is null (integer not parsed as JsonElement object), JsonRpcMessage is null.
-	/// </summary>
+	// body:0 (integer from DELETE response) in CLI 0.39+; parser must yield null Body/JsonRpcMessage.
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void Body0Entry_HasNullBodyAndJsonRpcMessage(string captureFile)
@@ -1294,11 +1268,6 @@ public class TrafficReplayTests
 
 	#region Test D4 — Multi-session boundary ID isolation
 
-	/// <summary>
-	/// Multi-session captures have JSON-RPC ID resets across sessions.
-	/// Verifies GetAllToolCallResponses returns responses matched by ID correlation
-	/// (not just sequence proximity), and no cross-session collisions occur.
-	/// </summary>
 	[Fact]
 	public void MultiSession_GetAllToolCallResponses_IsolatesSessionIds()
 	{
@@ -1351,11 +1320,6 @@ public class TrafficReplayTests
 
 	#region Test D5 — close_diff lifecycle pairing
 
-	/// <summary>
-	/// Verifies close_diff responses reference tab names that appear in open_diff calls.
-	/// Also validates already_closed consistency: when a tab was already closed (by user
-	/// or by a previous close_diff), already_closed should be true.
-	/// </summary>
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency(string captureFile)
@@ -1470,9 +1434,6 @@ public class TrafficReplayTests
 
 	#region Helpers
 
-	/// <summary>
-	/// Finds the Captures/ directory relative to the test assembly or repo structure.
-	/// </summary>
 	private static string FindCapturesDir()
 	{
 		var assemblyDir = Path.GetDirectoryName(typeof(TrafficReplayTests).Assembly.Location)!;
@@ -1499,9 +1460,6 @@ public class TrafficReplayTests
 			"Captures directory not found. Expected at src/CopilotCliIde.Server.Tests/Captures/");
 	}
 
-	/// <summary>
-	/// Returns all .ndjson capture files from the Captures/ directory.
-	/// </summary>
 	private static string[] GetCaptureFiles()
 	{
 		return Directory.GetFiles(FindCapturesDir(), "*.ndjson");
@@ -1656,10 +1614,6 @@ public class TrafficReplayTests
 		return false;
 	}
 
-	/// <summary>
-	/// Extracts JSON-RPC body from an HTTP 400 Bad Request response frame.
-	/// The 400 entries have the JSON body inline in the event text after headers.
-	/// </summary>
 	private static JsonElement? ExtractJsonFromHttp400(string httpFrame)
 	{
 		var bodyStart = httpFrame.IndexOf('{');
@@ -1682,9 +1636,6 @@ public class TrafficReplayTests
 		}
 	}
 
-	/// <summary>
-	/// Checks if a JSON-RPC response result contains a specific nested property.
-	/// </summary>
 	private static bool HasResultProperty(JsonElement element, string propertyName)
 	{
 		return element.ValueKind == JsonValueKind.Object
@@ -1693,9 +1644,6 @@ public class TrafficReplayTests
 			&& result.TryGetProperty(propertyName, out _);
 	}
 
-	/// <summary>
-	/// Counts tool call requests for a specific tool name across all entries.
-	/// </summary>
 	private static int CountToolCallRequests(TrafficParser parser, string toolName)
 	{
 		var count = 0;
@@ -1732,9 +1680,6 @@ public class TrafficReplayTests
 		return count;
 	}
 
-	/// <summary>
-	/// Extracts tab_name from a tool response's inner JSON content.
-	/// </summary>
 	private static string? ExtractTabNameFromToolResponse(JsonElement response)
 	{
 		try

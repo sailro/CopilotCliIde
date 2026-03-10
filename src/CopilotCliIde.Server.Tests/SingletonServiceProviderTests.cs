@@ -2,12 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace CopilotCliIde.Server.Tests;
 
-/// <summary>
-/// Tests the DI container used to inject RpcClient into MCP tools.
-/// The SingletonServiceProvider is an inner class of McpPipeServer — we test it
-/// indirectly by creating McpPipeServer and inspecting behavior, or directly via reflection.
-/// Since it's internal, we can access it with InternalsVisibleTo.
-/// </summary>
 public class SingletonServiceProviderTests
 {
 	[Fact]
@@ -64,9 +58,7 @@ public class SingletonServiceProviderTests
 		Assert.False(isServiceCheck.IsService(typeof(HttpClient)));
 	}
 
-	/// <summary>
-	/// Creates the SingletonServiceProvider via reflection since it's a private nested class.
-	/// </summary>
+	// Creates via reflection since SingletonServiceProvider is a private nested class.
 	private static IServiceProvider CreateProvider(RpcClient rpcClient)
 	{
 		var type = typeof(McpPipeServer).GetNestedType("SingletonServiceProvider", System.Reflection.BindingFlags.NonPublic)!;
