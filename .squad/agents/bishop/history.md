@@ -281,6 +281,32 @@ Fixed `get_diagnostics` tool's `uri` parameter type to match VS Code's schema. C
 
 **Key learning:** URI-to-path conversion belongs in the layer that compares paths (VsServiceRpc/ErrorListReader), not the MCP tool layer. The tool should pass the raw URI through and let the extension handle normalization where it already does path comparison.
 
+### 2026-03-10 — Comprehensive Server & Shared Review (Review Only)
+
+Performed thorough code review of CopilotCliIde.Server and CopilotCliIde.Shared projects against VS Code captures. 195 tests passing as baseline.
+
+**Key findings by priority:**
+
+**HIGH:**
+1. POST SSE responses missing `cache-control` header (WriteHttpResponseAsync vs manual GET SSE path)
+2. `ReadHttpRequestAsync` byte-by-byte header parsing (400+ ReadAsync calls per request)
+3. `PushNotificationAsync` allocates identical `fullChunk` per client inside loop (should hoist)
+4. `postCts.Token` used for success response writes — may throw after 30s timeout edge case
+
+**MEDIUM:**
+5. `SseClient.WaitAsync` leaks CancellationTokenRegistration
+6. Each pipe connection creates fresh MCP transport+server (no session reuse across POST/GET/DELETE)
+7. Program.cs event handlers are fire-and-forget — unobserved task exceptions possible
+8. `responseStream.ToArray()` copies entire buffer when `GetBuffer()` would suffice
+
+**LOW:**
+9. Tool discovery silently swallows registration exceptions
+10. `ReadChunkedBodyAsync` assumes exactly 2-byte trailer (no chunk extensions/trailer headers)
+11. DTOs use mutable classes instead of records (idiomatic .NET 10)
+12. Inconsistent tool return patterns — some tools map to anonymous objects, others return DTOs directly
+
+**Confirmed correct:** Protocol version, tool names, field casing (MCP SDK handles camelCase), selection/diagnostics notification shapes, nonce auth, SSE event format, open_diff/close_diff response structures all match VS Code captures exactly.
+
 **Files changed:**
 - src/CopilotCliIde/PathUtils.cs -- added `NormalizeFileUri` (inverse of `ToVsCodeFileUrl`)
 - src/CopilotCliIde/VsServiceRpc.cs -- replaced `new Uri(uri).LocalPath` with `PathUtils.NormalizeFileUri(uri)`
@@ -425,3 +451,23 @@ Completed final comprehensive comparison of vs-1.0.8 server output vs all three 
 **close_diff message (P2):** Changed the non-already-closed success message from `"Diff closed: {tabName}"` to `"Diff \"{tabName}\" closed successfully"` to match VS Code's format.
 
 **Build:** Extension (msbuild) and server tests (173 passing) verified. No regressions.
+
+### 2026-03-10 — Server & Shared Project Formal Review
+
+Completed comprehensive review of CopilotCliIde.Server and CopilotCliIde.Shared against VS Code wire captures (vscode-0.38, vscode-0.39, vscode-insiders-0.39) and our vs-1.0.8.ndjson. 195 tests passing. Produced formal findings report with 4 HIGH, 4 MEDIUM, 4 LOW findings. Report merged to `.squad/decisions.md` "Review Findings — 2026-03-10" section.
+
+**HIGH-priority protocol & performance findings:**
+- **H1 (Missing cache-control header on POST SSE):** GET SSE path adds header at line 209 but WriteHttpResponseAsync (used for POST) does not. VS Code includes on ALL SSE responses. Fix: add condition for `contentType == "text/event-stream"`.
+- **H2 (postCts.Token timeout race):** After HandlePostRequestAsync succeeds, response write uses postCts.Token. If 30s timeout fires between success and write, OperationCanceledException thrown. Fix: use parent `ct` for writes (already correct for error paths).
+- **H3 (Byte-by-byte header parsing):** ReadHttpRequestAsync reads headers one byte at a time with substring check per byte. For ~400-byte headers: 400 async reads + 400 allocations. Fix: buffer reading to 4096 bytes.
+- **H4 (Per-client fullChunk allocation):** PushNotificationAsync allocates identical fullChunk inside foreach loop per client. Fix: compute once before loop.
+
+**MEDIUM-priority resource & architecture findings:**
+- M1: SseClient.WaitAsync CancellationTokenRegistration leak (never disposed)
+- M2: MemoryStream.ToArray() unnecessary copy
+- M3: Fire-and-forget event handlers in Program.cs (Hicks territory — cross-reference)
+- M4: New MCP transport per pipe connection (architecture question for Ripley)
+
+**Cross-references:** H1 + H2 are correctness issues affecting protocol compliance. M3 in Program.cs (event wiring) is extension-side — Hicks should coordinate. M4 warrants discussion with Ripley on transport architecture.
+
+**Decision:** Report filed. H1 + H2 ready for sprint. M3 + M4 need cross-team coordination.

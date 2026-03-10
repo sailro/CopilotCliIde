@@ -202,3 +202,36 @@ Completed final comprehensive test gap analysis of all 4 updated capture files (
 - **All 190 other tests still pass.** No production code changed.
 - **New `CompareSchemas` helper** compares properties, required, and `additionalProperties` for strict schema matching.
 
+### 2026-03-10 — Comprehensive Test Coverage Review
+
+- **195 tests all passing** across 15 test files + TrafficParser infrastructure. 4 capture files (vs-1.0.8, vscode-0.38, vscode-0.39, vscode-insiders-0.39).
+- **Critical finding: VS extension (CopilotCliIde) has zero test coverage** — 11 source files, ~1,400 LOC completely untested. PathUtils and DebouncePusher are pure-logic classes that are trivially testable. IdeDiscovery is testable with temp directories.
+- **Two no-op assertions** in DiagnosticsConsistencyTests.cs:152 and SelectionConsistencyTests.cs:132 — `Assert.True(comparisons >= 0)` always passes since comparisons starts at 0.
+- **Duplicate test** in ToolOutputSchemaTests.cs: `OpenDiff_Output_ClosedViaTool_Rejection` and `OpenDiff_Output_ClosedViaTool` are identical.
+- **Capture discovery helper duplicated** across 4 test files (TrafficReplayTests, SelectionConsistencyTests, DiagnosticsConsistencyTests, CrossCaptureConsistencyTests).
+- **CrossCaptureConsistencyTests validates field names only**, not field types or nested structure depth. A type change (string→number) would not be caught.
+- **TrafficParser has no direct unit tests** — its 3 JSON extraction strategies are only tested indirectly.
+- **No test project exists for the VS extension or Shared project**. Pure utility classes (PathUtils, DebouncePusher, IdeDiscovery) should have dedicated unit tests.
+
+### 2026-03-10 — Test Coverage Review & Gap Analysis
+
+Completed comprehensive test coverage analysis across 15 test files + TrafficParser infrastructure. 195 tests passing. Produced formal findings report with coverage gaps, quality issues, and 15 prioritized action items. Report merged to `.squad/decisions.md` "Review Findings — 2026-03-10" section.
+
+**Coverage gaps — HIGH priority:**
+- **No test project for VS extension** — 11 files, ~1,400 LOC, zero direct test coverage. Untested: OpenDiff blocking/timeout/cleanup, CloseDiff races, GetVsInfo assembly, ReadFile pagination.
+- **CopilotCliIde.Shared (Contracts.cs)** — DTOs only tested indirectly via camelCase serialization round-trip. Tools use snake_case anonymous objects. No test validates both paths produce compatible output.
+
+**Quality issues:**
+- **No-op assertions** (2 instances): `comparisons >= 0` always true (should be `> 0`)
+- **Duplicate test:** ToolOutputSchemaTests has two identical tests
+- **Weak assertions:** UpdateSessionNameToolTests uses string-contains, not JSON parse
+
+**Action items (15 prioritized):**
+- Items 1-6 (HIGH, low-medium effort): Fix assertions, add PathUtils/DebouncePusher/IdeDiscovery unit tests, extract shared helper
+- Items 7-11 (MEDIUM): Strengthen assertions, add malformed HTTP tests, add TrafficParser unit tests
+- Items 12-15 (LOW): Create CopilotCliIde.Tests project, split TrafficReplayTests, investigate VSSDK.TestFramework
+
+**Cross-references:** Items 1-2 are quick wins. Items 3-6 are testable extension classes identified by Ripley (L4, L5) and need extraction. Item 12 (CopilotCliIde.Tests) blocks many downstream improvements. Item 7 depends on Hicks' extension findings.
+
+**Decision:** Report filed with full prioritized action table. Items 1-6 recommended for immediate sprint. Items 7-15 for follow-up cycles.
+

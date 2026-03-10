@@ -380,4 +380,29 @@ Applied 7 surgical edits to `doc/protocol.md` based on capture analysis findings
 
 Also updated: Initial Connection sequence diagram (§6) to show `notifications/initialized`, duplicate `tools/list`, and the SSE stream setup. Protocol Compatibility Checklist gained 4 new items. Section numbering updated (new §7 CLI Error Recovery; Implementation Guide bumped to §8).
 
+### 2026-03-10T20:52:45Z — Full Architecture & Code Quality Review
 
+Performed comprehensive review of all 3 projects (extension, server, shared) + test suite. 195 tests pass. Findings by impact level documented and shared via decisions inbox.
+
+**Key areas identified:**
+- Threading hazards in DebouncePusher (unsynchronized timer/key access), ServerProcessManager (Task.Delay race), VsServiceRpc diff tracking (concurrent close paths)
+- 28+ silent catch blocks across extension + server — major debuggability gap
+- VsServiceRpc (398 lines) and McpPipeServer (573 lines) both mix too many concerns
+- IdeDiscovery.WriteLockFileAsync is sync-over-async
+- No tests for PathUtils, DebouncePusher, or any extension-project logic
+- DiagnosticTracker.ComputeDiagnosticsKey omits end position — potential false dedup
+- MCP compatibility: missing `source` field in DiagnosticItem, `logging` capability not in VS Code
+- Build: no Clean target for published server artifacts
+
+### 2026-03-10 — Comprehensive Architecture & Code Quality Review
+
+Executed a full codebase review across all three projects (extension, server, shared). Produced formal review report with 4 HIGH, 5 MEDIUM, 6 LOW findings. Report merged to `.squad/decisions.md` "Review Findings — 2026-03-10" section.
+
+**Key findings:**
+- **HIGH priority:** DebouncePusher threading hazard (race between UI thread and timer), VsServiceRpc diff cleanup race (concurrent paths), ServerProcessManager readiness fragility (Task.Delay 200ms guess)
+- **MEDIUM priority:** IdeDiscovery async/sync naming, DiagnosticTracker incomplete hash, unnecessary UI-thread round-trip, missing `source` field in diagnostics DTO, missing MSBuild clean target
+- **LOW priority:** God class refactoring (DiffManager, SSE broadcaster), untested PathUtils/DebouncePusher, header byte-by-byte reading inefficiency
+
+**Cross-references:** Hicks' HIGH-2 (DebouncePusher race) aligns exactly with H1. Silent catch block pattern (H4) spans extension and server. Bishop's H1 (cache-control header) is simple fix. Hudson's test coverage gaps (especially L4, L5) are direct consequences.
+
+**Decision:** Report filed to `.squad/decisions.md`. Ready for sprint planning and cross-team coordination.

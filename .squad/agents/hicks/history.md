@@ -53,3 +53,41 @@ Fixed two inconsistencies in `VsServiceRpc.cs`:
 - `VirtualCharOffset`: includes virtual whitespace beyond line end.
 
 **Build:** Server compiles clean (0 errors, 0 warnings). Formatter clean.
+
+### 2026-07-19 — Extension Code Review (CopilotCliIde)
+
+Completed a thorough review of all 11 source files in `src/CopilotCliIde/`. Key structural observations:
+
+**Threading model:** All VS service calls correctly switch to UI thread. `SelectionTracker` captures data on UI thread and pushes via `Task.Run` off-thread. `DebouncePusher` timer callbacks run on thread pool. `DiagnosticTracker` uses `JoinableTaskFactory.RunAsync` to marshal back to UI for snapshot collection.
+
+**Resource lifecycle:** `StopConnection()` is the central teardown point — disposes CTS, RPC, pipe, process, lock file. Called from solution close, solution switch, and package Dispose. `VsServiceRpc` instance created by `JsonRpc.Attach` is NOT explicitly disposed — its `_activeDiffs` dictionary survives RPC teardown.
+
+**Key files and their roles:**
+- `CopilotCliIdePackage.cs`: Package lifecycle, solution events, pipe setup (245 lines)
+- `SelectionTracker.cs`: IWpfTextView tracking + debounced push (195 lines)
+- `VsServiceRpc.cs`: All 6 tool implementations + diff InfoBar flow (398 lines)
+- `DiagnosticTracker.cs`: Error List table subscription + push (264 lines)
+- `DiagnosticTableSink.cs`: ITableDataSink 14-member impl (122 lines)
+- `DebouncePusher.cs`: Reusable 200ms debounce + dedup (36 lines)
+- `IdeDiscovery.cs`: Lock file CRUD + stale cleanup (106 lines)
+- `ServerProcessManager.cs`: Child process start/kill (56 lines)
+
+**Active diffs are the biggest lifecycle gap:** When `StopConnection()` fires (solution switch), pending `TaskCompletionSource` instances in `VsServiceRpc._activeDiffs` are orphaned. InfoBars remain visible. Temp files are not cleaned.
+
+### 2026-03-10 — VS Extension Improvement Scan & Formal Review
+
+Completed comprehensive review of all 11 source files in `src/CopilotCliIde/`. Produced formal findings report with 2 HIGH, 3 MEDIUM, 9 LOW findings. Report merged to `.squad/decisions.md` "Review Findings — 2026-03-10" section.
+
+**HIGH-priority findings:**
+- **HIGH-1 (Active diff cleanup on teardown):** VsServiceRpc._activeDiffs dictionary survives when RPC is disposed during StopConnection. TCS instances orphaned. Impact: pending diffs never complete, MCP server hangs, InfoBars persist, temp files leaked.
+- **HIGH-2 (DebouncePusher TOCTOU race):** Two concurrent calls to Schedule() can both see _timer==null, both create timers, one leaks. Affects DiagnosticTracker where SchedulePush is called from arbitrary threads.
+
+**MEDIUM-priority findings:**
+- CancellationTokenSource leak in OpenDiffAsync (missing dispose in catch)
+- Stale lock file cleanup TOCTOU (deletes mid-write)
+- GetSelectionAsync vs SelectionTracker API mismatch (DTE vs native)
+- ServerProcessManager Task.Delay(200) readiness fragility
+
+**Cross-references:** HIGH-1 aligns with Ripley's H3 (diff cleanup race). HIGH-2 = Ripley H1 (threading hazard). M3 (GetSelectionAsync) relates to Hudson's extension test coverage gaps. Multiple findings reinforce silent catch block pattern (Ripley H4).
+
+**Decision:** Report filed. Ready for sprint planning and cross-team coordination.

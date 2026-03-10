@@ -1,5 +1,196 @@
 # Squad Decisions
 
+## Review Findings — 2026-03-10
+
+### Architecture & Code Quality Review (Ripley)
+
+**Author:** Ripley (Lead)  
+**Date:** 2026-03-10  
+**Type:** Review findings (no code changes made)
+
+#### HIGH Impact
+
+**H1. Threading hazards in DebouncePusher** (`src/CopilotCliIde/DebouncePusher.cs`)
+- `_timer` and `_lastKey` accessed from UI thread and timer callback with no synchronization. `_lastKey` is plain `string?` — reads/writes may not have guaranteed happens-before relationship.
+- **Recommendation:** Add `lock` around timer access and `_lastKey`, or make `_lastKey` volatile and use `Interlocked` for timer management.
+
+**H2. ServerProcessManager uses Task.Delay(200) as readiness signal** (`ServerProcessManager.cs:35`)
+- `await Task.Delay(200)` only check for MCP server readiness. On slow machines, server may not have created named pipe yet.
+- **Recommendation:** Poll for pipe existence or have server signal readiness (e.g., write to stdout).
+
+**H3. VsServiceRpc diff cleanup races** (`VsServiceRpc.cs:37-43, 119-131, 343-365`)
+- Three concurrent paths (`OpenDiffAsync`, `CloseDiffByTabNameAsync`, `FrameCloseNotify`) race on same diff state. `ConcurrentDictionary` protects individual ops, not find-then-act sequence.
+- **Recommendation:** Use regular `Dictionary` + `lock`, or restructure so each diff lifecycle uses single gate.
+
+**H4. Silent catch blocks hurt debuggability** (throughout extension and server)
+- Most are `catch { /* Ignore */ }` with zero logging. When something breaks in production, no trail.
+- **Recommendation:** Log to OutputLogger (extension) and stderr (server) at minimum.
+
+#### MEDIUM Impact
+
+**M1. IdeDiscovery.WriteLockFileAsync is sync-over-async** (`IdeDiscovery.cs:15-38`)
+- Signature says `Async` but uses `Directory.CreateDirectory`, `File.WriteAllText`.
+- **Recommendation:** Use `File.WriteAllTextAsync` or remove `Async` suffix.
+
+**M2. DiagnosticTracker.ComputeDiagnosticsKey incomplete hash** (`DiagnosticTracker.cs:242-257`)
+- Hashes `Message`, `Severity`, `Start.Line`, `Start.Character` but omits `End` and `Code` → false dedup.
+- **Recommendation:** Include `End.Line`, `End.Character`, `Code` in hash.
+
+**M3. DiagnosticTracker unnecessary UI-thread round-trip** (`DiagnosticTracker.cs:213-239`)
+- `OnDebounceElapsed` switches UI thread → back, but `CollectGrouped` only reads thread-safe snapshots.
+- **Recommendation:** Verify whether `ITableEntriesSnapshot` APIs require UI thread; if not, remove switch.
+
+**M4. Missing `source` field in DiagnosticItem** (`Contracts.cs:115-121`)
+- VS Code's `get_diagnostics` includes `source` (e.g., "typescript", "eslint"). Ours lacks it.
+- **Recommendation:** Add `Source` property and populate from Error List table data.
+
+**M5. No MSBuild Clean target for published server** (`CopilotCliIde.csproj:59-77`)
+- `PublishServerBeforeBuild` publishes to `$(OutputPath)\CopilotCliIde.Server\` but `msbuild /t:Clean` leaves artifacts.
+- **Recommendation:** Add `CleanServerArtifacts` target with `BeforeTargets="Clean"`.
+
+#### LOW Impact
+
+- **L1:** VsServiceRpc is 398-line god class — extract diff management to `DiffManager`.
+- **L2:** McpPipeServer is 573-line god class — extract HTTP parsing and SSE broadcast.
+- **L3:** DiagnosticRange duplicates SelectionRange — consider shared `Range` type.
+- **L4:** No unit tests for PathUtils — pure static functions, trivial to test.
+- **L5:** No unit tests for DebouncePusher — 36-line class with independent testable logic.
+- **L6:** Header byte-by-byte reading in McpPipeServer — inefficient but low priority for local pipes.
+
+---
+
+### VS Extension Improvement Scan (Hicks)
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-07-19  
+**Scope:** All 11 source files in `src/CopilotCliIde/`
+
+#### HIGH Impact
+
+**HIGH-1. Active diff cleanup on connection teardown** (`VsServiceRpc.cs`, `CopilotCliIdePackage.cs`)
+- `VsServiceRpc` owns `_activeDiffs` with pending `TaskCompletionSource` instances. When `StopConnection()` fires, RPC is disposed but `VsServiceRpc` is not — it was created by `JsonRpc.Attach` and has no disposal path.
+- **Impact:** Pending diffs orphaned. Their TCS never completes (MCP server hangs). InfoBars remain visible. Temp files never deleted.
+- **Suggestion:** Make `VsServiceRpc` implement `IDisposable` and have package call during `StopConnection`, or expose `CleanupAllDiffs()` method.
+
+**HIGH-2. DebouncePusher.Schedule() race condition** (`DebouncePusher.cs:9-14`)
+- TOCTOU: two threads calling `Schedule()` simultaneously can both see `_timer == null`, both create timers. One leaks.
+- **Suggestion:** Use `Interlocked.CompareExchange` or simple lock. Or create timer once in constructor with `Timeout.Infinite` and only use `Change()`.
+
+#### MEDIUM Impact
+
+- **M1:** CancellationTokenSource leak in OpenDiffAsync (create at L55, catch at L112 doesn't dispose).
+- **M2:** Stale lock file cleanup could delete file being written (TOCTOU on parse failure).
+- **M3:** GetSelectionAsync uses DTE while push uses native APIs (inconsistent results possible).
+- **M4:** ServerProcessManager Task.Delay(200) fragile for slow machines/CI.
+
+#### LOW Impact
+
+- **L1:** SelectionTracker.UntrackView missing thread guard.
+- **L2:** Package.Dispose calls Reset on already-disposed SelectionTracker.
+- **L3:** IdeDiscovery async methods are synchronous (misleading Async suffix).
+- **L4:** InitializeAsync logs only ex.Message, not stack trace.
+- **L5:** GetSelectionAsync swallows exception silently.
+- **L6:** Temp diff files orphaned on exception in OpenDiffAsync.
+- **L7:** PID reuse in stale lock file cleanup (only checks if PID exists).
+- **L8:** VsServices singleton properties not thread-safe (should mark volatile).
+
+---
+
+### Server & Shared Review (Bishop)
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-10  
+**Type:** Review (no code changes)
+
+Reviewed against VS Code wire captures (vscode-0.38, vscode-0.39, vscode-insiders-0.39) and our vs-1.0.8 capture. 195 tests passing.
+
+#### HIGH Impact
+
+**H1. Missing `cache-control` header on POST SSE responses** (`McpPipeServer.cs:376-386`)
+- GET SSE path adds `cache-control: no-cache, no-transform` (line 209).
+- POST SSE responses use `WriteHttpResponseAsync` which does NOT add it.
+- VS Code includes `cache-control` on ALL SSE responses.
+- **Fix:** Add `cache-control` header to `WriteHttpResponseAsync` when `contentType == "text/event-stream"`.
+
+**H2. `postCts.Token` used for success response writes — timeout race** (`McpPipeServer.cs:193-200`)
+- After `HandlePostRequestAsync` succeeds, response write uses `postCts.Token`.
+- If 30s timeout fires between HandlePost returning and response write, `OperationCanceledException` is thrown even though valid response was produced.
+- **Fix:** Use parent `ct` for all response writes (already done for error paths).
+
+**H3. Byte-by-byte header parsing in `ReadHttpRequestAsync`** (`McpPipeServer.cs:260-268`)
+- Reads headers one byte at a time (new ReadAsync per byte), calls `sb.ToString(sb.Length - 4, 4)` on every byte.
+- For ~400-byte headers: 400 async reads + 400 allocations.
+- **Fix:** Read into 4096-byte buffer, scan for `\r\n\r\n` in-memory.
+
+**H4. Per-client `fullChunk` allocation in `PushNotificationAsync`** (`McpPipeServer.cs:529`)
+- `fullChunk` is identical for every client but allocated inside `foreach` loop.
+- **Fix:** Compute once before loop.
+
+#### MEDIUM Impact
+
+- **M1:** `SseClient.WaitAsync` CancellationTokenRegistration leak (never disposed).
+- **M2:** `MemoryStream.ToArray()` unnecessary copy (use `TryGetBuffer()` or `GetBuffer()`).
+- **M3:** Fire-and-forget event handlers in Program.cs (unobserved task exceptions).
+- **M4:** New MCP transport per pipe connection (vs VS Code's session-shared approach).
+
+#### LOW Impact
+
+- **L1:** Silent tool registration failures (`catch { /* Ignore */ }`).
+- **L2:** Mutable DTO classes vs records (not idiomatic for .NET 10).
+- **L3:** Inconsistent tool return patterns (some return RPC DTOs, some anonymous objects).
+- **L4:** `ReadChunkedBodyAsync` fragile trailer handling (assumes 2-byte CRLF).
+
+---
+
+### Test Coverage Review (Hudson)
+
+**Author:** Hudson (Tester)  
+**Date:** 2026-03-10  
+**Status:** Review (no code changes)
+
+195 tests passing across 15 test files. **Server project** has strong coverage. **VS extension (net472) and Shared project have zero direct test coverage.**
+
+#### Coverage Gaps — HIGH Priority
+
+**No Test Project for VS Extension (CopilotCliIde)**
+- 11 source files, ~1,400 LOC, zero test coverage.
+- Critical untested: OpenDiff blocking/timeout/cleanup, CloseDiff races, GetVsInfo assembly, ReadFile pagination, info bar events.
+- **Recommendation:** Create `CopilotCliIde.Tests` (net472/net8.0 dual-target) for testable classes (PathUtils, DebouncePusher, IdeDiscovery).
+
+**CopilotCliIde.Shared (Contracts.cs) Has No Direct Tests**
+- DTOs tested indirectly through `DtoSerializationTests.cs` (camelCase round-trip).
+- Tools use anonymous objects with explicit snake_case.
+- **Gap:** No test validates both paths produce compatible output for same scenario.
+
+#### Quality Issues
+
+- **No-op assertions** (2 instances): `Assert.True(comparisons >= 0, ...)` always true. Should be `comparisons > 0`.
+- **Duplicate test:** ToolOutputSchemaTests has two identical tests — remove one.
+- **Weak assertions:** UpdateSessionNameToolTests uses `Assert.Contains("\"success\":true", json)` — string match, not JSON parse.
+- **Overpromise assertion:** McpPipeServerTests.PushNotificationAsync title claims JSON-RPC format validation but only checks `Assert.NotNull(task)`.
+
+#### Missing Test Categories (15 action items, prioritized)
+
+| Priority | Effort | Item |
+|----------|--------|------|
+| 🔴 HIGH | Low | Fix no-op assertions (`>= 0` → `> 0`) |
+| 🔴 HIGH | Low | Remove duplicate ToolOutputSchemaTests |
+| 🔴 HIGH | Low | Add PathUtils unit tests (~8 tests) |
+| 🔴 HIGH | Low | Add DebouncePusher unit tests (~6 tests) |
+| 🔴 HIGH | Med | Extract shared capture discovery helper |
+| 🔴 HIGH | Med | Add IdeDiscovery unit tests (~10 tests) |
+| 🟡 MED | Low | Strengthen UpdateSessionNameTool assertions |
+| 🟡 MED | Low | Fix McpPipeServerTests assertion to validate content |
+| 🟡 MED | Med | Add CrossCaptureConsistencyTests for field types |
+| 🟡 MED | Med | Add TrafficParser unit tests |
+| 🟡 MED | Med | Add malformed HTTP request tests |
+| 🟡 MED | High | Create CopilotCliIde.Tests project |
+| 🟢 LOW | Low | Add test traits/categories |
+| 🟢 LOW | Med | Split TrafficReplayTests.cs |
+| 🟢 LOW | High | Investigate VSSDK.TestFramework |
+
+**Impact:** Items 1-6 close real coverage gaps. Items 7-11 improve test quality. Items 12-15 are structural long-term improvements.
+
 ## Active Decisions
 
 ### xUnit v3 Migration
