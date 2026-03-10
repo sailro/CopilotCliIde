@@ -29,7 +29,6 @@
 
 ## What to Ignore
 
-- The `IsExternalInit.cs` file exists only to enable `init` accessors on `net472`. Do not flag it.
-- `#pragma warning disable VSTHRD003` on `_rpc.Completion` is intentional — it's a long-running task representing the RPC lifetime.
+- `#pragma warning disable VSTHRD003`on `_rpc.Completion` is intentional — it's a long-running task representing the RPC lifetime.
 - `catch { /* Ignore */ }` blocks are intentional for non-critical operations (pipe disconnects, cleanup during shutdown).
 - Tool names like `get_vscode_info` are deliberately named to match VS Code — do not suggest renaming.
