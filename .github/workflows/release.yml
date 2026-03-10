@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          "version=$tag" >> $env:GITHUB_OUTPUT
+          "assembly_version=$tag.0" >> $env:GITHUB_OUTPUT
+
+      - name: Bump version in Directory.Build.props
+        shell: pwsh
+        run: |
+          $file = "Directory.Build.props"
+          $content = Get-Content $file -Raw
+          $content = $content -replace '<AssemblyVersion>[^<]+</AssemblyVersion>', "<AssemblyVersion>${{ steps.version.outputs.assembly_version }}</AssemblyVersion>"
+          Set-Content $file $content -NoNewline
+
+      - name: Bump version in vsixmanifest
+        shell: pwsh
+        run: |
+          $file = "src/CopilotCliIde/source.extension.vsixmanifest"
+          $content = Get-Content $file -Raw
+          $content = $content -replace '(Identity[^>]+Version=")[^"]+(")', "`${1}${{ steps.version.outputs.version }}`${2}"
+          Set-Content $file $content -NoNewline
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Directory.Build.props src/CopilotCliIde/source.extension.vsixmanifest
+          git commit -m "Bump version to ${{ steps.version.outputs.version }}"
+          git push origin HEAD:main
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore packages
+        run: dotnet restore CopilotCliIde.slnx
+
+      - name: Build VSIX
+        run: msbuild src/CopilotCliIde/CopilotCliIde.csproj /p:Configuration=Release /p:DeployExtension=false
+
+      - name: Run tests
+        run: dotnet test src/CopilotCliIde.Server.Tests/CopilotCliIde.Server.Tests.csproj --configuration Release --no-restore
+
+      - name: Publish to VS Marketplace
+        shell: pwsh
+        run: |
+          $vsixPublisher = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.VisualStudio.Component.VSSDK -find "VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe" | Select-Object -First 1
+          if (-not $vsixPublisher) {
+            # Fallback: find via MSBuild VSSDK NuGet package
+            $vsixPublisher = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.vssdk.buildtools" -Recurse -Filter "VsixPublisher.exe" | Select-Object -First 1 -ExpandProperty FullName
+          }
+          Write-Host "Using VsixPublisher: $vsixPublisher"
+          & $vsixPublisher publish -payload src/CopilotCliIde/bin/Release/CopilotCliIde.vsix -publishManifest src/CopilotCliIde/publishManifest.json -personalAccessToken ${{ secrets.VS_MARKETPLACE_PAT }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ steps.version.outputs.version }} src/CopilotCliIde/bin/Release/CopilotCliIde.vsix --title "${{ steps.version.outputs.version }} on the VS Marketplace" --notes "The extension is available [here](https://marketplace.visualstudio.com/items?itemName=SebastienLebretonPersonal.copilotcliide) or directly from VS (Extensions/Manage Extensions)" --latest
+
+      - name: Delete previous releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $releases = gh release list --json tagName --jq '.[].tagName' | Where-Object { $_ -ne "${{ steps.version.outputs.version }}" }
+          foreach ($tag in $releases) {
+            gh release delete $tag --yes --cleanup-tag
+          }
