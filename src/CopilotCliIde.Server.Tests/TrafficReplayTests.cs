@@ -1379,7 +1379,6 @@ public partial class TrafficReplayTests
 		}
 
 		// Validate close_diff responses
-		var closedTabNames = new List<string>();
 		foreach (var response in closeDiffResponses)
 		{
 			var result = response.GetProperty("result");
@@ -1389,8 +1388,6 @@ public partial class TrafficReplayTests
 
 			var tabName = inner.GetProperty("tab_name").GetString()!;
 			_ = inner.GetProperty("already_closed").GetBoolean();
-
-			closedTabNames.Add(tabName);
 
 			// Tab name should be in either open_diff responses or close_diff request args
 			var knownTabs = new HashSet<string>(openDiffTabNames);
@@ -1525,14 +1522,12 @@ public partial class TrafficReplayTests
 
 		// The response is SSE format: "event: message\ndata: {json}\n\n"
 		// Try parsing as SSE first
-		foreach (var line in responseBody.Split('\n'))
-		{
-			var trimmed = line.Trim();
-			if (!trimmed.StartsWith("data:", StringComparison.Ordinal)) continue;
-			var json = trimmed["data:".Length..].Trim();
-			if (TryExtractToolNames(json, names))
-				return names;
-		}
+		if (responseBody.Split('\n')
+			.Select(line => line.Trim())
+			.Where(trimmed => trimmed.StartsWith("data:", StringComparison.Ordinal))
+			.Select(trimmed => trimmed["data:".Length..].Trim())
+			.Any(json => TryExtractToolNames(json, names)))
+			return names;
 
 		// Fallback: try parsing the whole thing as JSON-RPC
 		if (TryExtractToolNames(responseBody, names))
@@ -1698,7 +1693,10 @@ public partial class TrafficReplayTests
 		}
 	}
 
-	[System.Text.RegularExpressions.GeneratedRegex(@"""tab_name""\s*:\s*""([^""]+)""")]
+	[System.Text.RegularExpressions.GeneratedRegex(
+		"""
+		"tab_name"\s*:\s*"([^"]+)"
+		""")]
 	private static partial System.Text.RegularExpressions.Regex _tabNameRegex();
 
 	#endregion

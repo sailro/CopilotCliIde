@@ -50,11 +50,11 @@ public class CrossCaptureConsistencyTests
 				continue;
 			}
 
-			foreach (var field in vsCodeFields.Except(vsFields))
-				errors.Add($"  {toolName}: MISSING field '{field}' (VS Code has it, we don't)");
+			errors.AddRange(vsCodeFields.Except(vsFields)
+				.Select(field => $"  {toolName}: MISSING field '{field}' (VS Code has it, we don't)"));
 
-			foreach (var field in vsFields.Except(vsCodeFields))
-				errors.Add($"  {toolName}: EXTRA field '{field}' (we have it, VS Code doesn't)");
+			errors.AddRange(vsFields.Except(vsCodeFields)
+				.Select(field => $"  {toolName}: EXTRA field '{field}' (we have it, VS Code doesn't)"));
 		}
 
 		Assert.True(errors.Count == 0,
@@ -86,10 +86,10 @@ public class CrossCaptureConsistencyTests
 
 		var errors = new List<string>();
 
-		foreach (var f in vsCodeFields.Except(vsFields))
-			errors.Add($"  MISSING: '{f}' (VS Code has it, we don't)");
-		foreach (var f in vsFields.Except(vsCodeFields))
-			errors.Add($"  EXTRA: '{f}' (we have it, VS Code doesn't)");
+		errors.AddRange(vsCodeFields.Except(vsFields)
+			.Select(f => $"  MISSING: '{f}' (VS Code has it, we don't)"));
+		errors.AddRange(vsFields.Except(vsCodeFields)
+			.Select(f => $"  EXTRA: '{f}' (we have it, VS Code doesn't)"));
 
 		Assert.True(errors.Count == 0,
 			$"selection_changed params do not exactly match VS Code:\n{string.Join("\n", errors)}");
@@ -117,10 +117,10 @@ public class CrossCaptureConsistencyTests
 
 		var errors = new List<string>();
 
-		foreach (var f in vsCodeDiagFields.Except(vsDiagFields))
-			errors.Add($"  MISSING: '{f}' (VS Code has it, we don't)");
-		foreach (var f in vsDiagFields.Except(vsCodeDiagFields))
-			errors.Add($"  EXTRA: '{f}' (we have it, VS Code doesn't)");
+		errors.AddRange(vsCodeDiagFields.Except(vsDiagFields)
+			.Select(f => $"  MISSING: '{f}' (VS Code has it, we don't)"));
+		errors.AddRange(vsDiagFields.Except(vsCodeDiagFields)
+			.Select(f => $"  EXTRA: '{f}' (we have it, VS Code doesn't)"));
 
 		Assert.True(errors.Count == 0,
 			$"diagnostics_changed diagnostic item fields do not exactly match VS Code:\n" +
@@ -178,9 +178,11 @@ public class CrossCaptureConsistencyTests
 				foreach (var prop in caps.EnumerateObject())
 					vsCodeCapabilityFields.Add(prop.Name);
 
-			if (result.TryGetProperty("serverInfo", out var si))
-				foreach (var prop in si.EnumerateObject())
-					vsCodeServerInfoFields.Add(prop.Name);
+			if (!result.TryGetProperty("serverInfo", out var si))
+				continue;
+
+			foreach (var prop in si.EnumerateObject())
+				vsCodeServerInfoFields.Add(prop.Name);
 		}
 
 		Assert.True(vsCodeResultFields.Count > 0, "No initialize responses found in VS Code captures");
@@ -204,23 +206,23 @@ public class CrossCaptureConsistencyTests
 		var errors = new List<string>();
 
 		// Result-level: exact match
-		foreach (var f in vsCodeResultFields.Except(vsResultFields))
-			errors.Add($"  result: MISSING '{f}'");
-		foreach (var f in vsResultFields.Except(vsCodeResultFields))
-			errors.Add($"  result: EXTRA '{f}' (VS Code doesn't have it)");
+		errors.AddRange(vsCodeResultFields.Except(vsResultFields)
+			.Select(f => $"  result: MISSING '{f}'"));
+		errors.AddRange(vsResultFields.Except(vsCodeResultFields)
+			.Select(f => $"  result: EXTRA '{f}' (VS Code doesn't have it)"));
 
 		// Capabilities: exact match (except MCP SDK extras)
-		foreach (var f in vsCodeCapabilityFields.Except(vsCapabilityFields))
-			errors.Add($"  capabilities: MISSING '{f}'");
-		foreach (var f in vsCapabilityFields.Except(vsCodeCapabilityFields))
-			if (!_mcpSdkExtraCapabilities.Contains(f))
-				errors.Add($"  capabilities: EXTRA '{f}' (VS Code doesn't have it)");
+		errors.AddRange(vsCodeCapabilityFields.Except(vsCapabilityFields)
+			.Select(f => $"  capabilities: MISSING '{f}'"));
+		errors.AddRange(vsCapabilityFields.Except(vsCodeCapabilityFields)
+			.Where(f => !_mcpSdkExtraCapabilities.Contains(f))
+			.Select(f => $"  capabilities: EXTRA '{f}' (VS Code doesn't have it)"));
 
 		// ServerInfo: exact match
-		foreach (var f in vsCodeServerInfoFields.Except(vsServerInfoFields))
-			errors.Add($"  serverInfo: MISSING '{f}'");
-		foreach (var f in vsServerInfoFields.Except(vsCodeServerInfoFields))
-			errors.Add($"  serverInfo: EXTRA '{f}' (VS Code doesn't have it)");
+		errors.AddRange(vsCodeServerInfoFields.Except(vsServerInfoFields)
+			.Select(f => $"  serverInfo: MISSING '{f}'"));
+		errors.AddRange(vsServerInfoFields.Except(vsCodeServerInfoFields)
+			.Select(f => $"  serverInfo: EXTRA '{f}' (VS Code doesn't have it)"));
 
 		Assert.True(errors.Count == 0,
 			$"Initialize response does not exactly match VS Code:\n{string.Join("\n", errors)}");
@@ -279,12 +281,9 @@ public class CrossCaptureConsistencyTests
 		}
 
 		// VS tools not in VS Code → FAIL (except read_file)
-		foreach (var toolName in vsSchemas.Keys.Except(vsCodeSchemas.Keys))
-		{
-			if (toolName == AllowedExtraTool)
-				continue;
-			errors.Add($"  {toolName}: EXTRA tool in VS (VS Code doesn't have it)");
-		}
+		errors.AddRange(vsSchemas.Keys.Except(vsCodeSchemas.Keys)
+			.Where(toolName => toolName != AllowedExtraTool)
+			.Select(toolName => $"  {toolName}: EXTRA tool in VS (VS Code doesn't have it)"));
 
 		Assert.True(errors.Count == 0,
 			$"Tool input schemas do not strictly match VS Code:\n{string.Join("\n", errors)}");
@@ -304,39 +303,39 @@ public class CrossCaptureConsistencyTests
 				errors.Add($"  {toolName}.{propName}: type mismatch — VS Code: {propType}, VS: {vsType}");
 		}
 
-		foreach (var propName in vsProps.Keys.Except(vsCodeProps.Keys))
-			errors.Add($"  {toolName}: EXTRA schema property '{propName}' (VS Code doesn't have it)");
+		errors.AddRange(vsProps.Keys.Except(vsCodeProps.Keys)
+			.Select(propName => $"  {toolName}: EXTRA schema property '{propName}' (VS Code doesn't have it)"));
 
 		// Compare required
 		var vsCodeRequired = GetSchemaRequired(vsCode);
 		var vsRequired = GetSchemaRequired(vs);
 
-		foreach (var r in vsCodeRequired.Except(vsRequired))
-			errors.Add($"  {toolName}: MISSING required field '{r}'");
-		foreach (var r in vsRequired.Except(vsCodeRequired))
-			errors.Add($"  {toolName}: EXTRA required field '{r}'");
+		errors.AddRange(vsCodeRequired.Except(vsRequired)
+			.Select(r => $"  {toolName}: MISSING required field '{r}'"));
+		errors.AddRange(vsRequired.Except(vsCodeRequired)
+			.Select(r => $"  {toolName}: EXTRA required field '{r}'"));
 
 		// Compare additionalProperties (skip if MCP SDK is known to omit it)
 		var vsCodeAdditional = GetAdditionalProperties(vsCode);
 		var vsAdditional = GetAdditionalProperties(vs);
-		if (vsCodeAdditional != vsAdditional)
-		{
-			var isSdkOmission = McpSdkOmitsAdditionalProperties && vsAdditional is null && vsCodeAdditional is not null;
-			if (!isSdkOmission)
-				errors.Add($"  {toolName}: additionalProperties mismatch — VS Code: {vsCodeAdditional ?? "absent"}, VS: {vsAdditional ?? "absent"}");
-		}
+		if (vsCodeAdditional == vsAdditional)
+			return;
+
+		var isSdkOmission = McpSdkOmitsAdditionalProperties && vsAdditional is null && vsCodeAdditional is not null;
+		if (!isSdkOmission)
+			errors.Add($"  {toolName}: additionalProperties mismatch — VS Code: {vsCodeAdditional ?? "absent"}, VS: {vsAdditional ?? "absent"}");
 	}
 
 	private static Dictionary<string, string> GetSchemaProperties(JsonElement schema)
 	{
 		var result = new Dictionary<string, string>();
-		if (schema.TryGetProperty("properties", out var props))
+		if (!schema.TryGetProperty("properties", out var props))
+			return result;
+
+		foreach (var prop in props.EnumerateObject())
 		{
-			foreach (var prop in props.EnumerateObject())
-			{
-				var typeStr = prop.Value.TryGetProperty("type", out var t) ? t.ToString() : "unknown";
-				result[prop.Name] = typeStr;
-			}
+			var typeStr = prop.Value.TryGetProperty("type", out var t) ? t.ToString() : "unknown";
+			result[prop.Name] = typeStr;
 		}
 		return result;
 	}
@@ -344,18 +343,16 @@ public class CrossCaptureConsistencyTests
 	private static HashSet<string> GetSchemaRequired(JsonElement schema)
 	{
 		var result = new HashSet<string>();
-		if (schema.TryGetProperty("required", out var req))
-			foreach (var r in req.EnumerateArray())
-				result.Add(r.GetString()!);
+		if (!schema.TryGetProperty("required", out var req))
+			return result;
+
+		foreach (var r in req.EnumerateArray())
+			result.Add(r.GetString()!);
 		return result;
 	}
 
-	private static string? GetAdditionalProperties(JsonElement schema)
-	{
-		if (schema.TryGetProperty("additionalProperties", out var ap))
-			return ap.ToString();
-		return null;
-	}
+	private static string? GetAdditionalProperties(JsonElement schema) =>
+		schema.TryGetProperty("additionalProperties", out var ap) ? ap.ToString() : null;
 
 	#endregion
 
@@ -410,19 +407,21 @@ public class CrossCaptureConsistencyTests
 			if (innerJson is null)
 				continue;
 
-			if (innerJson.Value.ValueKind == JsonValueKind.Object)
+			switch (innerJson.Value.ValueKind)
 			{
-				foreach (var prop in innerJson.Value.EnumerateObject())
-					fields.Add(prop.Name);
-			}
-			else if (innerJson.Value.ValueKind == JsonValueKind.Array)
-			{
-				foreach (var item in innerJson.Value.EnumerateArray())
-				{
-					if (item.ValueKind == JsonValueKind.Object)
+				case JsonValueKind.Object:
+					foreach (var prop in innerJson.Value.EnumerateObject())
+						fields.Add(prop.Name);
+					break;
+				case JsonValueKind.Array:
+					foreach (var item in innerJson.Value.EnumerateArray())
+					{
+						if (item.ValueKind != JsonValueKind.Object)
+							continue;
 						foreach (var prop in item.EnumerateObject())
 							fields.Add(prop.Name);
-				}
+					}
+					break;
 			}
 		}
 

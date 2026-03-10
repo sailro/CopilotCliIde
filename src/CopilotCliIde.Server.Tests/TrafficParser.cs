@@ -112,9 +112,7 @@ public sealed partial class TrafficParser
 
 			// Propagate server session from HTTP response header to its body entry.
 			// Body entries with JSON-RPC id+result immediately follow their HTTP 200 OK.
-			if (entry.Direction == "vscode_to_cli"
-				&& entry.McpSessionId is null
-				&& entry.JsonRpcMessage is not null
+			if (entry is { Direction: "vscode_to_cli", McpSessionId: null, JsonRpcMessage: not null }
 				&& HasProperty(entry.JsonRpcMessage.Value, "result")
 				&& HasProperty(entry.JsonRpcMessage.Value, "id")
 				&& pendingServerSession is not null)
@@ -140,39 +138,42 @@ public sealed partial class TrafficParser
 
 		foreach (var entry in Entries)
 		{
-			if (entry.Direction == "cli_to_vscode" && entry.McpSessionId is not null)
+			switch (entry)
 			{
-				// Skip tools/call requests — they may block (e.g., open_diff) and
-				// their HTTP responses arrive out of FIFO order.
-				var isToolsCall = false;
-				if (entry.JsonRpcMessage is not null)
-					isToolsCall = TryGetStringProperty(entry.JsonRpcMessage.Value, "method") == "tools/call";
-				else if (entry.Event is not null)
-					isToolsCall = entry.Event.Contains("\"method\":\"tools/call\"", StringComparison.Ordinal);
-
-				if (!isToolsCall)
-					pendingRequests.Add((entry.Seq, entry.McpSessionId));
-			}
-			else if (entry.Direction == "vscode_to_cli"
-				&& entry.McpSessionId is not null
-				&& entry.Event is not null
-				&& IsHttpStatusResponse(entry.Event))
-			{
-				// Match to earliest pending request (FIFO — safe for non-blocking handshake)
-				pendingRequests.Sort((a, b) => a.Seq.CompareTo(b.Seq));
-				var idx = pendingRequests.FindIndex(r => r.Seq < entry.Seq);
-				if (idx >= 0)
-				{
-					var req = pendingRequests[idx];
-					pendingRequests.RemoveAt(idx);
-
-					if (!_sessionMap.TryGetValue(req.ClientSession, out var serverSessions))
+				case { Direction: "cli_to_vscode", McpSessionId: not null }:
 					{
-						serverSessions = [];
-						_sessionMap[req.ClientSession] = serverSessions;
+						// Skip tools/call requests — they may block (e.g., open_diff) and
+						// their HTTP responses arrive out of FIFO order.
+						var isToolsCall = false;
+						if (entry.JsonRpcMessage is not null)
+							isToolsCall = TryGetStringProperty(entry.JsonRpcMessage.Value, "method") == "tools/call";
+						else if (entry.Event is not null)
+							isToolsCall = entry.Event.Contains("\"method\":\"tools/call\"", StringComparison.Ordinal);
+
+						if (!isToolsCall)
+							pendingRequests.Add((entry.Seq, entry.McpSessionId));
+						break;
 					}
-					serverSessions.Add(entry.McpSessionId);
-				}
+				case { Direction: "vscode_to_cli", McpSessionId: not null, Event: not null }
+					when IsHttpStatusResponse(entry.Event):
+					{
+						// Match to earliest pending request (FIFO — safe for non-blocking handshake)
+						pendingRequests.Sort((a, b) => a.Seq.CompareTo(b.Seq));
+						var idx = pendingRequests.FindIndex(r => r.Seq < entry.Seq);
+						if (idx < 0)
+							break;
+
+						var (_, clientSession) = pendingRequests[idx];
+						pendingRequests.RemoveAt(idx);
+
+						if (!_sessionMap.TryGetValue(clientSession, out var serverSessions))
+						{
+							serverSessions = [];
+							_sessionMap[clientSession] = serverSessions;
+						}
+						serverSessions.Add(entry.McpSessionId);
+						break;
+					}
 			}
 		}
 	}
@@ -259,13 +260,13 @@ public sealed partial class TrafficParser
 
 			// Raw text fallback for truncated JSON
 			var namePattern = $"\"name\":\"{toolName}\"";
-			if (entry.Event is not null
-			&& entry.Event.Contains("tools/call", StringComparison.Ordinal)
-			&& entry.Event.Contains(namePattern, StringComparison.Ordinal))
-			{
-				var extractedId = TryExtractIdFromText(entry.Event);
-				requestEntries.Add((entry.Seq, extractedId, entry.McpSessionId));
-			}
+			if (entry.Event is null
+				|| !entry.Event.Contains("tools/call", StringComparison.Ordinal)
+				|| !entry.Event.Contains(namePattern, StringComparison.Ordinal))
+				continue;
+
+			var extractedId = TryExtractIdFromText(entry.Event);
+			requestEntries.Add((entry.Seq, extractedId, entry.McpSessionId));
 		}
 
 		// For each request, find its matching response
@@ -538,7 +539,10 @@ public sealed partial class TrafficParser
 		}
 	}
 
-	[GeneratedRegex(@"""id""\s*:\s*(\d+)")]
+	[GeneratedRegex(
+		"""
+		"id"\s*:\s*(\d+)
+		""")]
 	private static partial Regex IdInTextRegex();
 
 	// --- MCP session correlation helpers ---

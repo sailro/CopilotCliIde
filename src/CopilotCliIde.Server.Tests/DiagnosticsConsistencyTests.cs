@@ -127,22 +127,22 @@ public class DiagnosticsConsistencyTests
 						TryGetString(pull, "severity"));
 
 					// Compare range coordinates
-					if (push.TryGetProperty("range", out var pushRange)
-						&& pull.TryGetProperty("range", out var pullRange))
-					{
-						Assert.Equal(
-							pushRange.GetProperty("start").GetProperty("line").GetInt32(),
-							pullRange.GetProperty("start").GetProperty("line").GetInt32());
-						Assert.Equal(
-							pushRange.GetProperty("start").GetProperty("character").GetInt32(),
-							pullRange.GetProperty("start").GetProperty("character").GetInt32());
-						Assert.Equal(
-							pushRange.GetProperty("end").GetProperty("line").GetInt32(),
-							pullRange.GetProperty("end").GetProperty("line").GetInt32());
-						Assert.Equal(
-							pushRange.GetProperty("end").GetProperty("character").GetInt32(),
-							pullRange.GetProperty("end").GetProperty("character").GetInt32());
-					}
+					if (!push.TryGetProperty("range", out var pushRange)
+						|| !pull.TryGetProperty("range", out var pullRange))
+						continue;
+
+					Assert.Equal(
+						pushRange.GetProperty("start").GetProperty("line").GetInt32(),
+						pullRange.GetProperty("start").GetProperty("line").GetInt32());
+					Assert.Equal(
+						pushRange.GetProperty("start").GetProperty("character").GetInt32(),
+						pullRange.GetProperty("start").GetProperty("character").GetInt32());
+					Assert.Equal(
+						pushRange.GetProperty("end").GetProperty("line").GetInt32(),
+						pullRange.GetProperty("end").GetProperty("line").GetInt32());
+					Assert.Equal(
+						pushRange.GetProperty("end").GetProperty("character").GetInt32(),
+						pullRange.GetProperty("end").GetProperty("character").GetInt32());
 				}
 
 				comparisons++;
