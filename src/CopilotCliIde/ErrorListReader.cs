@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Shell.TableControl;
 using Microsoft.VisualStudio.Shell.TableManager;
+using Microsoft.VisualStudio.Text;
 
 namespace CopilotCliIde;
 
@@ -18,11 +19,10 @@ namespace CopilotCliIde;
 /// table control is unavailable (e.g., Error List window never opened).
 /// </para>
 /// <para>
-/// <b>End-position limitation:</b> VS's Error List does not expose
-/// end-of-diagnostic span information (neither the table API nor DTE).
-/// End position is set equal to start position. VS Code can provide
-/// accurate end positions because it has direct access to Roslyn's
-/// diagnostic spans; VS's Error List surface only stores start position.
+/// <b>End position:</b> When available, the table API's
+/// <c>StandardTableKeyNames.PersistentSpan</c> provides an
+/// <see cref="ITrackingSpan"/> with the full diagnostic range (start
+/// and end). The DTE fallback path still sets end equal to start.
 /// </para>
 /// </summary>
 internal static class ErrorListReader
@@ -94,6 +94,21 @@ internal static class ErrorListReader
 
 			var line = TryGetInt(entry, StandardTableKeyNames.Line);
 			var col = TryGetInt(entry, StandardTableKeyNames.Column);
+			var endLine = line;
+			var endCol = col;
+
+			try
+			{
+				if (entry.TryGetValue(StandardTableKeyNames.PersistentSpan, out var spanObj)
+					&& spanObj is ITrackingSpan trackingSpan)
+				{
+					var span = trackingSpan.GetSpan(trackingSpan.TextBuffer.CurrentSnapshot);
+					var endLineSnap = span.End.GetContainingLine();
+					endLine = endLineSnap.LineNumber;
+					endCol = span.End.Position - endLineSnap.Start.Position;
+				}
+			}
+			catch { /* Snapshot may have changed — fall back to end = start */ }
 
 			var severity = "information";
 			if (entry.TryGetValue(StandardTableKeyNames.ErrorSeverity, out var sevObj) && sevObj is __VSERRORCATEGORY cat)
@@ -113,7 +128,7 @@ internal static class ErrorListReader
 				Range = new DiagnosticRange
 				{
 					Start = new SelectionPosition { Line = line, Character = col },
-					End = new SelectionPosition { Line = line, Character = col }
+					End = new SelectionPosition { Line = endLine, Character = endCol }
 				},
 				Code = TryGetString(entry, StandardTableKeyNames.ErrorCode)
 			});
