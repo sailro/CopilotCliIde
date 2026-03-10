@@ -17,20 +17,15 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 ### Build & Install
 
 ```bash
-# Clone and build
+# Clone and build (requires MSBuild from VS — not dotnet build)
 git clone https://github.com/sailro/CopilotCliIde
-
-# Build the MCP server (dotnet)
-dotnet build src/CopilotCliIde.Server/CopilotCliIde.Server.csproj
-
-# Build the VS extension (requires MSBuild from VS)
 msbuild src/CopilotCliIde/CopilotCliIde.csproj /p:Configuration=Debug
 
 # The .vsix is produced at:
 # src/CopilotCliIde/bin/Debug/CopilotCliIde.vsix
 ```
 
-> **Note**: The VSIX project must be built with MSBuild (`msbuild`), not `dotnet build`.
+> **Note**: The MCP server is automatically published and bundled into the VSIX during the build.
 
 Double-click the `.vsix` to install, or use F5 in Visual Studio to debug in the experimental instance.
 

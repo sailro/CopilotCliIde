@@ -55,32 +55,22 @@
     </Content>
   </ItemGroup>
 
-  <!-- Bundle the MCP server process in the VSIX -->
-  <ItemGroup>
-    <Content Include="$(OutputPath)\CopilotCliIde.Server\**\*.*">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>McpServer</VSIXSubPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>McpServer\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <Visible>false</Visible>
-    </Content>
-  </ItemGroup>
+  <!-- Publish the MCP server before building the extension -->
   <Target Name="PublishServerBeforeBuild" BeforeTargets="Build">
     <Exec Command="dotnet publish ..\CopilotCliIde.Server\CopilotCliIde.Server.csproj -c $(Configuration) -o $(OutputPath)\CopilotCliIde.Server --no-self-contained" />
   </Target>
 
-  <!-- Re-add server dependencies that VSSDK incorrectly suppresses
-       
-       StreamJsonRpc transitively depends on both Microsoft.VisualStudio.Threading and Microsoft.VisualStudio.Validation. The FixServerDeps target is
-       necessary because the VSSDK's RemoveVSSDKAssemblies strips any Microsoft.VisualStudio.* DLLs from the VSIX, assuming VS provides them — but the MCP server is a standalone
-       .NET 10 process that needs its own copies.
+  <!-- Bundle the MCP server in the VSIX.
+
+       This MUST be a target (not a static ItemGroup) so the glob evaluates after
+       PublishServerBeforeBuild populates the output directory — otherwise clean
+       builds (CI) find zero files. Running AfterTargets="RemoveVSSDKAssemblies"
+       also prevents the VSSDK from stripping the Microsoft.VisualStudio.* DLLs
+       that the standalone .NET 10 server process needs.
   -->
-  <Target Name="FixServerDeps" AfterTargets="RemoveVSSDKAssemblies" DependsOnTargets="PublishServerBeforeBuild">
+  <Target Name="BundleServerInVsix" AfterTargets="RemoveVSSDKAssemblies" DependsOnTargets="PublishServerBeforeBuild">
     <ItemGroup>
-      <VSIXSourceItem Include="$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Validation.dll" Condition="Exists('$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Validation.dll')">
-        <VSIXSubPath>McpServer</VSIXSubPath>
-      </VSIXSourceItem>
-      <VSIXSourceItem Include="$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Threading.dll" Condition="Exists('$(OutputPath)\CopilotCliIde.Server\Microsoft.VisualStudio.Threading.dll')">
+      <VSIXSourceItem Include="$(OutputPath)\CopilotCliIde.Server\**\*.*">
         <VSIXSubPath>McpServer</VSIXSubPath>
       </VSIXSourceItem>
     </ItemGroup>
