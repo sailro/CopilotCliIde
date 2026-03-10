@@ -6,6 +6,7 @@ using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Shell.TableManager;
 using StreamJsonRpc;
 using Task = System.Threading.Tasks.Task;
 
@@ -40,8 +41,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		try
 		{
 			_logger = OutputLogger.Create();
-			VsServiceRpc.Logger = _logger;
-			VsServiceRpc.OnResetNotificationState = ResetNotificationState;
+			VsServices.Instance.Logger = _logger;
+			VsServices.Instance.OnResetNotificationState = ResetNotificationState;
 
 			_discovery = new IdeDiscovery();
 			await _discovery.CleanStaleFilesAsync();
@@ -105,9 +106,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			JoinableTaskFactory,
 			() => _mcpCallbacks,
 			cb => _mcpCallbacks = cb,
-			CollectDiagnosticsGrouped,
 			_logger);
 		_diagnosticTracker.Subscribe();
+		VsServices.Instance.DiagnosticTracker = _diagnosticTracker;
 	}
 
 	// Tears down connection: removes lock file, kills server, disposes pipe.
@@ -117,6 +118,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 		_diagnosticTracker?.Dispose();
 		_diagnosticTracker = null;
+		VsServices.Instance.DiagnosticTracker = null;
 		_selectionTracker?.Reset();
 
 		_connectionCts?.Cancel();
@@ -209,12 +211,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => _diagnosticTracker?.SchedulePush();
 
 	private void OnDocumentSaved(EnvDTE.Document document) => _diagnosticTracker?.SchedulePush();
-
-	private static List<DiagnosticsChangedUri> CollectDiagnosticsGrouped()
-	{
-		ThreadHelper.ThrowIfNotOnUIThread();
-		return [.. ErrorListReader.CollectGrouped().Select(f => new DiagnosticsChangedUri { Uri = f.Uri, Diagnostics = f.Diagnostics })];
-	}
 
 	protected override void Dispose(bool disposing)
 	{

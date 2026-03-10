@@ -16,9 +16,6 @@ public class VsServiceRpc : IVsServiceRpc
 	private static readonly string _machineId = ComputeMachineId();
 	private readonly string _sessionId = Guid.NewGuid().ToString() + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-	internal static OutputLogger? Logger { get; set; }
-	internal static Action? OnResetNotificationState { get; set; }
-
 	private class DiffState
 	{
 		public string TempNewPath { get; set; } = "";
@@ -31,7 +28,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public async Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName)
 	{
-		Logger?.Log($"Tool open_diff: {tabName} ({originalFilePath})");
+		VsServices.Instance.Logger?.Log($"Tool open_diff: {tabName} ({originalFilePath})");
 		try
 		{
 			originalFilePath = PathUtils.NormalizeFileUri(originalFilePath) ?? originalFilePath;
@@ -94,7 +91,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			// Block until user accepts, rejects, or closes the diff
 			var (result, trigger) = await tcs.Task.ConfigureAwait(false);
-			Logger?.Log($"Tool open_diff: {result} ({trigger})");
+			VsServices.Instance.Logger?.Log($"Tool open_diff: {result} ({trigger})");
 
 			// Clean up
 			timeoutCts.Dispose();
@@ -114,7 +111,7 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch (Exception ex)
 		{
-			Logger?.Log($"Tool open_diff: error: {ex.Message}");
+			VsServices.Instance.Logger?.Log($"Tool open_diff: error: {ex.Message}");
 			return new DiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}
@@ -124,7 +121,7 @@ public class VsServiceRpc : IVsServiceRpc
 		var entry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 		if (entry.Key == null)
 		{
-			Logger?.Log("Tool close_diff: already closed");
+			VsServices.Instance.Logger?.Log("Tool close_diff: already closed");
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 		}
 
@@ -133,7 +130,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
 		{
-			Logger?.Log("Tool close_diff: already closed");
+			VsServices.Instance.Logger?.Log("Tool close_diff: already closed");
 			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
 		}
 
@@ -153,7 +150,7 @@ public class VsServiceRpc : IVsServiceRpc
 
 			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
 
-			Logger?.Log("Tool close_diff: closed");
+			VsServices.Instance.Logger?.Log("Tool close_diff: closed");
 			return new CloseDiffResult
 			{
 				Success = true,
@@ -163,7 +160,7 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch (Exception ex)
 		{
-			Logger?.Log($"Tool close_diff: error: {ex.Message}");
+			VsServices.Instance.Logger?.Log($"Tool close_diff: error: {ex.Message}");
 			return new CloseDiffResult { Success = false, Error = ex.Message, TabName = tabName };
 		}
 	}
@@ -194,7 +191,7 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch { /* Ignore */ }
 
-		Logger?.Log($"Tool get_vscode_info: v{result.Version}");
+		VsServices.Instance.Logger?.Log($"Tool get_vscode_info: v{result.Version}");
 
 		return result;
 	}
@@ -215,7 +212,7 @@ public class VsServiceRpc : IVsServiceRpc
 			var doc = dte?.ActiveDocument;
 			if (doc?.Object("TextDocument") is not EnvDTE.TextDocument textDoc)
 			{
-				Logger?.Log("Tool get_selection: (no editor)");
+				VsServices.Instance.Logger?.Log("Tool get_selection: (no editor)");
 				return new SelectionResult { Current = false };
 			}
 
@@ -239,13 +236,13 @@ public class VsServiceRpc : IVsServiceRpc
 			};
 
 			var s = result.Selection;
-			Logger?.Log($"Tool get_selection: {Path.GetFileName(result.FilePath ?? "")} L{(s.Start?.Line ?? 0) + 1}:{(s.Start?.Character ?? 0) + 1}{(s.IsEmpty ? "" : $" → L{(s.End?.Line ?? 0) + 1}:{(s.End?.Character ?? 0) + 1}")}");
+			VsServices.Instance.Logger?.Log($"Tool get_selection: {Path.GetFileName(result.FilePath ?? "")} L{(s.Start?.Line ?? 0) + 1}:{(s.Start?.Character ?? 0) + 1}{(s.IsEmpty ? "" : $" → L{(s.End?.Line ?? 0) + 1}:{(s.End?.Character ?? 0) + 1}")}");
 
 			return result;
 		}
 		catch
 		{
-			Logger?.Log("Tool get_selection: (no editor)");
+			VsServices.Instance.Logger?.Log("Tool get_selection: (no editor)");
 			return new SelectionResult { Current = false };
 		}
 	}
@@ -256,15 +253,15 @@ public class VsServiceRpc : IVsServiceRpc
 		try
 		{
 			var filePath = PathUtils.NormalizeFileUri(uri);
-			var files = ErrorListReader.CollectGrouped(filePath, maxItems: 100);
+			var files = VsServices.Instance.DiagnosticTracker?.CollectGrouped(filePath, maxItems: 100) ?? [];
 			var totalDiagnostics = files.Sum(f => f.Diagnostics?.Count ?? 0);
 			var scope = filePath != null ? Path.GetFileName(filePath) : "(all)";
-			Logger?.Log($"Tool get_diagnostics: {scope} {files.Count} file(s), {totalDiagnostics} diagnostic(s)");
+			VsServices.Instance.Logger?.Log($"Tool get_diagnostics: {scope} {files.Count} file(s), {totalDiagnostics} diagnostic(s)");
 			return new DiagnosticsResult { Files = files };
 		}
 		catch (Exception ex)
 		{
-			Logger?.Log($"Tool get_diagnostics: error: {ex.Message}");
+			VsServices.Instance.Logger?.Log($"Tool get_diagnostics: error: {ex.Message}");
 			return new DiagnosticsResult { Error = ex.Message };
 		}
 	}
@@ -272,8 +269,8 @@ public class VsServiceRpc : IVsServiceRpc
 
 	public Task ResetNotificationStateAsync()
 	{
-		Logger?.Log("ResetNotificationState: new CLI client connected");
-		OnResetNotificationState?.Invoke();
+		VsServices.Instance.Logger?.Log("ResetNotificationState: new CLI client connected");
+		VsServices.Instance.OnResetNotificationState?.Invoke();
 		return Task.CompletedTask;
 	}
 
@@ -291,7 +288,7 @@ public class VsServiceRpc : IVsServiceRpc
 			var slice = new string[end - start];
 			Array.Copy(allLines, start, slice, 0, end - start);
 
-			Logger?.Log($"Tool read_file: {Path.GetFileName(filePath)} ({totalLines} total, {end - start} returned)");
+			VsServices.Instance.Logger?.Log($"Tool read_file: {Path.GetFileName(filePath)} ({totalLines} total, {end - start} returned)");
 
 			return Task.FromResult(new ReadFileResult
 			{
@@ -304,7 +301,7 @@ public class VsServiceRpc : IVsServiceRpc
 		}
 		catch (Exception ex)
 		{
-			Logger?.Log($"Tool read_file: error: {ex.Message}");
+			VsServices.Instance.Logger?.Log($"Tool read_file: error: {ex.Message}");
 			return Task.FromResult(new ReadFileResult { Error = ex.Message, FilePath = filePath });
 		}
 	}
