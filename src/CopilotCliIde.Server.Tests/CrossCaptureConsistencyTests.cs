@@ -13,7 +13,7 @@ public class CrossCaptureConsistencyTests
 	// MCP SDK-level differences not in our control — excluded explicitly so they don't mask real regressions.
 	// logging: C# MCP SDK auto-registers it, VS Code's SDK does not.
 	// additionalProperties: VS Code's SDK emits "additionalProperties": false, C# SDK does not.
-	private static readonly HashSet<string> McpSdkExtraCapabilities = ["logging"];
+	private static readonly HashSet<string> _mcpSdkExtraCapabilities = ["logging"];
 	private const bool McpSdkOmitsAdditionalProperties = true;
 
 	#region Tool Response Field Consistency
@@ -213,7 +213,7 @@ public class CrossCaptureConsistencyTests
 		foreach (var f in vsCodeCapabilityFields.Except(vsCapabilityFields))
 			errors.Add($"  capabilities: MISSING '{f}'");
 		foreach (var f in vsCapabilityFields.Except(vsCodeCapabilityFields))
-			if (!McpSdkExtraCapabilities.Contains(f))
+			if (!_mcpSdkExtraCapabilities.Contains(f))
 				errors.Add($"  capabilities: EXTRA '{f}' (VS Code doesn't have it)");
 
 		// ServerInfo: exact match

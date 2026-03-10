@@ -7,7 +7,7 @@ using NSubstitute;
 namespace CopilotCliIde.Server.Tests;
 
 // Replay tests that validate our MCP server against real VS Code traffic captures.
-public class TrafficReplayTests
+public partial class TrafficReplayTests
 {
 
 	// Drop a new .ndjson capture in Captures/ and it's automatically validated.
@@ -1355,8 +1355,8 @@ public class TrafficReplayTests
 				// Try raw text extraction for close_diff requests
 				if (entry.Event is not null && entry.Event.Contains("close_diff", StringComparison.Ordinal))
 				{
-					var tabMatch = System.Text.RegularExpressions.Regex.Match(
-						entry.Event, @"""tab_name""\s*:\s*""([^""]+)""");
+					var tabMatch = _tabNameRegex().Match(
+						entry.Event);
 					if (tabMatch.Success)
 						closeDiffRequestTabNames.Add(tabMatch.Groups[1].Value);
 				}
@@ -1388,7 +1388,7 @@ public class TrafficReplayTests
 			var inner = JsonDocument.Parse(textValue).RootElement;
 
 			var tabName = inner.GetProperty("tab_name").GetString()!;
-			var alreadyClosed = inner.GetProperty("already_closed").GetBoolean();
+			_ = inner.GetProperty("already_closed").GetBoolean();
 
 			closedTabNames.Add(tabName);
 
@@ -1697,6 +1697,9 @@ public class TrafficReplayTests
 			return null;
 		}
 	}
+
+	[System.Text.RegularExpressions.GeneratedRegex(@"""tab_name""\s*:\s*""([^""]+)""")]
+	private static partial System.Text.RegularExpressions.Regex _tabNameRegex();
 
 	#endregion
 }
