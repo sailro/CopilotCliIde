@@ -10,7 +10,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" />
-    <PackageReference Include="StreamJsonRpc" />
+    <!-- We need this one compatible with ModelContextProtocol -->
+    <PackageReference Include="StreamJsonRpc" VersionOverride="[2.24.84]" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CopilotCliIde.Shared\CopilotCliIde.Shared.csproj" />

@@ -1,10 +1,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using StreamJsonRpc;
 
 namespace CopilotCliIde.Shared;
 
-[JsonRpcContract]
 public partial interface IVsServiceRpc
 {
 	Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName);
@@ -16,7 +14,6 @@ public partial interface IVsServiceRpc
 	Task ResetNotificationStateAsync();
 }
 
-[JsonRpcContract]
 public partial interface IMcpServerCallbacks
 {
 	Task OnSelectionChangedAsync(SelectionNotification notification);
