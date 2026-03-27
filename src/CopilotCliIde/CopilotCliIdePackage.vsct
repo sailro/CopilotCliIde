@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="guidCopilotCliIdePackage">
+    <Groups>
+      <Group guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidCopilotCliIdeCmdSet" id="LaunchCopilotCliCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" />
+        <Icon guid="guidImages" id="copilotIcon" />
+        <Strings>
+          <ButtonText>Launch Copilot CLI</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+
+    <Bitmaps>
+      <Bitmap guid="guidImages" href="Resources\CopilotIcon.png" usedList="copilotIcon" />
+    </Bitmaps>
+  </Commands>
+
+  <Symbols>
+    <GuidSymbol name="guidCopilotCliIdePackage" value="{a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d}" />
+    <GuidSymbol name="guidCopilotCliIdeCmdSet" value="{e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c}">
+      <IDSymbol name="CopilotCliMenuGroup" value="0x1020" />
+      <IDSymbol name="LaunchCopilotCliCommandId" value="0x0100" />
+    </GuidSymbol>
+    <GuidSymbol name="guidImages" value="{063cfd9a-783a-4907-801f-30eccf98c5f0}">
+      <IDSymbol name="copilotIcon" value="1" />
+    </GuidSymbol>
+  </Symbols>
+
+</CommandTable>
