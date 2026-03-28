@@ -2261,3 +2261,51 @@ Split McpPipeServer.HandleConnectionAsync into focused route handlers and extrac
 - **Hudson:** SseBroadcaster is internal with InternalsVisibleTo access — can write unit tests for it directly
 - **Hicks:** No extension changes needed
 - **Ripley:** McpPipeServer LOC reduced from ~375 to ~340, with clearer separation of concerns
+
+---
+
+### HttpPipeFraming Literals Pass 2 Constants Extraction
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-10  
+**Status:** Implemented
+**Reviewed:** Hudson ✅
+
+## Context
+
+The second pass of constants extraction on `src/CopilotCliIde.Server/HttpPipeFraming.cs` to improve code readability and maintainability without changing protocol behavior.
+
+## Decision
+
+Extract 3 new constants and 1 helper method:
+
+### New Constants (3)
+- **`ContentTypeHeader`** — standardizes `"content-type"` header name, mirrors existing `ContentLengthHeader`/`TransferEncodingHeader` pattern, eliminates bare string literal in 2 header checks
+- **`ConnectionHeader`** — standardizes `"connection"` header name, used in 1 header lookup
+- **`EventStreamContentType`** — names the `"text/event-stream"` magic string that controls branching between chunked-vs-content-length encoding
+
+### New Helper (1)
+- **`ReadTrailingCrlfAsync(Stream stream, CancellationToken ct)`** — deduplicates the 2-byte CRLF read operation that appeared twice in `ReadChunkedBodyAsync` (once after each chunk's data, once after the final zero-chunk). Makes intent self-documenting.
+
+## What Was Deliberately Skipped
+- Chunk terminator byte literals (`"0\r\n\r\n"u8`, `"\r\n0\r\n\r\n"u8`) — used once each, already very readable as UTF-8 literals; extracting would add indirection without clarity gain
+- `"HTTP/1.1"` version string — used once, universally recognizable
+- Chunk assembly `Buffer.BlockCopy` block — used once, extraction would obscure byte-level intent
+
+## Verification
+
+**Test Run:**
+```
+dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj
+```
+**Result:** 213 tests pass, 0 failed, 0 skipped  
+**Build:** Clean, no warnings  
+**Protocol:** Wire format unchanged
+
+## Review Decision (Hudson)
+
+✅ **Approved.** No protocol drift, no extra tests needed. Existing suite validates extraction correctness.
+
+## Team Impact
+
+**Low.** Self-contained readability improvement. No API surface changes. `PipeProxy` uses its own HTTP helpers and is unaffected.

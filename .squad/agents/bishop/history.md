@@ -614,3 +614,7 @@ Refactored McpPipeServer to split request handling into focused route handlers a
 ### 2026-03-10 — HttpPipeFraming Literal Extraction
 
 Extracted four `private const string` fields (`Crlf`, `HeaderTerminator`, `ContentLengthHeader`, `TransferEncodingHeader`) from repeated literals in `HttpPipeFraming.cs`. Each constant replaced 2+ occurrences across read and write paths. Single-use header names and UTF-8 byte literals (`u8` chunk terminators) left as-is — they don't repeat and are already readable. All 213 server tests pass; wire output unchanged. Decision doc written to `.squad/decisions/inbox/bishop-http-literals.md`.
+
+### 2026-03-10 — HttpPipeFraming Literal Extraction Pass 2
+
+Second extraction pass on `HttpPipeFraming.cs`. Added three more constants (`ContentTypeHeader`, `ConnectionHeader`, `EventStreamContentType`) to complete the header-name constant set and name the magic string controlling chunked-vs-content-length branching. Added `ReadTrailingCrlfAsync` helper to deduplicate the 2-byte CRLF read pattern that appeared twice in `ReadChunkedBodyAsync`. Deliberately skipped chunk terminator byte literals (`u8`), `"HTTP/1.1"` string, and chunk assembly `Buffer.BlockCopy` block — all single-use and already readable. 213 tests pass; wire output unchanged. Decision doc: `.squad/decisions/inbox/bishop-http-literals-pass2.md`.

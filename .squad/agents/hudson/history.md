@@ -334,3 +334,28 @@ Verified Phase B refactoring of McpPipeServer route split and SseBroadcaster ext
 
 **Implication for test strategy:** If per-client deduplication (Phase C) is pursued, SseBroadcaster's internal accessibility makes unit test authoring straightforward.
 
+### 2026-07-21 — Second-Pass Review: HttpPipeFraming Literal Extraction (Hudson)
+
+**Scope:** Independent review of Bishop's second-pass extraction in HttpPipeFraming — the 4 `private const string` fields (`Crlf`, `HeaderTerminator`, `ContentLengthHeader`, `TransferEncodingHeader`) plus the full uncommitted Phase B extraction (SseBroadcaster, SseClient, SingletonServiceProvider, route handler split).
+
+**1) Protocol behavior drift: NONE.**
+- HttpPipeFraming constants are `private`, used in identical expressions. Wire output unchanged.
+- SseBroadcaster.BroadcastAsync moves `fullChunk` allocation outside the per-client loop — this is a minor optimization (avoids redundant byte[] per client) but produces identical bytes on the wire. Same JSON-RPC envelope, same SSE event format, same chunked encoding.
+- Route handlers preserve all status codes (401, 400, 404, 504, 500, 200, 202), response bodies, and header values exactly.
+- open_diff 30s timeout bypass, postCts linked token, and 504 fallback path unchanged.
+- SSE GET header string (cache-control, mcp-session-id, transfer-encoding) byte-identical to original inline string.
+- DELETE handler: same 200 + empty body.
+
+**2) Readability: IMPROVED, not over-engineered.**
+- McpPipeServer reduced from ~573 to ~340 lines. HandleConnectionAsync reads as a clean dispatcher.
+- `isMcpRoute` eliminates 3 repeated `path is "/mcp" or "/"` checks.
+- Each extracted file is small and focused: SseBroadcaster (89 lines), SseClient (15 lines), SingletonServiceProvider (21 lines), HttpPipeFraming (177 lines).
+- SingletonServiceProviderTests removed the reflection workaround — cleaner test code.
+- The 4 const strings in HttpPipeFraming replace 13 literal occurrences across read/write paths. Single-use literals correctly left as-is.
+
+**3) Test results: 213/213 passing, 0 failed, 0 skipped.**
+- All test changes are mechanical `McpPipeServer.` → `HttpPipeFraming.` call target renames.
+- No additional focused tests needed: the extraction introduces zero new behavior. Existing HTTP framing tests (26 across 3 files), notification format tests, and integration tests provide full coverage of the moved code.
+
+**Verdict: APPROVED.** Clean second-pass extraction. Zero protocol drift. Readability genuinely improved. All tests green.
+
