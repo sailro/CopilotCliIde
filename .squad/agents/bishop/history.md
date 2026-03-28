@@ -645,3 +645,10 @@ New vs-1.0.12 capture added alongside existing vs-1.0.8. CrossCaptureConsistency
 **Protocol analysis:** No behavior drift found. Both VS captures produce identical initialize responses, tools/list, notification schemas, and diagnostic structures. The refactor (OOPize commit) changed no wire behavior.
 
 **Outcome:** ✅ 231 tests passing. No server/shared code changes needed — the captures confirmed post-refactor protocol compatibility. Test infrastructure now handles N VS captures for future growth.
+
+### 2026-03-28T20:20:37Z — Multi-Capture Test Pattern Validation (Hudson)
+
+Hudson validated new capture schema for multi-VS scenario support. Refactored test infrastructure to load multiple VS captures from the new vs-1.0.12 capture file, confirmed that capture payload structure handles concurrent sessions with session ID isolation. All 213+ server tests pass; no protocol wire behavior changes detected.
+
+**Cross-agent note:** Bishop's McpPipeServer literal extraction aligns with this pattern — the SessionIdHeader constant now eliminates duplication risk in the session ID tracking code that Hudson's multi-capture tests exercise.
+

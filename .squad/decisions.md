@@ -2385,3 +2385,37 @@ Extracted four `private const string` fields at class level:
 - No API surface changes (constants are `private`).
 - No test modifications needed.
 
+
+
+---
+
+# McpPipeServer SAFE Literals Extraction
+
+**Date:** 2026-03-28
+**Author:** Bishop (Server Dev)
+**Status:** Implemented
+**Scope:** `src/CopilotCliIde.Server/McpPipeServer.cs` only
+
+## Decision
+
+Extracted four magic literals from `McpPipeServer.cs` into `private const` fields, following the same naming and placement conventions as `HttpPipeFraming.cs`:
+
+| Constant | Type | Value | Usage Count |
+|---|---|---|---|
+| `PipeStartupDelayMs` | `int` | `200` | 1 (StartAsync) |
+| `McpToolTimeoutSeconds` | `int` | `30` | 1 (HandleMcpPostAsync) |
+| `OpenDiffToolName` | `string` | `"open_diff"` | 1 (HandleMcpPostAsync) |
+| `SessionIdHeader` | `string` | `"mcp-session-id"` | 4 (POST 200/202 headers, SSE GET lookup, SSE response line) |
+
+## Rationale
+
+- Eliminates scattered magic numbers/strings in protocol-critical code paths.
+- `SessionIdHeader` had the highest duplication risk (4 occurrences) — a typo in any one would silently break session tracking.
+- Naming follows `HttpPipeFraming.cs` precedent: `PascalCase`, `private const`, grouped at top of class.
+- `OpenDiffToolName` documents the semantic coupling between the timeout-skip logic and the tool registration in `OpenDiffTool.cs`.
+
+## Validation
+
+- 213 server tests pass (`dotnet test`).
+- Wire output is byte-identical (all constants inline at compile time).
+- No other files modified.

@@ -383,3 +383,10 @@ Verified Phase B refactoring of McpPipeServer route split and SseBroadcaster ext
 
 **Verdict: APPROVED.** Extraction is clean, byte-identical, and improves readability. Named constants for CRLF/headers are a net win. All 213 tests green.
 
+
+### 2026-03-28T20:20:37Z — McpPipeServer Literal Extraction (Bishop)
+
+Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds, OpenDiffToolName, SessionIdHeader) from McpPipeServer.cs into private const fields following HttpPipeFraming.cs convention. Confirmed no protocol drift via test execution — all 213 server tests pass. SessionIdHeader constant now eliminates the duplication risk across 4 code locations critical to session tracking.
+
+**Cross-agent note:** This refactoring strengthens the code that Hudson's new multi-capture tests exercise. The constant-driven approach makes the session ID header contract explicit and testable.
+
