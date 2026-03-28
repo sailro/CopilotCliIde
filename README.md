@@ -32,7 +32,7 @@ Double-click the `.vsix` to install, or use F5 in Visual Studio to debug in the 
 ### Usage
 
 1. **Open a solution** in Visual Studio — the extension activates automatically
-2. **Open Copilot CLI** in a terminal, with the working directory matching the solution folder
+2. **Launch Copilot CLI** — either use **Tools → Launch Copilot CLI** from the menu bar, or open a terminal manually in the solution folder
 3. **Run `/ide`** in Copilot CLI — it discovers Visual Studio and connects
 
 ```
