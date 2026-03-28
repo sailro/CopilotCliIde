@@ -2309,3 +2309,79 @@ dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj
 ## Team Impact
 
 **Low.** Self-contained readability improvement. No API surface changes. `PipeProxy` uses its own HTTP helpers and is unaffected.
+
+
+---
+
+## HttpPipeFraming Chunk-End Constants (Merged 2026-03-28)
+
+# HttpPipeFraming Chunk-End Constants
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-03-10  
+**Status:** Implemented  
+**Scope:** `src/CopilotCliIde.Server/HttpPipeFraming.cs`
+
+## Context
+
+Pass 3 of literal extraction in `HttpPipeFraming.cs`. Previous passes extracted string constants (`Crlf`, `HeaderTerminator`, etc.) but deliberately left two `u8` byte literals as "single-use and already readable." User feedback identified these as inconsistent — the same `\r\n` and `\r\n\r\n` sequences already had named constants but weren't being used in the chunk terminator bytes.
+
+## Decision
+
+Replaced the two hardcoded `u8.ToArray()` chunk terminators with `static readonly byte[]` fields composed from the existing string constants:
+
+```csharp
+// Before (hardcoded u8 literals)
+var chunkEnd = "\r\n0\r\n\r\n"u8.ToArray();
+var terminator = "0\r\n\r\n"u8.ToArray();
+
+// After (constant-driven, allocated once)
+private static readonly byte[] ChunkEndBytes = Encoding.UTF8.GetBytes($"{Crlf}0{HeaderTerminator}");
+private static readonly byte[] ChunkTerminatorBytes = Encoding.UTF8.GetBytes($"0{HeaderTerminator}");
+```
+
+## Rationale
+
+- **DRY:** `\r\n` and `\r\n\r\n` are already named as `Crlf` and `HeaderTerminator` — using them everywhere makes the semantic structure visible
+- **C# `u8` limitation:** UTF-8 string literals don't support interpolation or concatenation, so `static readonly byte[]` with `Encoding.UTF8.GetBytes()` is the idiomatic alternative
+- **Performance:** `static readonly` allocates once at class load vs `u8.ToArray()` which allocates a new array on every call
+- **Wire-identical:** Output bytes are unchanged; 213 server tests pass
+
+## Team Impact
+
+Low. Server-only change, no contract or protocol impact. Establishes the pattern: when byte arrays are composed from protocol-level sequences (`CRLF`, header terminator), use the named constants via `Encoding.UTF8.GetBytes()` rather than inline `u8` literals.
+
+
+---
+
+## Extract HTTP Literal Constants (Merged 2026-03-28)
+
+# Decision: Extract HTTP Literal Constants in HttpPipeFraming
+
+**Author:** Bishop (Server Dev)
+**Date:** 2026-03-10
+**Status:** Implemented
+
+## Context
+
+`HttpPipeFraming.cs` contained repeated string literals for HTTP protocol elements — CRLF sequences, header terminator, and header names (`content-length`, `transfer-encoding`) that appeared in both read and write paths.
+
+## Decision
+
+Extracted four `private const string` fields at class level:
+
+| Constant | Value | Usage Count |
+|---|---|---|
+| `Crlf` | `"\r\n"` | 7 substitutions across read/write |
+| `HeaderTerminator` | `"\r\n\r\n"` | 2 (header detection + header block end) |
+| `ContentLengthHeader` | `"content-length"` | 2 (read body + write header) |
+| `TransferEncodingHeader` | `"transfer-encoding"` | 2 (read body + write header) |
+
+**Not extracted:** Single-use header names (`connection`, `content-type`), UTF-8 byte literals (`u8` chunk terminators), and char-based patterns in `ReadChunkedBodyAsync` (pattern matching `'\r', '\n'`). These don't repeat and are already readable.
+
+## Impact
+
+- Wire output is 100% identical — verified by all 213 server tests passing (26 HTTP-specific tests across HttpParsingTests, HttpResponseTests, ChunkedEncodingTests).
+- No API surface changes (constants are `private`).
+- No test modifications needed.
+

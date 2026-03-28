@@ -618,3 +618,12 @@ Extracted four `private const string` fields (`Crlf`, `HeaderTerminator`, `Conte
 ### 2026-03-10 — HttpPipeFraming Literal Extraction Pass 2
 
 Second extraction pass on `HttpPipeFraming.cs`. Added three more constants (`ContentTypeHeader`, `ConnectionHeader`, `EventStreamContentType`) to complete the header-name constant set and name the magic string controlling chunked-vs-content-length branching. Added `ReadTrailingCrlfAsync` helper to deduplicate the 2-byte CRLF read pattern that appeared twice in `ReadChunkedBodyAsync`. Deliberately skipped chunk terminator byte literals (`u8`), `"HTTP/1.1"` string, and chunk assembly `Buffer.BlockCopy` block — all single-use and already readable. 213 tests pass; wire output unchanged. Decision doc: `.squad/decisions/inbox/bishop-http-literals-pass2.md`.
+
+### 2026-03-10 — HttpPipeFraming Chunk-End Constants (Pass 3)
+
+Replaced the two remaining hardcoded `u8` chunk terminator byte literals in `HttpPipeFraming.WriteHttpResponseAsync` with `static readonly byte[]` fields built from existing string constants:
+
+- `ChunkEndBytes = Encoding.UTF8.GetBytes($"{Crlf}0{HeaderTerminator}")` — replaces `"\r\n0\r\n\r\n"u8.ToArray()` (chunked body with data)
+- `ChunkTerminatorBytes = Encoding.UTF8.GetBytes($"0{HeaderTerminator}")` — replaces `"0\r\n\r\n"u8.ToArray()` (empty chunked body)
+
+**Why `static readonly` instead of `u8`:** C# UTF-8 string literals (`u8`) don't support interpolation or concatenation. Using `Encoding.UTF8.GetBytes()` with the existing `Crlf`/`HeaderTerminator` constants ensures DRY compliance and is actually more efficient — allocates once at class load instead of per-call `ToArray()`. Wire output is byte-identical. 213 tests pass. Decision doc: `.squad/decisions/inbox/bishop-chunkend-constants.md`.

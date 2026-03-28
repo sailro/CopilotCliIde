@@ -359,3 +359,27 @@ Verified Phase B refactoring of McpPipeServer route split and SseBroadcaster ext
 
 **Verdict: APPROVED.** Clean second-pass extraction. Zero protocol drift. Readability genuinely improved. All tests green.
 
+---
+
+### Review: bishop-http-literals-full-extraction (Hudson)
+
+**Date:** 2025-07-25
+**Scope:** Full class extraction of `HttpPipeFraming`, `SingletonServiceProvider`, `SseBroadcaster`, `SseClient` from `McpPipeServer.cs` into dedicated files. Tests updated to reference new types.
+
+**1) Byte-identical semantics: CONFIRMED**
+- `"\r\n0\r\n\r\n"u8` and `"0\r\n\r\n"u8` chunk-end literals in `HttpPipeFraming.WriteHttpResponseAsync` are character-for-character identical to the originals in `McpPipeServer`.
+- `"\r\n"u8` chunk-trailer in `SseBroadcaster.BroadcastAsync` matches original.
+- Header-building strings now use named constants (`Crlf`, `HeaderTerminator`, `ContentLengthHeader`, etc.) — all map 1:1 to original inline literals.
+- `HttpPipeFraming` is `internal static` — `public` method visibility is effectively `internal`. No API surface change.
+
+**2) Protocol drift: NONE**
+- No new bytes, no reordering, no format changes. Wire output is identical.
+- `SingletonServiceProvider` promoted from `private sealed` nested class to `internal sealed` top-level — eliminates reflection hack in tests without changing runtime behavior.
+
+**3) Test results: 213/213 passing, 0 failed, 0 skipped.**
+- All test changes are mechanical type renames (`McpPipeServer.` → `HttpPipeFraming.` / `new SingletonServiceProvider(...)`).
+- `SingletonServiceProviderTests` no longer needs reflection `CreateProvider` helper — direct instantiation is cleaner.
+- No remaining references to `McpPipeServer.ReadHttpRequestAsync`, `.WriteHttpResponseAsync`, or `.ReadChunkedBodyAsync` anywhere in codebase.
+
+**Verdict: APPROVED.** Extraction is clean, byte-identical, and improves readability. Named constants for CRLF/headers are a net win. All 213 tests green.
+
