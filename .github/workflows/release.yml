@@ -88,5 +88,5 @@ jobs:
         run: |
           $releases = gh release list --json tagName --jq '.[].tagName' | Where-Object { $_ -ne "${{ steps.version.outputs.version }}" }
           foreach ($tag in $releases) {
-            gh release delete $tag --yes --cleanup-tag
+            gh release delete $tag --yes
           }
