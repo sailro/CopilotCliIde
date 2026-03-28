@@ -530,3 +530,31 @@ Analyzed `vscode-0.41.ndjson` capture (129 lines, 8 MCP sessions, captured 2026-
 
 These are Hudson's domain (test infrastructure fixes for the 0.41 capture's multi-session format).
 - **Diagnostic severity contract centralized (2026-03-28):** Added `DiagnosticSeverity` constants (`error`, `warning`, `information`) to `CopilotCliIde.Shared\Contracts.cs` and updated extension/server test usage to consume this shared contract instead of ad-hoc literals. Kept `DiagnosticItem.Severity` as `string` to preserve existing wire format compatibility while removing scattered literal drift risk.
+
+### 2026-03-28 — Phase A Refactor: Extract Inner Classes from McpPipeServer
+
+Extracted three concerns from McpPipeServer.cs into dedicated files with no behavior changes:
+
+1. **HttpPipeFraming.cs** — internal static class holding ReadHttpRequestAsync, ReadChunkedBodyAsync, WriteHttpResponseAsync. These were already internal static methods, so the move was trivial. Call sites in McpPipeServer updated to HttpPipeFraming.*.
+
+2. **SseClient.cs** — Promoted from private sealed class nested in McpPipeServer to internal sealed class at namespace level. No API changes.
+
+3. **SingletonServiceProvider.cs** — Promoted from private sealed class nested in McpPipeServer to internal sealed class at namespace level. Implements IServiceProvider + IServiceProviderIsService.
+
+**Test updates:**
+- HttpParsingTests.cs, HttpResponseTests.cs, ChunkedEncodingTests.cs — all McpPipeServer.* calls → HttpPipeFraming.*
+- TrafficReplayTests.cs — single McpPipeServer.ReadChunkedBodyAsync call → HttpPipeFraming.ReadChunkedBodyAsync
+- SingletonServiceProviderTests.cs — eliminated reflection-based CreateProvider() helper; tests now instantiate SingletonServiceProvider directly since it's no longer a nested private class
+
+**Verification:** dotnet build (0 errors, 0 warnings) and dotnet test (213/213 passed) — identical to baseline.
+
+**Key decision:** Used internal visibility for all three extracted types (not public). They're implementation details exposed only via InternalsVisibleTo to the test project. McpPipeServer remains the only public API surface.
+
+### 2026-03-28 — Phase A Completion & Decision Merge (Scribe)
+
+**Status:** Phase A refactor work is now formally recorded in decisions.md. All orchestration logs written. Session log created. No further action required from Bishop.
+
+**Cross-Agent Context:**
+- Bishop completed extraction; Hudson verified 213/213 tests pass.
+- Decision merged from .squad/decisions/inbox/bishop-phase-a.md to .squad/decisions.md.
+- Ready for Phase B (buffered header reading per Review Findings H1/H3).

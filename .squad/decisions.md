@@ -2174,3 +2174,49 @@ Introduce DiagnosticSeverity as a shared constants contract in CopilotCliIde.Sha
 - src/CopilotCliIde/DiagnosticTracker.cs — use shared constants in severity mapping
 - Test files in both projects — reference shared constants
 
+
+## Phase A Refactor: McpPipeServer Inner Class Extraction (2026-03-28)
+
+**Owner(s):** Bishop  
+**Topic:** Server architecture
+
+### Context
+
+McpPipeServer.cs contained three distinct concerns mixed together:
+- HTTP frame read/write logic (130 lines)
+- SSE client lifecycle management (150 lines)
+- MCP tool DI container setup (90 lines)
+- Main MCP orchestration logic (200 lines)
+
+Total file size: 572 lines. This made it difficult to evolve HTTP handling or DI without touching unrelated orchestration code.
+
+### Decision
+
+Extract three inner classes into standalone files:
+1. **HttpPipeFraming.cs** — Static utility methods for HTTP frame reading/writing
+2. **SseClient.cs** — SSE client state, lifecycle events, and keep-alive management
+3. **SingletonServiceProvider.cs** — MCP tool reflection-based DI registration
+
+All three extracted classes are internal (not public). McpPipeServer remains the sole public surface for MCP server operations. No public API change.
+
+### Rationale
+
+- Extraction enables future Phase B/C improvements (buffered header reading, per-client dedup) without touching unrelated code paths.
+- Test visibility improves: SingletonServiceProviderTests no longer needs reflection to reach a private nested class.
+- Separation of concerns makes each extracted component independently testable and evolvable.
+- Zero behavioral change — this is pure refactoring.
+
+### Impact
+
+- No protocol change. No API change. No behavior change.
+- 213/213 tests pass (identical to baseline).
+- Future HTTP framing work (H1, H3, H4 from Review Findings) can now safely modify HttpPipeFraming.cs without risk of cascade changes.
+- McpPipeServer.cs reduced to ~350 lines (orchestration only).
+
+### Files Modified
+
+- src/CopilotCliIde.Server/McpPipeServer.cs — removed inner classes, preserved public interface
+- src/CopilotCliIde.Server/HttpPipeFraming.cs — new
+- src/CopilotCliIde.Server/SseClient.cs — new
+- src/CopilotCliIde.Server/SingletonServiceProvider.cs — new
+- Tests validated: 213/213 passing

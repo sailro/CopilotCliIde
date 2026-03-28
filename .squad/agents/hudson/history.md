@@ -274,3 +274,18 @@ Performed exhaustive protocol comparison between CLI 0.41 (VS Code 1.113.0) and 
   - `DeleteMcpDisconnect_PresentIn039Captures` now validates DELETE request structure plus existence of a server response (instead of strict “last 3 entries” positioning).
   - `Http400RetrySequence_HasValidErrorStructure` now accepts both JSON-RPC 400 errors and plain-text 400 bodies (`Invalid or missing session ID`).
 - Verification: targeted fast-retry filter passed (21/21), then full `CopilotCliIde.Server.Tests` suite passed (213/213).
+### 2026-03-28 — Phase A Extraction Verification (Hudson)
+
+- Pulled latest main (git pull --ff-only): already up to date.
+- Ran full server suite: dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj --nologo --verbosity minimal.
+- Result: **213/213 passing**, **0 failed**, including HTTP framing/SSE-sensitive coverage (McpPipeServerTests, NotificationFormatTests, replay/protocol suites).
+- No test edits required; no path/type rename fallout detected from Phase A extraction.
+
+### 2026-03-28 — Phase A Completion & Decision Merge (Scribe)
+
+**Status:** Verification work is now formally recorded. Phase A extraction work confirmed safe. Decision merged to decisions.md. All orchestration logs written.
+
+**Cross-Agent Context:**
+- Bishop completed extraction; Hudson verification (213/213 tests) passed.
+- No follow-up testing required.
+- Awaiting Phase B assignment.
