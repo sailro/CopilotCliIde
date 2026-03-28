@@ -22,7 +22,7 @@ public class CrossCaptureConsistencyTests
 	[Fact]
 	public void ToolResponseFields_ExactMatchWithVsCode()
 	{
-		var vsParser = LoadVsCapture();
+		var vsParsers = LoadVsCaptures();
 		var vsCodeParsers = LoadVsCodeCaptures();
 
 		var vsCodeFieldsByTool = new Dictionary<string, HashSet<string>>();
@@ -40,14 +40,28 @@ public class CrossCaptureConsistencyTests
 			}
 		}
 
+		var vsFieldsByTool = new Dictionary<string, HashSet<string>>();
+		foreach (var (_, parser) in vsParsers)
+		{
+			foreach (var toolName in GetAllVsCodeToolNames())
+			{
+				var fields = ExtractToolResponseFields(parser, toolName);
+				if (fields is null)
+					continue;
+
+				if (!vsFieldsByTool.ContainsKey(toolName))
+					vsFieldsByTool[toolName] = [];
+				vsFieldsByTool[toolName].UnionWith(fields);
+			}
+		}
+
 		var errors = new List<string>();
 
 		foreach (var (toolName, vsCodeFields) in vsCodeFieldsByTool)
 		{
-			var vsFields = ExtractToolResponseFields(vsParser, toolName);
-			if (vsFields is null)
+			if (!vsFieldsByTool.TryGetValue(toolName, out var vsFields))
 			{
-				errors.Add($"  {toolName}: No response found in VS capture");
+				errors.Add($"  {toolName}: No response found in any VS capture");
 				continue;
 			}
 
@@ -69,7 +83,7 @@ public class CrossCaptureConsistencyTests
 	[Fact]
 	public void SelectionChangedNotification_ExactMatchWithVsCode()
 	{
-		var vsParser = LoadVsCapture();
+		var vsParsers = LoadVsCaptures();
 		var vsCodeParsers = LoadVsCodeCaptures();
 
 		var vsCodeFields = new HashSet<string>();
@@ -82,8 +96,15 @@ public class CrossCaptureConsistencyTests
 
 		Assert.True(vsCodeFields.Count > 0, "No selection_changed notifications found in VS Code captures");
 
-		var vsFields = ExtractNotificationParamsFields(vsParser, Notification.SelectionChanged);
-		Assert.NotNull(vsFields);
+		var vsFields = new HashSet<string>();
+		foreach (var (_, parser) in vsParsers)
+		{
+			var fields = ExtractNotificationParamsFields(parser, Notification.SelectionChanged);
+			if (fields is not null)
+				vsFields.UnionWith(fields);
+		}
+
+		Assert.True(vsFields.Count > 0, "No selection_changed notifications found in VS captures");
 
 		var errors = new List<string>();
 
@@ -99,7 +120,7 @@ public class CrossCaptureConsistencyTests
 	[Fact]
 	public void DiagnosticsChangedNotification_DiagnosticFields_ExactMatchWithVsCode()
 	{
-		var vsParser = LoadVsCapture();
+		var vsParsers = LoadVsCaptures();
 		var vsCodeParsers = LoadVsCodeCaptures();
 
 		var vsCodeDiagFields = new HashSet<string>();
@@ -113,8 +134,16 @@ public class CrossCaptureConsistencyTests
 		Assert.True(vsCodeDiagFields.Count > 0,
 			"No diagnostics_changed notifications with diagnostic items found in VS Code captures");
 
-		var vsDiagFields = ExtractDiagnosticItemFields(vsParser);
-		Assert.NotNull(vsDiagFields);
+		var vsDiagFields = new HashSet<string>();
+		foreach (var (_, parser) in vsParsers)
+		{
+			var fields = ExtractDiagnosticItemFields(parser);
+			if (fields is not null)
+				vsDiagFields.UnionWith(fields);
+		}
+
+		Assert.True(vsDiagFields.Count > 0,
+			"No diagnostics_changed notifications with diagnostic items found in VS captures");
 
 		var errors = new List<string>();
 
@@ -134,10 +163,10 @@ public class CrossCaptureConsistencyTests
 	public void DiagnosticsChangedNotification_RangeEnd_MustNotBeZeroed()
 	{
 		var vsCodeParsers = LoadVsCodeCaptures();
-		var vsParser = LoadVsCapture();
+		var vsParsers = LoadVsCaptures();
 
 		var vsCodeEnds = CollectRangeEndValues(vsCodeParsers.Select(p => p.Parser));
-		var vsEnds = CollectRangeEndValues([vsParser]);
+		var vsEnds = CollectRangeEndValues(vsParsers.Select(p => p.Parser));
 
 		var vsCodeHasNonZeroEnd = vsCodeEnds.Any(e => e.Line != 0 || e.Character != 0);
 		var vsHasNonZeroEnd = vsEnds.Any(e => e.Line != 0 || e.Character != 0);
@@ -158,7 +187,7 @@ public class CrossCaptureConsistencyTests
 	[Fact]
 	public void InitializeResponse_ExactMatchWithVsCode()
 	{
-		var vsParser = LoadVsCapture();
+		var vsParsers = LoadVsCaptures();
 		var vsCodeParsers = LoadVsCodeCaptures();
 
 		var vsCodeResultFields = new HashSet<string>();
@@ -188,42 +217,45 @@ public class CrossCaptureConsistencyTests
 
 		Assert.True(vsCodeResultFields.Count > 0, "No initialize responses found in VS Code captures");
 
-		var vsInitResp = vsParser.GetInitializeResponse();
-		Assert.NotNull(vsInitResp);
-
-		var vsResult = vsInitResp.Value.GetProperty("result");
-		var vsResultFields = vsResult.EnumerateObject().Select(p => p.Name).ToHashSet();
-
-		var vsCapabilityFields = new HashSet<string>();
-		if (vsResult.TryGetProperty("capabilities", out var vsCaps))
-			foreach (var prop in vsCaps.EnumerateObject())
-				vsCapabilityFields.Add(prop.Name);
-
-		var vsServerInfoFields = new HashSet<string>();
-		if (vsResult.TryGetProperty("serverInfo", out var vsSi))
-			foreach (var prop in vsSi.EnumerateObject())
-				vsServerInfoFields.Add(prop.Name);
-
 		var errors = new List<string>();
 
-		// Result-level: exact match
-		errors.AddRange(vsCodeResultFields.Except(vsResultFields)
-			.Select(f => $"  result: MISSING '{f}'"));
-		errors.AddRange(vsResultFields.Except(vsCodeResultFields)
-			.Select(f => $"  result: EXTRA '{f}' (VS Code doesn't have it)"));
+		foreach (var (vsName, vsParser) in vsParsers)
+		{
+			var vsInitResp = vsParser.GetInitializeResponse();
+			Assert.True(vsInitResp is not null, $"[{vsName}] No initialize response found");
 
-		// Capabilities: exact match (except MCP SDK extras)
-		errors.AddRange(vsCodeCapabilityFields.Except(vsCapabilityFields)
-			.Select(f => $"  capabilities: MISSING '{f}'"));
-		errors.AddRange(vsCapabilityFields.Except(vsCodeCapabilityFields)
-			.Where(f => !_mcpSdkExtraCapabilities.Contains(f))
-			.Select(f => $"  capabilities: EXTRA '{f}' (VS Code doesn't have it)"));
+			var vsResult = vsInitResp.Value.GetProperty("result");
+			var vsResultFields = vsResult.EnumerateObject().Select(p => p.Name).ToHashSet();
 
-		// ServerInfo: exact match
-		errors.AddRange(vsCodeServerInfoFields.Except(vsServerInfoFields)
-			.Select(f => $"  serverInfo: MISSING '{f}'"));
-		errors.AddRange(vsServerInfoFields.Except(vsCodeServerInfoFields)
-			.Select(f => $"  serverInfo: EXTRA '{f}' (VS Code doesn't have it)"));
+			var vsCapabilityFields = new HashSet<string>();
+			if (vsResult.TryGetProperty("capabilities", out var vsCaps))
+				foreach (var prop in vsCaps.EnumerateObject())
+					vsCapabilityFields.Add(prop.Name);
+
+			var vsServerInfoFields = new HashSet<string>();
+			if (vsResult.TryGetProperty("serverInfo", out var vsSi))
+				foreach (var prop in vsSi.EnumerateObject())
+					vsServerInfoFields.Add(prop.Name);
+
+			// Result-level: exact match
+			errors.AddRange(vsCodeResultFields.Except(vsResultFields)
+				.Select(f => $"  [{vsName}] result: MISSING '{f}'"));
+			errors.AddRange(vsResultFields.Except(vsCodeResultFields)
+				.Select(f => $"  [{vsName}] result: EXTRA '{f}' (VS Code doesn't have it)"));
+
+			// Capabilities: exact match (except MCP SDK extras)
+			errors.AddRange(vsCodeCapabilityFields.Except(vsCapabilityFields)
+				.Select(f => $"  [{vsName}] capabilities: MISSING '{f}'"));
+			errors.AddRange(vsCapabilityFields.Except(vsCodeCapabilityFields)
+				.Where(f => !_mcpSdkExtraCapabilities.Contains(f))
+				.Select(f => $"  [{vsName}] capabilities: EXTRA '{f}' (VS Code doesn't have it)"));
+
+			// ServerInfo: exact match
+			errors.AddRange(vsCodeServerInfoFields.Except(vsServerInfoFields)
+				.Select(f => $"  [{vsName}] serverInfo: MISSING '{f}'"));
+			errors.AddRange(vsServerInfoFields.Except(vsCodeServerInfoFields)
+				.Select(f => $"  [{vsName}] serverInfo: EXTRA '{f}' (VS Code doesn't have it)"));
+		}
 
 		Assert.True(errors.Count == 0,
 			$"Initialize response does not exactly match VS Code:\n{string.Join("\n", errors)}");
@@ -236,7 +268,7 @@ public class CrossCaptureConsistencyTests
 	[Fact]
 	public void ToolInputSchemas_StrictMatchWithVsCode()
 	{
-		var vsParser = LoadVsCapture();
+		var vsParsers = LoadVsCaptures();
 		var vsCodeParsers = LoadVsCodeCaptures();
 
 		var vsCodeSchemas = new Dictionary<string, JsonElement>();
@@ -255,36 +287,39 @@ public class CrossCaptureConsistencyTests
 			}
 		}
 
-		var vsToolsList = vsParser.GetToolsListResponse();
-		Assert.NotNull(vsToolsList);
-
-		var vsSchemas = new Dictionary<string, JsonElement>();
-		var vsTools = vsToolsList.Value.GetProperty("result").GetProperty("tools");
-		foreach (var tool in vsTools.EnumerateArray())
-		{
-			var name = tool.GetProperty("name").GetString()!;
-			if (tool.TryGetProperty("inputSchema", out var schema))
-				vsSchemas[name] = schema.Clone();
-		}
-
 		var errors = new List<string>();
 
-		// VS Code tools missing from VS → FAIL
-		foreach (var (toolName, vsCodeSchema) in vsCodeSchemas)
+		foreach (var (vsName, vsParser) in vsParsers)
 		{
-			if (!vsSchemas.TryGetValue(toolName, out var vsSchema))
+			var vsToolsList = vsParser.GetToolsListResponse();
+			Assert.True(vsToolsList is not null, $"[{vsName}] No tools/list response found");
+
+			var vsSchemas = new Dictionary<string, JsonElement>();
+			var vsTools = vsToolsList.Value.GetProperty("result").GetProperty("tools");
+			foreach (var tool in vsTools.EnumerateArray())
 			{
-				errors.Add($"  {toolName}: Entire tool MISSING from VS tools/list");
-				continue;
+				var name = tool.GetProperty("name").GetString()!;
+				if (tool.TryGetProperty("inputSchema", out var schema))
+					vsSchemas[name] = schema.Clone();
 			}
 
-			CompareSchemas(toolName, vsCodeSchema, vsSchema, errors);
-		}
+			// VS Code tools missing from VS → FAIL
+			foreach (var (toolName, vsCodeSchema) in vsCodeSchemas)
+			{
+				if (!vsSchemas.TryGetValue(toolName, out var vsSchema))
+				{
+					errors.Add($"  [{vsName}] {toolName}: Entire tool MISSING from VS tools/list");
+					continue;
+				}
 
-		// VS tools not in VS Code → FAIL (except read_file)
-		errors.AddRange(vsSchemas.Keys.Except(vsCodeSchemas.Keys)
-			.Where(toolName => toolName != AllowedExtraTool)
-			.Select(toolName => $"  {toolName}: EXTRA tool in VS (VS Code doesn't have it)"));
+				CompareSchemas($"[{vsName}] {toolName}", vsCodeSchema, vsSchema, errors);
+			}
+
+			// VS tools not in VS Code → FAIL (except read_file)
+			errors.AddRange(vsSchemas.Keys.Except(vsCodeSchemas.Keys)
+				.Where(toolName => toolName != AllowedExtraTool)
+				.Select(toolName => $"  [{vsName}] {toolName}: EXTRA tool in VS (VS Code doesn't have it)"));
+		}
 
 		Assert.True(errors.Count == 0,
 			$"Tool input schemas do not strictly match VS Code:\n{string.Join("\n", errors)}");
@@ -359,15 +394,15 @@ public class CrossCaptureConsistencyTests
 
 	#region Helpers — Capture Loading
 
-	private static TrafficParser LoadVsCapture()
+	private static List<(string Name, TrafficParser Parser)> LoadVsCaptures()
 	{
 		var dir = FindCapturesDir();
-		var files = Directory.GetFiles(dir, "*.ndjson")
+		var result = Directory.GetFiles(dir, "*.ndjson")
 			.Where(f => Path.GetFileName(f).StartsWith(VsCapturePrefix, StringComparison.OrdinalIgnoreCase))
+			.Select(f => (Path.GetFileName(f), TrafficParser.Load(f)))
 			.ToList();
-		Assert.True(files.Count == 1,
-			$"Expected exactly 1 VS capture (starting with '{VsCapturePrefix}'), found {files.Count} in {dir}");
-		return TrafficParser.Load(files[0]);
+		Assert.True(result.Count > 0, "No VS captures found");
+		return result;
 	}
 
 	private static List<(string Name, TrafficParser Parser)> LoadVsCodeCaptures()
