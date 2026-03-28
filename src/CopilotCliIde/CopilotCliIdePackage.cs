@@ -73,8 +73,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_selectionTracker.TrackActiveView();
 
 			// Register "Launch Copilot CLI" command in the Tools menu
-			var commandService = await GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
-			if (commandService != null)
+			if (await GetServiceAsync(typeof(IMenuCommandService)) is OleMenuCommandService commandService)
 			{
 				var cmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0100);
 				commandService.AddCommand(new MenuCommand(OnLaunchCopilotCli, cmdId));
@@ -106,7 +105,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		await _processManager.StartAsync(rpcPipeName, mcpPipeName, nonce);
 
 		// Write lock file for Copilot CLI discovery
-		var workspaceFolders = GetWorkspaceFolders();
+		var workspaceFolders = new List<string> { GetWorkspaceFolder() }.AsReadOnly();
 		await _discovery!.WriteLockFileAsync(mcpPipeName, nonce, workspaceFolders);
 
 		// Subscribe to Error List data layer for real-time diagnostic notifications
@@ -162,7 +161,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		catch (ObjectDisposedException) { }
 	}
 
-	private static IReadOnlyList<string> GetWorkspaceFolders()
+	private static string GetWorkspaceFolder()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 		try
@@ -172,11 +171,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				var dir = Path.GetDirectoryName(dte.Solution.FullName);
 				if (!string.IsNullOrEmpty(dir))
-					return new List<string> { dir }.AsReadOnly();
+					return dir;
 			}
 		}
 		catch { /* Ignore */ }
-		return new List<string> { Directory.GetCurrentDirectory() }.AsReadOnly();
+
+		return Directory.GetCurrentDirectory();
 	}
 
 	private void OnSolutionOpened()
@@ -221,16 +221,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void OnLaunchCopilotCli(object sender, EventArgs e)
 	{
 		// This assumes that copilot is on path
-
 		ThreadHelper.ThrowIfNotOnUIThread();
 		try
 		{
-			var solutionDir = GetWorkspaceFolders().FirstOrDefault() ?? Directory.GetCurrentDirectory();
 			Process.Start(new ProcessStartInfo
 			{
 				FileName = "cmd.exe",
 				Arguments = "/k copilot",
-				WorkingDirectory = solutionDir,
+				WorkingDirectory = GetWorkspaceFolder(),
 				UseShellExecute = true
 			});
 		}
