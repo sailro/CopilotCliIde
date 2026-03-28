@@ -43,6 +43,7 @@ public sealed partial class TrafficParser
 	{
 		var entries = new List<TrafficEntry>();
 		string? pendingServerSession = null;
+		string? pendingClientSession = null;
 
 		foreach (var rawLine in File.ReadLines(ndjsonPath))
 		{
@@ -107,6 +108,10 @@ public sealed partial class TrafficParser
 					// HTTP response → store for propagation to next response body
 					if (entry.Direction == "vscode_to_cli" && IsHttpStatusResponse(entry.Event))
 						pendingServerSession = sessionId;
+
+					// HTTP request → store for propagation to next request body
+					if (entry.Direction == "cli_to_vscode" && IsHttpRequest(entry.Event))
+						pendingClientSession = sessionId;
 				}
 			}
 
@@ -119,6 +124,17 @@ public sealed partial class TrafficParser
 			{
 				entry = entry with { McpSessionId = pendingServerSession };
 				pendingServerSession = null;
+			}
+
+			// Propagate client session from HTTP request header to its body entry.
+			// Body entries with JSON-RPC method+id immediately follow their HTTP request frame.
+			if (entry is { Direction: "cli_to_vscode", McpSessionId: null, JsonRpcMessage: not null }
+				&& HasProperty(entry.JsonRpcMessage.Value, "method")
+				&& HasProperty(entry.JsonRpcMessage.Value, "id")
+				&& pendingClientSession is not null)
+			{
+				entry = entry with { McpSessionId = pendingClientSession };
+				pendingClientSession = null;
 			}
 
 			entries.Add(entry);
@@ -259,10 +275,9 @@ public sealed partial class TrafficParser
 			}
 
 			// Raw text fallback for truncated JSON
-			var namePattern = $"\"name\":\"{toolName}\"";
 			if (entry.Event is null
 				|| !entry.Event.Contains("tools/call", StringComparison.Ordinal)
-				|| !entry.Event.Contains(namePattern, StringComparison.Ordinal))
+				|| !ContainsToolName(entry.Event, toolName))
 				continue;
 
 			var extractedId = TryExtractIdFromText(entry.Event);
@@ -288,6 +303,7 @@ public sealed partial class TrafficParser
 					e.Seq > reqSeq
 					&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
 					&& HasProperty(e.JsonRpcMessage.Value, "result")
+					&& IsLikelyToolResponse(toolName, e.JsonRpcMessage.Value)
 					&& MatchesId(e.JsonRpcMessage.Value, reqId.Value)
 					&& e.McpSessionId is not null && validServerSessions.Contains(e.McpSessionId));
 
@@ -302,6 +318,7 @@ public sealed partial class TrafficParser
 					e.Seq > reqSeq
 					&& e is { Direction: "vscode_to_cli", JsonRpcMessage: not null }
 					&& HasProperty(e.JsonRpcMessage.Value, "result")
+					&& IsLikelyToolResponse(toolName, e.JsonRpcMessage.Value)
 					&& MatchesId(e.JsonRpcMessage.Value, reqId.Value));
 
 					if (match is not null)
@@ -314,13 +331,30 @@ public sealed partial class TrafficParser
 				// Strategy 3: Only when no ID is available at all (truly truncated).
 				// Requires MCP tool response structure (result.content) to avoid
 				// matching initialize or tools/list responses across sessions.
-				var match = Entries.FirstOrDefault(e =>
-				e.Seq > reqSeq
-				&& e is { Direction: "vscode_to_cli", Body: not null }
-				&& HasNestedProperty(e.Body.Value, "result", "content"));
+				HashSet<string>? validServerSessions = null;
+				if (clientSession is not null)
+					_sessionMap.TryGetValue(clientSession, out validServerSessions);
 
-				if (match is not null)
-					matched = match.JsonRpcMessage ?? match.Body;
+				foreach (var entry in Entries)
+				{
+					if (entry.Seq <= reqSeq || entry.Direction != "vscode_to_cli")
+						continue;
+
+					if (validServerSessions is not null
+						&& (entry.McpSessionId is null || !validServerSessions.Contains(entry.McpSessionId)))
+					{
+						continue;
+					}
+
+					var msg = entry.JsonRpcMessage ?? entry.Body;
+					if (msg is not null
+						&& HasNestedProperty(msg.Value, "result", "content")
+						&& IsLikelyToolResponse(toolName, msg.Value))
+					{
+						matched = msg;
+						break;
+					}
+				}
 			}
 
 			if (matched is not null)
@@ -328,6 +362,59 @@ public sealed partial class TrafficParser
 		}
 
 		return results;
+	}
+
+	private static bool IsLikelyToolResponse(string toolName, JsonElement response)
+	{
+		var inner = TryGetInnerToolJson(response);
+		if (inner is null)
+			return false;
+
+		var root = inner.Value;
+		return toolName switch
+		{
+			"close_diff" => HasProperty(root, "already_closed"),
+			"open_diff" => HasProperty(root, "trigger") || HasProperty(root, "result"),
+			"get_vscode_info" => HasProperty(root, "appName") && HasProperty(root, "version"),
+			"update_session_name" => HasProperty(root, "success")
+				&& !HasProperty(root, "appName")
+				&& !HasProperty(root, "version")
+				&& !HasProperty(root, "already_closed")
+				&& !HasProperty(root, "tab_name")
+				&& !HasProperty(root, "message")
+				&& !HasProperty(root, "result")
+				&& !HasProperty(root, "trigger"),
+			_ => true
+		};
+	}
+
+	private static JsonElement? TryGetInnerToolJson(JsonElement response)
+	{
+		if (!response.TryGetProperty("result", out var result)
+			|| !result.TryGetProperty("content", out var content)
+			|| content.ValueKind != JsonValueKind.Array
+			|| content.GetArrayLength() == 0)
+		{
+			return null;
+		}
+
+		var first = content[0];
+		if (!first.TryGetProperty("text", out var textEl) || textEl.ValueKind != JsonValueKind.String)
+			return null;
+
+		var text = textEl.GetString();
+		if (string.IsNullOrEmpty(text))
+			return null;
+
+		try
+		{
+			using var doc = JsonDocument.Parse(text);
+			return doc.RootElement.Clone();
+		}
+		catch (JsonException)
+		{
+			return null;
+		}
 	}
 
 	public List<JsonElement> GetNotifications(string method)
@@ -445,8 +532,6 @@ public sealed partial class TrafficParser
 	// Fallback for when request JSON is truncated and can't be fully parsed.
 	private int? FindToolCallRequestSeq(string toolName)
 	{
-		var namePattern = $"\"name\":\"{toolName}\"";
-
 		foreach (var entry in Entries)
 		{
 			if (entry.Direction != "cli_to_vscode")
@@ -463,7 +548,7 @@ public sealed partial class TrafficParser
 			// Fall back to raw text search in event (handles truncated JSON)
 			if (entry.Event is not null
 			&& entry.Event.Contains("tools/call", StringComparison.Ordinal)
-			&& entry.Event.Contains(namePattern, StringComparison.Ordinal))
+			&& ContainsToolName(entry.Event, toolName))
 			{
 				return entry.Seq;
 			}
@@ -545,6 +630,12 @@ public sealed partial class TrafficParser
 		""")]
 	private static partial Regex IdInTextRegex();
 
+	private static bool ContainsToolName(string text, string toolName)
+	{
+		var escaped = Regex.Escape(toolName);
+		return Regex.IsMatch(text, $"\"name\"\\s*:\\s*\"{escaped}\"", RegexOptions.CultureInvariant);
+	}
+
 	// --- MCP session correlation helpers ---
 
 	// Extracts mcp-session-id from HTTP request/response headers (case-insensitive).
@@ -556,6 +647,11 @@ public sealed partial class TrafficParser
 
 	private static bool IsHttpStatusResponse(string httpFrame) =>
 		httpFrame.StartsWith("HTTP/1.1 ", StringComparison.Ordinal);
+
+	private static bool IsHttpRequest(string httpFrame) =>
+		httpFrame.StartsWith("POST /", StringComparison.Ordinal)
+		|| httpFrame.StartsWith("GET /", StringComparison.Ordinal)
+		|| httpFrame.StartsWith("DELETE /", StringComparison.Ordinal);
 
 	[GeneratedRegex(@"[Mm]cp-[Ss]ession-[Ii]d:\s*([^\r\n]+)", RegexOptions.None)]
 	private static partial Regex McpSessionIdRegex();

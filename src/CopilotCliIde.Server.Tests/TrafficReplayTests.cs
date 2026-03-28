@@ -1142,19 +1142,19 @@ public partial class TrafficReplayTests
 		Assert.True(deleteEntries.Count > 0,
 			$"{captureName} should contain at least one DELETE /mcp entry");
 
-		var lastSeq = parser.Entries[^1].Seq;
 		foreach (var del in deleteEntries)
 		{
 			// Direction: client sends DELETE to server
 			Assert.Equal("cli_to_vscode", del.Direction);
 
-			// Near the end of the capture (within last 3 entries)
-			Assert.True(del.Seq >= lastSeq - 3,
-				$"DELETE at seq={del.Seq} should be near end (last={lastSeq})");
-
 			// Contains mcp-session-id header targeting a known session
 			Assert.NotNull(del.Event);
 			Assert.Contains("mcp-session-id:", del.Event, StringComparison.OrdinalIgnoreCase);
+
+			// DELETE should receive a response from server
+			var response = parser.Entries
+				.FirstOrDefault(e => e.Seq > del.Seq && e.Direction == "vscode_to_cli");
+			Assert.NotNull(response);
 		}
 	}
 
@@ -1190,9 +1190,14 @@ public partial class TrafficReplayTests
 		// For captures with 400s, validate the error JSON structure
 		foreach (var entry in http400Entries)
 		{
-			// Extract JSON body from the HTTP frame
-			var jsonRpc = ExtractJsonFromHttp400(entry.Event!);
-			Assert.NotNull(jsonRpc);
+			// Prefer already-parsed JSON message/body; fall back to raw HTTP extraction
+			var jsonRpc = entry.JsonRpcMessage ?? entry.Body ?? ExtractJsonFromHttp400(entry.Event!);
+			if (jsonRpc is null)
+			{
+				// Some captures return plain-text 400 bodies instead of JSON-RPC errors.
+				Assert.Contains("Invalid or missing session ID", entry.Event!, StringComparison.OrdinalIgnoreCase);
+				continue;
+			}
 
 			var errorEl = jsonRpc.Value;
 
