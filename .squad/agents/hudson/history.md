@@ -390,3 +390,9 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 
 **Cross-agent note:** This refactoring strengthens the code that Hudson's new multi-capture tests exercise. The constant-driven approach makes the session ID header contract explicit and testable.
 
+
+### 2026-03-28T22:21:54Z — NotificationFormatTests source field removal
+- Removed obsolete diagnostics source field from DiagnosticsChangedNotification_MatchesExpectedFormat test input payload.
+- Removed assertion reading diag.GetProperty("source").
+- Preserved notification format validation coverage for jsonrpc, method, uri, severity, code, and range values.
+- Ran targeted tests: NotificationFormatTests (6/6 passing).
