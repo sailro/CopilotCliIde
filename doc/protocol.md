@@ -27,9 +27,8 @@ The protocol has three layers:
 └──────────────┘              └──────────────┘              └──────────────┘
 ```
 
-The MCP Server can be embedded directly in the IDE extension or run as a separate
-child process — the architecture is an implementation choice. What matters is that
-the named pipe / socket accepts Streamable HTTP and exposes the correct MCP tools.
+In VS Code captures, an MCP server listens on the named pipe / socket endpoint,
+accepts Streamable HTTP, and exposes the MCP tools documented below.
 
 ---
 
@@ -84,7 +83,7 @@ to discover available IDEs.
 
 ### Pipe / Socket Name Convention
 
-The reference implementation uses: `mcp-{guid}.sock`
+In VS Code captures, `socketPath` uses: `mcp-{guid}.sock`
 
 The `.sock` suffix is a naming convention. On Windows the actual transport is a
 named pipe (`\\.\pipe\mcp-{guid}.sock`); on Unix it would be a domain socket.
@@ -101,9 +100,8 @@ names:
 | `"Visual Studio Code - Insiders"` | Cyan | Matches VS Code Insiders' icon color |
 | _(anything else)_ | White (default) | Unrecognized IDE names get no color |
 
-This is a client-side display concern — the MCP server does not need to do
-anything to support it. However, implementors should be aware that their
-`ideName` value affects how the CLI presents their IDE to the user.
+This is a client-side display concern. The CLI uses `ideName` to determine
+terminal color.
 
 ---
 
@@ -128,19 +126,17 @@ Requests without a valid nonce receive `401 Unauthorized`.
 **Required on all requests:**
 - `Authorization: Nonce {guid}` — authentication token from lock file
 
-**Standard headers (POST):**
+**Observed headers on POST requests (VS Code captures):**
 - `Content-Type: application/json`
 - `Content-Length: {bytes}` or `Transfer-Encoding: chunked` — the CLI typically uses
   chunked encoding; servers MUST accept both framing methods
-- `Mcp-Session-Id: {sessionId}` — associate request with MCP session (optional but recommended)
-- `mcp-protocol-version: 2025-11-25` — MCP protocol version (may be sent by CLI)
+- `Mcp-Session-Id: {sessionId}` — associates the request with the active MCP session
+- `mcp-protocol-version: 2025-11-25` — MCP protocol version value observed in captures
 
-**Optional informational headers (CLI may send):**
+**Additional headers observed in VS Code captures:**
 - `X-Copilot-Session-Id` — CLI's internal session UUID
 - `X-Copilot-PID` — CLI process ID
 - `X-Copilot-Parent-PID` — Parent process ID
-
-Servers should ignore unrecognized headers.
 
 ### Endpoints
 
@@ -180,8 +176,8 @@ data: {"jsonrpc":"2.0","id":1,"result":{"content":[...]}}
 **Response (notification, no result expected):** HTTP `202 Accepted` with
 `Content-Type: text/plain`. This applies to fire-and-forget messages such as
 `notifications/initialized` which carry no JSON-RPC `id` and expect no result.
-Note: some server implementations return `200 OK` with an empty SSE body for
-notifications — the CLI accepts both.
+In VS Code captures, these notifications return `202 Accepted` with
+`Content-Type: text/plain`.
 
 **Timeout:** Most tool calls have a 30-second timeout. The `open_diff` tool is exempt
 because it blocks until the user accepts or rejects the diff (with a 1-hour ultimate
@@ -225,8 +221,8 @@ Returns `200 OK` and closes the connection.
 
 The server generates a session ID on the first POST and returns it via the
 `Mcp-Session-Id` response header. The client includes this header on subsequent
-requests to associate them with the same MCP session. The format of the session
-ID is implementation-defined (e.g. a GUID or prefixed string).
+requests to associate them with the same MCP session. In VS Code captures, this
+ID is treated as an opaque string and echoed back unchanged by the client.
 
 ---
 
@@ -243,9 +239,8 @@ requests. The server MUST advertise itself as:
 }
 ```
 
-> **Important:** All implementations MUST use this exact server name regardless of
-> the actual IDE. The CLI matches on this name. The `version` is implementation-defined
-> (VS Code sends `"0.0.1"`). The `title` field is optional and used for display purposes.
+> **Observed in VS Code captures:** the server advertises this exact `name`,
+> with `version: "0.0.1"` and `title: "VS Code Copilot CLI"`.
 
 ### Server Capabilities
 
@@ -296,8 +291,7 @@ which is long-running but still uses request/response).
 
 > **Schema variations:** VS Code's tool input schemas include
 > `"additionalProperties": false` and `"$schema": "http://json-schema.org/draft-07/schema#"`
-> on tools that have parameters. These are optional — the CLI does not require them,
-> and implementations may omit them.
+> on tools that have parameters.
 
 ### Tool Call Format
 
@@ -359,9 +353,7 @@ Returns information about the IDE instance.
 | `uriScheme` | string | URI scheme for the IDE (e.g. `"vscode"`, `"vscode-insiders"`) |
 | `shell` | string | Path to the default shell |
 
-> **Note:** These are the fields observed in VS Code. Other IDE implementations may
-> return different fields as appropriate — the CLI does not enforce a specific schema
-> for this tool's response.
+> **Note:** These are the fields observed in VS Code wire captures.
 
 ---
 
@@ -546,8 +538,8 @@ Sets a display name for the current CLI session.
 }
 ```
 
-This is a fire-and-forget tool — the server acknowledges but the name may or may
-not be surfaced in the IDE's UI depending on the implementation.
+This is a fire-and-forget tool. In VS Code captures, the server acknowledges
+the request with a success response.
 
 ---
 

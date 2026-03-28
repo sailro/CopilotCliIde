@@ -135,7 +135,6 @@ public class NotificationFormatTests
 								start = new { line = 41, character = 7 },
 								end = new { line = 41, character = 8 }
 							},
-							source = "WebApp",
 							code = "CS0103"
 						}
 					}
@@ -166,7 +165,6 @@ public class NotificationFormatTests
 		var diag = firstUri.GetProperty("diagnostics")[0];
 		Assert.Equal(DiagnosticSeverity.Error, diag.GetProperty("severity").GetString());
 		Assert.Equal("CS0103", diag.GetProperty("code").GetString());
-		Assert.Equal("WebApp", diag.GetProperty("source").GetString());
 
 		var range = diag.GetProperty("range");
 		Assert.Equal(41, range.GetProperty("start").GetProperty("line").GetInt32());

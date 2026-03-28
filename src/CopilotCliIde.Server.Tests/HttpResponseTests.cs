@@ -69,6 +69,8 @@ public class HttpResponseTests
 		Assert.Contains("content-type: text/event-stream\r\n", response);
 		// SSE responses use chunked encoding, not Content-Length
 		Assert.Contains("transfer-encoding: chunked\r\n", response);
+		// SSE responses include cache-control to match VS Code
+		Assert.Contains("cache-control: no-cache\r\n", response);
 	}
 
 	[Fact]
@@ -103,6 +105,7 @@ public class HttpResponseTests
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.Contains("content-length: 0\r\n", response);
+		Assert.DoesNotContain("cache-control", response);
 	}
 
 	[Fact]

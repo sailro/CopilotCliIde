@@ -577,6 +577,61 @@ public class CrossCaptureConsistencyTests
 
 	#endregion
 
+	#region Capture Health — Every Capture Must Be Parseable
+
+	public static TheoryData<string> AllCaptureFiles()
+	{
+		var data = new TheoryData<string>();
+		var dir = FindCapturesDir();
+		foreach (var file in Directory.GetFiles(dir, "*.ndjson"))
+			data.Add(file);
+		return data;
+	}
+
+	[Theory]
+	[MemberData(nameof(AllCaptureFiles))]
+	public void CaptureFile_HasInitializeResponse(string captureFile)
+	{
+		var parser = TrafficParser.Load(captureFile);
+		var init = parser.GetInitializeResponse();
+		Assert.True(init is not null,
+			$"{Path.GetFileName(captureFile)}: No parseable initialize response found");
+
+		var result = init.Value.GetProperty("result");
+		Assert.True(result.TryGetProperty("protocolVersion", out _),
+			$"{Path.GetFileName(captureFile)}: Initialize response missing protocolVersion");
+	}
+
+	[Theory]
+	[MemberData(nameof(AllCaptureFiles))]
+	public void CaptureFile_HasToolsListResponse(string captureFile)
+	{
+		var parser = TrafficParser.Load(captureFile);
+		var toolsList = parser.GetToolsListResponse();
+		Assert.True(toolsList is not null,
+			$"{Path.GetFileName(captureFile)}: No parseable tools/list response found");
+
+		var tools = toolsList.Value.GetProperty("result").GetProperty("tools");
+		Assert.True(tools.GetArrayLength() >= 6,
+			$"{Path.GetFileName(captureFile)}: tools/list has fewer than 6 tools");
+	}
+
+	[Theory]
+	[MemberData(nameof(AllCaptureFiles))]
+	public void CaptureFile_HasNotifications(string captureFile)
+	{
+		var parser = TrafficParser.Load(captureFile);
+		var selectionNotifications = parser.GetNotifications(Notification.SelectionChanged);
+		var diagnosticsNotifications = parser.GetNotifications(Notification.DiagnosticsChanged);
+
+		Assert.True(selectionNotifications.Count > 0,
+			$"{Path.GetFileName(captureFile)}: No selection_changed notifications found");
+		Assert.True(diagnosticsNotifications.Count > 0,
+			$"{Path.GetFileName(captureFile)}: No diagnostics_changed notifications found");
+	}
+
+	#endregion
+
 	#region Helpers — Capture Directory
 
 	private static string FindCapturesDir()

@@ -11,6 +11,7 @@ internal static class HttpPipeFraming
 	private const string ContentTypeHeader = "content-type";
 	private const string ConnectionHeader = "connection";
 	private const string TransferEncodingHeader = "transfer-encoding";
+	private const string CacheControlHeader = "cache-control";
 	private const string EventStreamContentType = "text/event-stream";
 
 	private static readonly byte[] _chunkEndBytes = Encoding.UTF8.GetBytes($"{Crlf}0{HeaderTerminator}");
@@ -141,7 +142,10 @@ internal static class HttpPipeFraming
 		sb.Append($"HTTP/1.1 {statusCode} {statusText}{Crlf}");
 		sb.Append($"{ContentTypeHeader}: {contentType}{Crlf}");
 		if (useChunked)
+		{
+			sb.Append($"{CacheControlHeader}: no-cache{Crlf}");
 			sb.Append($"{TransferEncodingHeader}: chunked{Crlf}");
+		}
 		else
 			sb.Append($"{ContentLengthHeader}: {bodyBytes.Length}{Crlf}");
 		sb.Append($"{ConnectionHeader}: keep-alive{Crlf}");

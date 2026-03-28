@@ -1705,4 +1705,118 @@ public partial class TrafficReplayTests
 	private static partial System.Text.RegularExpressions.Regex _tabNameRegex();
 
 	#endregion
+
+	#region Test D6 — HTTP 404 from double-DELETE after session teardown
+
+	// vs-1.0.12 sends 2 DELETEs for the same session; the second pair gets 404 Not Found.
+	// This is valid protocol behavior — the server should return 404 for unknown session IDs.
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void Http404AfterDelete_IsExpectedBehavior(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+
+		// Match only HTTP status line 404, not "404" appearing in session IDs or other data
+		var http404Entries = parser.Entries
+			.Where(e => e is { Direction: "vscode_to_cli", Event: not null }
+				&& e.Event.Contains("404 Not Found", StringComparison.Ordinal))
+			.ToList();
+
+		if (http404Entries.Count == 0)
+			return; // No 404s in this capture — valid
+
+		// Every 404 should be preceded by a DELETE request
+		foreach (var entry404 in http404Entries)
+		{
+			var precedingDelete = parser.Entries
+				.Where(e => e.Seq < entry404.Seq
+					&& e is { Direction: "cli_to_vscode", Event: not null }
+					&& e.Event.StartsWith("DELETE", StringComparison.Ordinal))
+				.OrderByDescending(e => e.Seq)
+				.FirstOrDefault();
+
+			Assert.True(precedingDelete is not null,
+				$"404 at seq={entry404.Seq} has no preceding DELETE request");
+		}
+	}
+
+	#endregion
+
+	#region Test D7 — Multiple DELETEs per capture get responses
+
+	// Some captures send multiple DELETE requests (one per session).
+	// Each DELETE must get a response (200 OK or 404 Not Found).
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void DeleteRequests_EachGetsResponse(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var captureName = Path.GetFileNameWithoutExtension(captureFile);
+
+		if (captureName.Contains("0.38", StringComparison.Ordinal))
+			return; // CLI 0.38 doesn't send DELETE
+
+		var deleteEntries = parser.Entries
+			.Where(e => e.Event is not null && e.Event.StartsWith("DELETE /mcp", StringComparison.Ordinal))
+			.ToList();
+
+		if (deleteEntries.Count == 0)
+			return;
+
+		foreach (var del in deleteEntries)
+		{
+			// Find the next response from the server
+			var response = parser.Entries
+				.Where(e => e.Seq > del.Seq
+					&& e is { Direction: "vscode_to_cli", Event: not null }
+					&& (e.Event.Contains("200 OK", StringComparison.Ordinal)
+						|| e.Event.Contains("404 Not Found", StringComparison.Ordinal)))
+				.FirstOrDefault();
+
+			Assert.True(response is not null,
+				$"{captureName}: DELETE at seq={del.Seq} has no HTTP response (200 or 404)");
+		}
+	}
+
+	#endregion
+
+	#region Test D8 — Our extension has zero HTTP errors
+
+	// Our VS extension captures (vs-*) should have zero 4xx or 5xx errors.
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void VsExtension_NoHttpErrors_ExceptDeleteTeardown(string captureFile)
+	{
+		var captureName = Path.GetFileNameWithoutExtension(captureFile);
+
+		// Only check our VS extension captures
+		if (!captureName.StartsWith("vs-", StringComparison.Ordinal))
+			return;
+
+		var parser = LoadCapture(captureFile);
+
+		// Collect all HTTP error responses (4xx/5xx) excluding DELETE teardown 404s
+		var deleteSeqs = parser.Entries
+			.Where(e => e.Event is not null && e.Event.StartsWith("DELETE /mcp", StringComparison.Ordinal))
+			.Select(e => e.Seq)
+			.ToHashSet();
+
+		var httpErrors = parser.Entries
+			.Where(e => e is { Direction: "vscode_to_cli", Event: not null }
+				&& (e.Event.Contains("400 Bad Request", StringComparison.Ordinal)
+					|| e.Event.Contains("401 Unauthorized", StringComparison.Ordinal)
+					|| e.Event.Contains("406 Not Acceptable", StringComparison.Ordinal)
+					|| e.Event.Contains("500 Internal Server Error", StringComparison.Ordinal)))
+			.ToList();
+
+		// 404s after DELETE are expected (session already torn down)
+		var non404Errors = httpErrors.Where(e =>
+			!deleteSeqs.Any(ds => ds < e.Seq)).ToList();
+
+		Assert.True(non404Errors.Count == 0,
+			$"Our extension ({captureName}) has {non404Errors.Count} unexpected HTTP errors: " +
+			$"{string.Join(", ", non404Errors.Select(e => $"seq={e.Seq}"))}");
+	}
+
+	#endregion
 }
