@@ -26,6 +26,7 @@
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Design" />
   </ItemGroup>
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug'">
@@ -39,6 +40,12 @@
     <None Include="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <VSCTCompile Include="CopilotCliIdePackage.vsct">
+      <ResourceName>Menus.ctmenu</ResourceName>
+    </VSCTCompile>
   </ItemGroup>
 
 

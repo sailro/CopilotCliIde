@@ -1,3 +1,5 @@
+using System.ComponentModel.Design;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using CopilotCliIde.Shared;
@@ -14,6 +16,7 @@ namespace CopilotCliIde;
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [ProvideBindingPath]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExistsAndFullyLoaded_string, PackageAutoLoadFlags.BackgroundLoad)]
+[ProvideMenuResource("Menus.ctmenu", 1)]
 [Guid("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")]
 public sealed class CopilotCliIdePackage : AsyncPackage
 {
@@ -68,6 +71,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_monitorSelection = (IVsMonitorSelection)GetGlobalService(typeof(SVsShellMonitorSelection));
 			_monitorSelection.AdviseSelectionEvents(new SelectionTracker.SelectionEventSink(_selectionTracker), out _selectionMonitorCookie);
 			_selectionTracker.TrackActiveView();
+
+			// Register "Launch Copilot CLI" command in the Tools menu
+			var commandService = await GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
+			if (commandService != null)
+			{
+				var cmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0100);
+				commandService.AddCommand(new MenuCommand(OnLaunchCopilotCli, cmdId));
+			}
 		}
 		catch (Exception ex)
 		{
@@ -205,6 +216,28 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		_selectionTracker?.ResetDedupKey();
 		_diagnosticTracker?.ResetDedupKey();
+	}
+
+	private void OnLaunchCopilotCli(object sender, EventArgs e)
+	{
+		// This assumes that copilot is on path
+
+		ThreadHelper.ThrowIfNotOnUIThread();
+		try
+		{
+			var solutionDir = GetWorkspaceFolders().FirstOrDefault() ?? Directory.GetCurrentDirectory();
+			Process.Start(new ProcessStartInfo
+			{
+				FileName = "cmd.exe",
+				Arguments = "/k copilot",
+				WorkingDirectory = solutionDir,
+				UseShellExecute = true
+			});
+		}
+		catch (Exception ex)
+		{
+			_logger?.Log($"Failed to launch Copilot CLI: {ex.Message}");
+		}
 	}
 
 	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => _diagnosticTracker?.SchedulePush();
