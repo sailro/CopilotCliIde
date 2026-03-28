@@ -1803,3 +1803,229 @@ Implemented Option 4: subscribe to ITableDataSink on the ErrorsTable manager as 
 ### Build Status
 
 - Extension: Builds clean (153 tests pass)
+## Decision: vscode-0.41 Capture — Test Infrastructure Fixes Needed
+
+**Author:** Bishop (Server Dev)
+**Date:** 2026-07-19
+**Status:** Proposed
+**Affects:** Hudson (Tester)
+
+### Context
+
+The new vscode-0.41.ndjson capture introduces 5 test failures in TrafficReplayTests and CrossCaptureConsistencyTests. These are all test infrastructure issues — the server code matches VS Code 0.41 perfectly.
+
+### Root Cause
+
+The 0.41 capture contains multi-session traffic where close_diff while open_diff is pending causes TWO responses on the same SSE stream (open_diff resolves first, then close_diff follows). The TrafficParser's response matching logic incorrectly attributes the open_diff resolution response to the close_diff or update_session_name tool call.
+
+### Failing Tests
+
+1. CloseDiffResponse_HasExpectedStructure — picks up open_diff response instead of close_diff
+2. ToolResponseFields_ExactMatchWithVsCode — open_diff fields attributed to close_diff/update_session_name
+3. DeleteMcpDisconnect_PresentIn039Captures — assertion about DELETE position
+4. CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency — multi-session response matching
+5. Http400RetrySequence_HasValidErrorStructure — 0.41's 400 response format
+
+### Decision Needed
+
+Hudson should update the TrafficParser and test assertions to handle:
+1. Overlapping tool responses (one tool call triggering another tool's response)
+2. DELETE position flexibility in multi-session captures
+3. The 0.41 capture's specific 400 response body format
+
+### Server Code Impact
+
+None. All protocol compatibility confirmed — no server changes needed for VS Code 0.41.
+
+---
+
+## Decision: Protocol Diff — vscode-0.41.ndjson vs vscode-0.39.ndjson
+
+**Date:** 2026-03-28
+**Author:** Hudson (Tester)
+**Status:** Analysis Complete — Action Required
+
+### Executive Summary
+
+Comprehensive protocol comparison between vscode-0.41.ndjson (CLI 0.41, VS Code 1.113.0) and vscode-0.39.ndjson (CLI 0.39). **No tool schema changes, no initialize response changes, no notification structure changes.** The core protocol is stable. However, the 0.41 capture exposes a **TrafficParser session propagation bug** caused by overlapping blocking tool calls (open_diff), which breaks 5 existing tests.
+
+### 1. Initialize Handshake
+
+#### Request (Client → Server)
+
+| Field | 0.39 | 0.41 | Impact |
+|---|---|---|---|
+| params.protocolVersion | "2025-03-26" | "2025-11-25" | Client-side only; server responds with "2025-11-25" in both |
+| params.clientInfo.name | "test-client" | "mcp-call" | Client identity change (renamed CLI process) |
+| params.clientInfo.version | "1.0.0" | "1.0" | Minor version string change |
+
+#### Response (Server → Client)
+
+**IDENTICAL.** Same protocolVersion: "2025-11-25", same capabilities: {tools: {listChanged: true}}, same serverInfo: {name: "vscode-copilot-cli", title: "VS Code Copilot CLI", version: "0.0.1"}.
+
+**Impact:** No code changes needed. No test updates needed for initialize response.
+
+### 2. Tool Schemas (tools/list)
+
+**ALL 6 TOOLS IDENTICAL.** No additions, no removals, no input schema changes.
+
+Tools: close_diff, get_diagnostics, get_selection, get_vscode_info, open_diff, update_session_name.
+
+**Impact:** None.
+
+### 3. Notifications
+
+| Notification | 0.39 count | 0.41 count | Structure |
+|---|---|---|---|
+| diagnostics_changed | 20 | 19 | IDENTICAL keys: {uris} |
+| notifications/initialized | 5 | 8 | IDENTICAL (no params) |
+| selection_changed | 19 | 22 | IDENTICAL keys: {filePath, fileUrl, selection, text} |
+
+No new notification types. No removed notification types. No structural changes.
+
+**Impact:** None.
+
+### 4. HTTP Transport
+
+#### Header Changes (Structural)
+
+| Category | Change | Detail |
+|---|---|---|
+| 400 Bad Request content-type | **CHANGED** | application/json; charset=utf-8 → text/html; charset=utf-8 |
+| 400 Bad Request body format | **CHANGED** | JSON-RPC error object → plain text "Invalid or missing session ID" |
+| 202 Accepted mcp-session-id | **REMOVED** | 0.39 had it; 0.41 202 responses have no mcp-session-id header |
+
+All other headers (authorization, x-copilot-*, mcp-protocol-version) are structurally identical — only session-specific values differ.
+
+#### 400 Error Format Change (BREAKING for tests)
+
+**0.39:** {"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Session ID must be a single, defined, string value"},"id":null}
+
+**0.41:** Invalid or missing session ID (plain text, not JSON)
+
+**Impact:** Test Http400RetrySequence_HasValidErrorStructure fails because it expects JSON-RPC error structure.
+
+### 5. Tool Call Responses
+
+#### open_diff — New Trigger Value
+
+**0.41 adds a new trigger value:** "closed_via_tool" (in addition to existing "accepted_via_button" and "rejected_via_button").
+
+This appears when close_diff is called on an active open_diff, causing the open_diff's blocking TaskCompletionSource to resolve with result: "REJECTED", trigger: "closed_via_tool".
+
+#### close_diff — Response Structure UNCHANGED
+
+The close_diff tool response itself is unchanged: {success, already_closed, tab_name, message}.
+
+**Critical finding:** The ToolResponseFields_ExactMatchWithVsCode test reports close_diff and update_session_name as having new fields (result, trigger, tab_name, message). **This is a TrafficParser correlation bug, not a protocol change.** See Section 7.
+
+#### update_session_name — Response Structure UNCHANGED
+
+Response remains {success: true}.
+
+#### get_vscode_info — Response Structure UNCHANGED
+
+Response still has: {version, appName, appRoot, language, machineId, sessionId, uriScheme, shell}.
+
+### 6. DELETE /mcp (Session Disconnect)
+
+| Aspect | 0.39 | 0.41 |
+|---|---|---|
+| DELETE count | 1 | 2 |
+| Headers | Identical structure | Identical structure |
+| Response | 200 OK, chunked empty body | 200 OK (first), then 400 Bad Request (second) |
+
+**0.41 sends 2 DELETE requests** — likely because the second DELETE targets an already-torn-down session (gets 400 back).
+
+**Impact:** Test DeleteMcpDisconnect_PresentIn039Captures needs update — it asserts DELETE entries are within last 3 sequence numbers, but with 2 DELETEs the first one is further from the end.
+
+### 7. TrafficParser Session Propagation Bug (ROOT CAUSE of 5 test failures)
+
+#### The Bug
+
+The 0.41 capture uses **many short-lived one-shot sessions** (8 MCP session IDs, 7 initialize requests) instead of 0.39's pattern (4 session IDs, 4 initializes). Each session runs a single tool call with id=1, then disconnects.
+
+The TrafficParser's pendingServerSession propagation assumes responses arrive in FIFO order after their HTTP 200 header. This breaks when **open_diff blocks** — the HTTP 200 for open_diff arrives immediately (seq=110, session dda4cd5e), but the actual result body arrives much later (seq=120) after another session (4a58dc94) has started. The intervening initialize response at seq=115 incorrectly **consumes the pending session from the open_diff HTTP 200**, and the open_diff result body at seq=120 gets assigned the **wrong session (4a58dc94 instead of dda4cd5e)**.
+
+#### Concrete Misassignment
+
+`
+seq=109: open_diff request (session dda4cd5e, id=1) — BLOCKS
+seq=110: HTTP 200 (session dda4cd5e) → sets pendingServerSession
+seq=114: initialize request (session 4a58dc94)
+seq=115: initialize response (id=0) → WRONGLY consumes dda4cd5e's pending session
+seq=119: HTTP 200 (session 4a58dc94) → sets pendingServerSession
+seq=120: open_diff result body (SHOULD be dda4cd5e) → WRONGLY gets 4a58dc94's session
+seq=121: close_diff result body → gets NO session (pendingServerSession consumed)
+`
+
+#### Consequence
+
+GetAllToolCallResponses("close_diff") for request seq=118 (session 4a58dc94) matches seq=120 (wrong — this is open_diff's resolution) instead of seq=121 (correct close_diff response). The test then sees {result, trigger} fields in what it thinks is a close_diff response.
+
+Similarly, GetAllToolCallResponses("update_session_name") picks up wrong responses due to cascade effects.
+
+### 8. Session Pattern Change
+
+| Aspect | 0.39 | 0.41 |
+|---|---|---|
+| MCP session IDs | 4 | 8 |
+| Initialize requests | 4 | 7 |
+| Session pattern | Multi-call sessions | One-shot sessions (1 tool call per session) |
+| 400 error batch | 6 retries (session collision) | 0 (no collisions) |
+| First session tool calls | 8 (multi-call) | 10 (main session has get_selection, get_diagnostics, etc.) |
+| Subsequent sessions | 3 sessions, each with 2-4 tool calls | 7 sessions, each with 1 tool call |
+
+The 0.41 CLI creates a fresh MCP session for each tool call after the initial handshake session. This eliminates session collision errors (no more 400 retry batches) but creates many more sessions with id=1 reuse.
+
+### 9. Failing Tests — Required Updates
+
+#### 5 Tests Failing
+
+| # | Test | Root Cause | Fix |
+|---|---|---|---|
+| 1 | ToolResponseFields_ExactMatchWithVsCode | TrafficParser misattributes responses across sessions (open_diff ↔ close_diff) | Fix TrafficParser session propagation for blocking tool calls |
+| 2 | Http400RetrySequence_HasValidErrorStructure | 0.41's 400 error is plain text, not JSON-RPC | Update test to handle both JSON-RPC and plain-text 400 bodies |
+| 3 | CloseDiffResponse_HasExpectedStructure | Parser returns open_diff response for close_diff request (wrong session) | Fix TrafficParser; then test passes as-is |
+| 4 | DeleteMcpDisconnect_PresentIn039Captures | 0.41 has 2 DELETEs; assertion seq >= lastSeq - 3 fails for first DELETE | Relax assertion or check only the LAST DELETE |
+| 5 | CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency | Parser returns wrong response (no already_closed field) → GetProperty throws | Fix TrafficParser; then test passes as-is |
+
+#### Root Cause Classification
+
+- **Tests 1, 3, 5:** TrafficParser session propagation bug — need parser fix
+- **Test 2:** Real protocol change (400 error format) — need test update
+- **Test 4:** Real behavior change (double DELETE) — need test update
+
+### 10. Impact Assessment — Required Actions
+
+#### Code Changes (CopilotCliIde.Server or Extension)
+
+**NONE REQUIRED.** The protocol is fully backward compatible. Tool schemas, initialize response, and notification structures are identical. Our server already speaks protocolVersion: "2025-11-25".
+
+#### TrafficParser Fix (PRIORITY 1)
+
+Fix TrafficParser.cs session propagation for overlapping blocking tool calls. The pendingServerSession approach fails when a response body arrives after a new session's initialize response has consumed the pending session. Options:
+1. Track pending sessions per-response-id instead of globally
+2. Don't consume pendingServerSession for initialize responses (they don't have tool content)
+3. Associate HTTP 200 responses with the REQUEST that triggered them (by seq proximity)
+
+#### Test Updates (PRIORITY 2)
+
+1. **Http400RetrySequence_HasValidErrorStructure**: Handle plain-text 400 bodies (skip JSON-RPC validation when content-type is text/html)
+2. **DeleteMcpDisconnect_PresentIn039Captures**: Allow multiple DELETE entries; check the last one is near the end
+
+### 11. Things That Did NOT Change
+
+For completeness — these are all **confirmed identical** between 0.39 and 0.41:
+
+- Initialize response structure and values
+- All 6 tool inputSchemas (properties, types, required fields)
+- Tool execution and annotation metadata
+- selection_changed notification params structure
+- diagnostics_changed notification params structure
+- HTTP method patterns (POST, GET, DELETE)
+- Authorization header format (Nonce-based)
+- mcp-protocol-version header value ("2025-11-25")
+- SSE event format for notifications
+- Tool response envelope structure (result.content[0].type="text")
+

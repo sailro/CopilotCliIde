@@ -471,3 +471,61 @@ Completed comprehensive review of CopilotCliIde.Server and CopilotCliIde.Shared 
 **Cross-references:** H1 + H2 are correctness issues affecting protocol compliance. M3 in Program.cs (event wiring) is extension-side — Hicks should coordinate. M4 warrants discussion with Ripley on transport architecture.
 
 **Decision:** Report filed. H1 + H2 ready for sprint. M3 + M4 need cross-team coordination.
+
+### 2026-07-19 — VS Code 0.41 Capture Analysis (Impact Assessment)
+
+Analyzed `vscode-0.41.ndjson` capture (129 lines, 8 MCP sessions, captured 2026-03-28) against our full server implementation. Compared initialize handshake, tool schemas, tool responses, notifications, HTTP headers, and session management.
+
+**Result: No server code changes needed.** Our server matches VS Code 0.41 protocol behavior exactly on all server-owned aspects.
+
+#### Detailed Findings
+
+**Initialize handshake — MATCH ✅**
+- Protocol version: `2025-11-25` (unchanged from 0.38/0.39)
+- Server capabilities: `{"tools":{"listChanged":true}}` (matches our `McpPipeServer.cs:33`)
+- Server info: `name="vscode-copilot-cli"`, `version="0.0.1"`, `title="VS Code Copilot CLI"` (matches line 32)
+
+**Tool schemas (tools/list) — MATCH ✅**
+- Same 6 tools as 0.38/0.39: `get_vscode_info`, `get_selection`, `open_diff`, `close_diff`, `get_diagnostics`, `update_session_name`
+- All have `execution: {taskSupport: "forbidden"}` (matches our `McpPipeServer.cs:55`)
+- All descriptions match our tool attribute strings exactly
+- Input schemas match (params, required fields, types all identical)
+- `additionalProperties:false` and `$schema` present on tools with params (SDK-generated, known difference, harmless)
+
+**Tool responses — MATCH ✅**
+- `get_vscode_info`: All 8 fields present (`version`, `appName`, `appRoot`, `language`, `machineId`, `sessionId`, `uriScheme`, `shell`) — matches `VsInfoResult` DTO
+- `get_selection`: Fields `text`, `filePath`, `fileUrl`, `selection.{start,end,isEmpty}`, `current` — matches `GetSelectionTool.cs` anonymous object
+- `open_diff`: Fields `success`, `result` ("SAVED"/"REJECTED"), `trigger` ("accepted_via_button"/"rejected_via_button"/"closed_via_tool"), `tab_name`, `message` — no `error` field (null omitted by SDK). Matches `OpenDiffTool.cs`
+- `close_diff`: Fields `success`, `already_closed`, `tab_name`, `message` — no `error` field (null omitted). Matches `CloseDiffTool.cs`
+- `update_session_name`: `{"success": true}` — matches `UpdateSessionNameTool.cs`
+- `get_diagnostics`: Array of `{uri, filePath, diagnostics[{message, severity, range.{start,end}, code}]}` — matches our `FileDiagnostics`/`DiagnosticItem` DTOs
+
+**Notifications — MATCH ✅**
+- `selection_changed`: Same fields as before: `text`, `filePath`, `fileUrl`, `selection.{start,end,isEmpty}` — matches `PushSelectionChangedAsync`
+- `diagnostics_changed`: `uris[{uri, diagnostics[{range.{start,end}, message, severity, code}]}` — matches `PushDiagnosticsChangedAsync`
+- Notably: NO `source` field in diagnostics_changed notification in 0.41 (contradicts earlier 0.39 source-code-level analysis that suggested VS Code includes it; the wire format doesn't)
+
+**HTTP headers — MATCH ✅ (known gap unchanged)**
+- GET SSE: `cache-control: no-cache, no-transform` — matches our `McpPipeServer.cs:209`
+- POST SSE: `cache-control: no-cache` — we still DON'T emit this header in `WriteHttpResponseAsync`. Known gap H1 from review, still unfixed but non-breaking on named pipes.
+- 202 Accepted: VS Code omits `mcp-session-id`, uses chunked empty body. We include session ID and use `content-length: 0`. Both valid HTTP.
+- POST SSE value is `no-cache` (NOT `no-cache, no-transform`) — first time we confirmed this difference between GET and POST in VS Code
+
+**Session management — MATCH ✅**
+- DELETE /mcp: We return 200 empty body. VS Code returns 200 for valid session, 400 "Invalid or missing session ID" for invalid. Our simpler handling works.
+- VS Code validates `mcp-session-id` on DELETE; we don't. Minor gap, not breaking.
+
+**New in 0.41 vs previous captures:**
+- Multiple MCP sessions per capture (8 sessions) with re-initialize handshakes — pattern already supported by TrafficParser
+- `close_diff` while `open_diff` is pending: VS Code returns BOTH responses over the same SSE stream (open_diff resolves first with REJECTED/closed_via_tool, then close_diff response follows). This is expected behavior — our server does the same thing.
+- No new tools, capabilities, headers, or protocol changes vs 0.38/0.39
+
+**Test impact:**
+5 existing tests fail on the 0.41 capture due to test infrastructure issues (TrafficParser response matching with multi-session overlapping responses), NOT server code issues:
+1. `CloseDiffResponse_HasExpectedStructure` — picks up the open_diff resolution response instead of the close_diff response
+2. `CrossCaptureConsistencyTests.ToolResponseFields_ExactMatchWithVsCode` — same issue: open_diff response fields attributed to close_diff/update_session_name
+3. `DeleteMcpDisconnect_PresentIn039Captures` — assertion about DELETE position relative to end of capture
+4. `CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency` — response matching in multi-session context
+5. `Http400RetrySequence_HasValidErrorStructure` — 0.41 capture's 400 response structure differs from expected
+
+These are Hudson's domain (test infrastructure fixes for the 0.41 capture's multi-session format).

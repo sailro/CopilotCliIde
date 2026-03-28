@@ -235,3 +235,31 @@ Completed comprehensive test coverage analysis across 15 test files + TrafficPar
 
 **Decision:** Report filed with full prioritized action table. Items 1-6 recommended for immediate sprint. Items 7-15 for follow-up cycles.
 
+### 2026-03-28 — Deep Protocol Diff: vscode-0.41.ndjson vs vscode-0.39.ndjson
+
+Performed exhaustive protocol comparison between CLI 0.41 (VS Code 1.113.0) and CLI 0.39 captures.
+
+**Protocol stability:** All tool schemas, initialize response, notification structures are IDENTICAL. Core protocol is fully backward compatible. No server code changes needed.
+
+**Key findings:**
+- Client info changed: `test-client/1.0.0` → `mcp-call/1.0` (client-side only)
+- Client now requests `protocolVersion: "2025-11-25"` (was `"2025-03-26"`); server already responds with this version in both
+- 400 error format changed: JSON-RPC error → plain text/html `"Invalid or missing session ID"`
+- `open_diff` has new trigger value: `closed_via_tool` (when close_diff cancels an active diff)
+- Session pattern: 0.41 uses 8 short-lived one-shot sessions (1 tool per session) vs 0.39's 4 multi-call sessions
+- 0.41 sends 2 DELETE /mcp requests at disconnect (second gets 400)
+- No 400 retry batch in 0.41 (no session collision errors)
+
+**TrafficParser session propagation bug discovered:** The `pendingServerSession` approach in TrafficParser.cs fails when blocking tool calls (open_diff) cause out-of-order responses. When a new session's initialize response arrives before the open_diff result body, it consumes the wrong pending session, causing misattribution. This is the root cause of 5 test failures with the 0.41 capture. Full analysis in `.squad/decisions/inbox/hudson-protocol-diff-041-vs-039.md`.
+
+**5 tests failing with 0.41 capture (213 total, 208 pass):**
+1. `ToolResponseFields_ExactMatchWithVsCode` — TrafficParser misattributes responses across sessions
+2. `Http400RetrySequence_HasValidErrorStructure` — 400 error is now plain text, not JSON-RPC
+3. `CloseDiffResponse_HasExpectedStructure` — Parser returns wrong response for close_diff
+4. `DeleteMcpDisconnect_PresentIn039Captures` — 0.41 has 2 DELETEs; seq proximity assertion fails
+5. `CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency` — Parser returns wrong response (no `already_closed` field)
+
+**Action items:**
+- P1: Fix TrafficParser session propagation for overlapping blocking calls (fixes tests 1, 3, 5)
+- P2: Update `Http400RetrySequence` to handle plain-text 400 bodies (fixes test 2)
+- P2: Update `DeleteMcpDisconnect` to allow multiple DELETEs (fixes test 4)
