@@ -627,3 +627,14 @@ Replaced the two remaining hardcoded `u8` chunk terminator byte literals in `Htt
 - `ChunkTerminatorBytes = Encoding.UTF8.GetBytes($"0{HeaderTerminator}")` — replaces `"0\r\n\r\n"u8.ToArray()` (empty chunked body)
 
 **Why `static readonly` instead of `u8`:** C# UTF-8 string literals (`u8`) don't support interpolation or concatenation. Using `Encoding.UTF8.GetBytes()` with the existing `Crlf`/`HeaderTerminator` constants ensures DRY compliance and is actually more efficient — allocates once at class load instead of per-call `ToArray()`. Wire output is byte-identical. 213 tests pass. Decision doc: `.squad/decisions/inbox/bishop-chunkend-constants.md`.
+
+### 2026-03-28 — McpPipeServer SAFE Literals Extraction
+
+Extracted four magic literals from `McpPipeServer.cs` into `private const` fields at the top of the class:
+
+- `PipeStartupDelayMs = 200` — the `Task.Delay` in `StartAsync` after pipe creation
+- `McpToolTimeoutSeconds = 30` — the `CancelAfter` timeout for non-`open_diff` MCP tool calls
+- `OpenDiffToolName = "open_diff"` — the tool name check that skips the timeout
+- `SessionIdHeader = "mcp-session-id"` — used in 4 places: two POST response `extraHeaders`, the SSE GET header lookup, and the SSE response header line
+
+All replacements are string-interpolation safe. Wire output is byte-identical. 213 tests pass. No other files touched.

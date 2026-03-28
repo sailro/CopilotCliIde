@@ -1,5 +1,4 @@
 using System.IO.Pipes;
-using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -11,12 +10,32 @@ namespace CopilotCliIde.Server;
 
 public sealed class McpPipeServer : IAsyncDisposable
 {
+	private const int PipeStartupDelayMs = 200;
+	private const int McpToolTimeoutSeconds = 30;
+
+	private const string OpenDiffToolName = "open_diff";
+	private const string ToolsCallMethodName = "tools/call";
+	private const string SessionIdHeader = "mcp-session-id";
+	private const string Crlf = "\r\n";
+	private const string HttpOkStatusLine = "HTTP/1.1 200 OK";
+	private const string SseContentTypeHeader = "content-type: text/event-stream";
+	private const string SseCacheControlHeader = "cache-control: no-cache, no-transform";
+	private const string ConnectionKeepAliveHeader = "connection: keep-alive";
+	private const string TransferEncodingChunkedHeader = "transfer-encoding: chunked";
+	private const string UnknownSessionIdValue = "none";
+
+	private const string HttpMethodPost = "POST";
+	private const string HttpMethodGet = "GET";
+	private const string HttpMethodDelete = "DELETE";
+
+	private const string McpRoute = "/mcp";
+	private const string RootRoute = "/";
+
 	private string? _nonce;
 	private CancellationTokenSource? _cts;
 	private McpServerOptions? _serverOptions;
 	private RpcClient? _rpcClient;
-	private readonly List<SseClient> _sseClients = [];
-	private readonly Lock _sseClientsLock = new();
+	private readonly SseBroadcaster _broadcaster = new();
 
 	public string? PipeName { get; private set; }
 
@@ -64,7 +83,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 		_ = Task.Run(() => AcceptConnectionsAsync(_cts.Token), ct);
 
 		// Wait briefly for pipe to be created
-		await Task.Delay(200, ct);
+		await Task.Delay(PipeStartupDelayMs, ct);
 	}
 
 	private async Task AcceptConnectionsAsync(CancellationToken ct)
@@ -109,135 +128,34 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 			while (pipe.IsConnected && !ct.IsCancellationRequested)
 			{
-				var (method, path, headers, body) = await ReadHttpRequestAsync(pipe, ct);
+				var (method, path, headers, body) = await HttpPipeFraming.ReadHttpRequestAsync(pipe, ct);
 				if (method == null) break;
 
 				headers.TryGetValue("authorization", out var auth);
 				if (auth != $"Nonce {_nonce}")
 				{
-					await WriteHttpResponseAsync(pipe, 401, "Unauthorized", ct);
+					await HttpPipeFraming.WriteHttpResponseAsync(pipe, 401, "Unauthorized", ct);
 					continue;
 				}
 
-				if (method == "POST" && path is "/mcp" or "/")
+				var isMcpRoute = path is McpRoute or RootRoute;
+				if (isMcpRoute)
 				{
-					if (string.IsNullOrWhiteSpace(body))
+					switch (method)
 					{
-						await WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct);
-						continue;
+						case HttpMethodPost:
+							await HandleMcpPostAsync(pipe, body, transport, ct);
+							continue;
+						case HttpMethodGet:
+							await HandleSseGetAsync(pipe, headers, transport, ct);
+							break;
+						case HttpMethodDelete:
+							await HandleMcpDeleteAsync(pipe, ct);
+							break;
 					}
-
-					JsonRpcMessage? message;
-					try
-					{
-						message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
-					}
-					catch (JsonException)
-					{
-						await WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct);
-						continue;
-					}
-
-					if (message == null)
-					{
-						await WriteHttpResponseAsync(pipe, 400, "Bad Request", ct);
-						continue;
-					}
-
-					var responseStream = new MemoryStream();
-
-					// HandlePostRequestAsync writes SSE events to the stream and returns
-					// true if there's a response to send back, false for notifications (202)
-					// Determine timeout — open_diff blocks until user accepts/rejects
-					var isOpenDiff = false;
-					try
-					{
-						using var jsonDoc = JsonDocument.Parse(body);
-						if (jsonDoc.RootElement.TryGetProperty("method", out var m) &&
-							m.GetString() == "tools/call" &&
-							jsonDoc.RootElement.TryGetProperty("params", out var p) &&
-							p.TryGetProperty("name", out var n) &&
-							n.GetString() == "open_diff")
-						{
-							isOpenDiff = true;
-						}
-					}
-					catch { /* Ignore */ }
-
-					using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-					if (!isOpenDiff)
-						postCts.CancelAfter(TimeSpan.FromSeconds(30));
-
-					bool hasResponse;
-					try
-					{
-						hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token);
-					}
-					catch (OperationCanceledException)
-					{
-						// Use parent ct — postCts may have timed out
-						await WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
-						continue;
-					}
-					catch (Exception ex)
-					{
-						// Use parent ct — postCts may have timed out
-						await WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
-						continue;
-					}
-
-					if (hasResponse && responseStream.Length > 0)
-					{
-						responseStream.Position = 0;
-						var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
-						await WriteHttpResponseAsync(pipe, 200, responseBody, postCts.Token,
-							contentType: "text/event-stream",
-							extraHeaders: $"mcp-session-id: {transport.SessionId}\r\n");
-					}
-					else
-					{
-						await WriteHttpResponseAsync(pipe, 202, "", postCts.Token,
-							extraHeaders: $"mcp-session-id: {transport.SessionId}\r\n");
-					}
-					continue;
 				}
 
-				if (method == "GET" && path is "/mcp" or "/")
-				{
-					// SSE stream for server-to-client notifications
-					headers.TryGetValue("mcp-session-id", out var sseSessionId);
-					var sseHeaders = $"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache, no-transform\r\nconnection: keep-alive\r\nmcp-session-id: {sseSessionId ?? transport.SessionId ?? "none"}\r\ntransfer-encoding: chunked\r\n\r\n";
-					await pipe.WriteAsync(Encoding.UTF8.GetBytes(sseHeaders), ct);
-					await pipe.FlushAsync(ct);
-
-					var sseClient = new SseClient(pipe);
-					lock (_sseClientsLock) { _sseClients.Add(sseClient); }
-
-					// Reset dedup state in VS and push the current selection
-					// and diagnostics so copilot-cli has the right state
-					// immediately (the VS extension may have pushed earlier
-					// when no SSE clients were connected yet)
-					_ = Task.Run(async () => await PushInitialStateAsync(), ct);
-
-					try
-					{
-						// Keep connection alive until cancelled or pipe breaks
-						await sseClient.WaitAsync(ct);
-					}
-					finally
-					{
-						lock (_sseClientsLock) { _sseClients.Remove(sseClient); }
-					}
-					break;
-				}
-
-				if (method == "DELETE" && path is "/mcp" or "/")
-				{
-					await WriteHttpResponseAsync(pipe, 200, "", ct);
-					break;
-				}
-
-				await WriteHttpResponseAsync(pipe, 404, "Not Found", ct);
+				await HttpPipeFraming.WriteHttpResponseAsync(pipe, 404, "Not Found", ct);
 			}
 		}
 		catch (OperationCanceledException) { }
@@ -250,169 +168,131 @@ public sealed class McpPipeServer : IAsyncDisposable
 		}
 	}
 
-	internal static async Task<(string? method, string? path, Dictionary<string, string> headers, string body)> ReadHttpRequestAsync(Stream stream, CancellationToken ct)
+	private static async Task HandleMcpPostAsync(NamedPipeServerStream pipe, string? body,
+		StreamableHttpServerTransport transport, CancellationToken ct)
 	{
-		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		var sb = new StringBuilder();
-		var buffer = new byte[1];
-		var headerComplete = false;
-
-		// Read headers byte by byte until \r\n\r\n
-		while (!headerComplete && !ct.IsCancellationRequested)
+		if (string.IsNullOrWhiteSpace(body))
 		{
-			var read = await stream.ReadAsync(buffer.AsMemory(0, 1), ct);
-			if (read == 0) return (null, null, headers, "");
-
-			sb.Append((char)buffer[0]);
-			if (sb.Length >= 4 && sb.ToString(sb.Length - 4, 4) == "\r\n\r\n")
-				headerComplete = true;
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 400, "Bad Request: empty body", ct);
+			return;
 		}
 
-		var headerText = sb.ToString();
-		var lines = headerText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
-		if (lines.Length == 0) return (null, null, headers, "");
-
-		// Parse request line
-		var parts = lines[0].Split(' ');
-		var method = parts.Length > 0 ? parts[0] : null;
-		var path = parts.Length > 1 ? parts[1] : null;
-
-		// Parse headers
-		for (int i = 1; i < lines.Length; i++)
+		JsonRpcMessage? message;
+		try
 		{
-			var colonIdx = lines[i].IndexOf(':');
-			if (colonIdx <= 0)
-				continue;
-
-			var key = lines[i][..colonIdx].Trim();
-			var value = lines[i][(colonIdx + 1)..].Trim();
-			headers[key] = value;
+			message = JsonSerializer.Deserialize<JsonRpcMessage>(body);
+		}
+		catch (JsonException)
+		{
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 400, "Bad Request: invalid JSON", ct);
+			return;
 		}
 
-		// Read body
-		var body = "";
-		if (headers.TryGetValue("content-length", out var clStr) && int.TryParse(clStr, out var contentLength) && contentLength > 0)
+		if (message == null)
 		{
-			var bodyBuffer = new byte[contentLength];
-			var totalRead = 0;
-			while (totalRead < contentLength)
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 400, "Bad Request", ct);
+			return;
+		}
+
+		var responseStream = new MemoryStream();
+
+		// Determine timeout — open_diff blocks until user accepts/rejects
+		var isOpenDiff = false;
+		try
+		{
+			using var jsonDoc = JsonDocument.Parse(body);
+			if (jsonDoc.RootElement.TryGetProperty("method", out var m) &&
+				m.GetString() == ToolsCallMethodName &&
+				jsonDoc.RootElement.TryGetProperty("params", out var p) &&
+				p.TryGetProperty("name", out var n) &&
+				n.GetString() == OpenDiffToolName)
 			{
-				var read = await stream.ReadAsync(bodyBuffer.AsMemory(totalRead, contentLength - totalRead), ct);
-				if (read == 0) break;
-				totalRead += read;
+				isOpenDiff = true;
 			}
-			body = Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
 		}
-		else if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
+		catch { /* Ignore */ }
+
+		using var postCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		if (!isOpenDiff)
+			postCts.CancelAfter(TimeSpan.FromSeconds(McpToolTimeoutSeconds));
+
+		bool hasResponse;
+		try
 		{
-			// Read chunked transfer encoding
-			body = await ReadChunkedBodyAsync(stream, ct);
+			hasResponse = await transport.HandlePostRequestAsync(message, responseStream, postCts.Token);
 		}
-
-		return (method, path, headers, body);
-	}
-
-	internal static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
-	{
-		var result = new StringBuilder();
-		var lineBuf = new StringBuilder();
-
-		while (true)
+		catch (OperationCanceledException)
 		{
-			// Read chunk size line (hex\r\n)
-			lineBuf.Clear();
-			while (true)
-			{
-				var b = new byte[1];
-				var read = await stream.ReadAsync(b.AsMemory(0, 1), ct);
-				if (read == 0) return result.ToString();
-				lineBuf.Append((char)b[0]);
-				if (lineBuf is [.., '\r', '\n'])
-					break;
-			}
-
-			var sizeLine = lineBuf.ToString().TrimEnd('\r', '\n').Trim();
-			// Strip chunk extensions if any
-			var semiIdx = sizeLine.IndexOf(';');
-			if (semiIdx >= 0) sizeLine = sizeLine[..semiIdx];
-
-			if (!int.TryParse(sizeLine, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-				break;
-
-			// Read chunk data
-			var chunkBuf = new byte[chunkSize];
-			var totalRead = 0;
-			while (totalRead < chunkSize)
-			{
-				var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct);
-				if (read == 0) break;
-				totalRead += read;
-			}
-			result.Append(Encoding.UTF8.GetString(chunkBuf, 0, totalRead));
-
-			// Read trailing \r\n after chunk data
-			var trail = new byte[2];
-			await stream.ReadExactlyAsync(trail.AsMemory(0, 2), ct);
+			// Use parent ct — postCts may have timed out
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 504, "Timeout", ct);
+			return;
+		}
+		catch (Exception ex)
+		{
+			// Use parent ct — postCts may have timed out
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 500, ex.Message, ct);
+			return;
 		}
 
-		// Read trailing headers/\r\n after the final 0-size chunk
-		var trailBuf = new byte[2];
-		await stream.ReadExactlyAsync(trailBuf.AsMemory(0, 2), ct);
-
-		return result.ToString();
-	}
-
-	internal static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string body, CancellationToken ct,
-		string contentType = "text/plain", string extraHeaders = "")
-	{
-		// Use HttpResponseMessage to format the status line properly
-		using var response = new HttpResponseMessage((HttpStatusCode)statusCode);
-		var statusText = response.ReasonPhrase ?? "Unknown";
-
-		var bodyBytes = Encoding.UTF8.GetBytes(body);
-		var useChunked = contentType == "text/event-stream";
-
-		// Build status line and headers using proper HTTP formatting
-		var sb = new StringBuilder();
-		sb.Append($"HTTP/1.1 {statusCode} {statusText}\r\n");
-		sb.Append($"content-type: {contentType}\r\n");
-		if (useChunked)
-			sb.Append("transfer-encoding: chunked\r\n");
+		if (hasResponse && responseStream.Length > 0)
+		{
+			responseStream.Position = 0;
+			var responseBody = Encoding.UTF8.GetString(responseStream.ToArray());
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 200, responseBody, postCts.Token,
+				contentType: "text/event-stream",
+				extraHeaders: $"{SessionIdHeader}: {transport.SessionId}{Crlf}");
+		}
 		else
-			sb.Append($"content-length: {bodyBytes.Length}\r\n");
-		sb.Append("connection: keep-alive\r\n");
-		if (!string.IsNullOrEmpty(extraHeaders))
-			sb.Append(extraHeaders);
-		sb.Append("\r\n");
-
-		var headerBytes = Encoding.UTF8.GetBytes(sb.ToString());
-		await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), ct);
-
-		switch (useChunked)
 		{
-			case true when bodyBytes.Length > 0:
-				{
-					var chunk = Encoding.UTF8.GetBytes($"{bodyBytes.Length:x}\r\n");
-					var chunkEnd = "\r\n0\r\n\r\n"u8.ToArray();
-					var fullChunk = new byte[chunk.Length + bodyBytes.Length + chunkEnd.Length];
-					Buffer.BlockCopy(chunk, 0, fullChunk, 0, chunk.Length);
-					Buffer.BlockCopy(bodyBytes, 0, fullChunk, chunk.Length, bodyBytes.Length);
-					Buffer.BlockCopy(chunkEnd, 0, fullChunk, chunk.Length + bodyBytes.Length, chunkEnd.Length);
-					await stream.WriteAsync(fullChunk.AsMemory(0, fullChunk.Length), ct);
-					break;
-				}
-			case true:
-				{
-					var terminator = "0\r\n\r\n"u8.ToArray();
-					await stream.WriteAsync(terminator.AsMemory(0, terminator.Length), ct);
-					break;
-				}
-			default:
-				await stream.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), ct);
-				break;
+			await HttpPipeFraming.WriteHttpResponseAsync(pipe, 202, "", postCts.Token,
+				extraHeaders: $"{SessionIdHeader}: {transport.SessionId}{Crlf}");
 		}
+	}
 
-		await stream.FlushAsync(ct);
+	private async Task HandleSseGetAsync(NamedPipeServerStream pipe, Dictionary<string, string> headers,
+		StreamableHttpServerTransport transport, CancellationToken ct)
+	{
+		// SSE stream for server-to-client notifications
+		headers.TryGetValue(SessionIdHeader, out var sseSessionId);
+		var sseHeaders = BuildSseHeaders(sseSessionId ?? transport.SessionId ?? UnknownSessionIdValue);
+		await pipe.WriteAsync(Encoding.UTF8.GetBytes(sseHeaders), ct);
+		await pipe.FlushAsync(ct);
+
+		var sseClient = new SseClient(pipe);
+		_broadcaster.AddClient(sseClient);
+
+		// Reset dedup state in VS and push the current selection
+		// and diagnostics so copilot-cli has the right state
+		// immediately (the VS extension may have pushed earlier
+		// when no SSE clients were connected yet)
+		_ = Task.Run(async () => await PushInitialStateAsync(), ct);
+
+		try
+		{
+			// Keep connection alive until cancelled or pipe breaks
+			await sseClient.WaitAsync(ct);
+		}
+		finally
+		{
+			_broadcaster.RemoveClient(sseClient);
+		}
+	}
+
+	private static async Task HandleMcpDeleteAsync(NamedPipeServerStream pipe, CancellationToken ct)
+	{
+		await HttpPipeFraming.WriteHttpResponseAsync(pipe, 200, "", ct);
+	}
+
+	private static string BuildSseHeaders(string sessionId)
+	{
+		return string.Concat(
+			HttpOkStatusLine, Crlf,
+			SseContentTypeHeader, Crlf,
+			SseCacheControlHeader, Crlf,
+			ConnectionKeepAliveHeader, Crlf,
+			SessionIdHeader, ": ", sessionId, Crlf,
+			TransferEncodingChunkedHeader, Crlf,
+			Crlf);
 	}
 
 	public ValueTask DisposeAsync()
@@ -475,99 +355,17 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 	public Task PushSelectionChangedAsync(SelectionNotification notification)
 	{
-		return PushNotificationAsync(Notification.SelectionChanged, new
-		{
-			text = notification.Text ?? "",
-			filePath = notification.FilePath,
-			fileUrl = notification.FileUrl,
-			selection = notification.Selection == null ? null : new
-			{
-				start = new { line = notification.Selection.Start?.Line ?? 0, character = notification.Selection.Start?.Character ?? 0 },
-				end = new { line = notification.Selection.End?.Line ?? 0, character = notification.Selection.End?.Character ?? 0 },
-				isEmpty = notification.Selection.IsEmpty
-			}
-		});
+		return _broadcaster.BroadcastSelectionChangedAsync(notification);
 	}
 
 	public Task PushDiagnosticsChangedAsync(DiagnosticsChangedNotification notification)
 	{
-		return PushNotificationAsync(Notification.DiagnosticsChanged, new
-		{
-			uris = notification.Uris?.Select(u => new
-			{
-				uri = u.Uri,
-				diagnostics = u.Diagnostics?.Select(d => new
-				{
-					range = d.Range == null ? null : new
-					{
-						start = new { line = d.Range.Start?.Line ?? 0, character = d.Range.Start?.Character ?? 0 },
-						end = new { line = d.Range.End?.Line ?? 0, character = d.Range.End?.Character ?? 0 }
-					},
-					message = d.Message,
-					severity = d.Severity,
-					code = d.Code
-				})
-			})
-		});
+		return _broadcaster.BroadcastDiagnosticsChangedAsync(notification);
 	}
 
-	public async Task PushNotificationAsync(string method, object? @params)
+	public Task PushNotificationAsync(string method, object? @params)
 	{
-		var notification = JsonSerializer.Serialize(new { jsonrpc = "2.0", method, @params });
-		var sseEvent = $"event: message\ndata: {notification}\n\n";
-		var chunkData = Encoding.UTF8.GetBytes(sseEvent);
-		var chunk = Encoding.UTF8.GetBytes($"{chunkData.Length:x}\r\n");
-		var chunkEnd = "\r\n"u8.ToArray();
-
-		SseClient[] clients;
-		lock (_sseClientsLock) { clients = [.. _sseClients]; }
-
-		foreach (var client in clients)
-		{
-			try
-			{
-				var fullChunk = new byte[chunk.Length + chunkData.Length + chunkEnd.Length];
-				Buffer.BlockCopy(chunk, 0, fullChunk, 0, chunk.Length);
-				Buffer.BlockCopy(chunkData, 0, fullChunk, chunk.Length, chunkData.Length);
-				Buffer.BlockCopy(chunkEnd, 0, fullChunk, chunk.Length + chunkData.Length, chunkEnd.Length);
-				await client.Pipe.WriteAsync(fullChunk);
-				await client.Pipe.FlushAsync();
-			}
-			catch
-			{
-				client.Close();
-			}
-		}
-	}
-
-	private sealed class SseClient(NamedPipeServerStream pipe)
-	{
-		private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		public NamedPipeServerStream Pipe => pipe;
-		public Task WaitAsync(CancellationToken ct)
-		{
-			ct.Register(() => _done.TrySetResult());
-			return _done.Task;
-		}
-		public void Close() => _done.TrySetResult();
-	}
-
-	private sealed class SingletonServiceProvider(RpcClient rpcClient) : IServiceProvider, Microsoft.Extensions.DependencyInjection.IServiceProviderIsService
-	{
-		public object? GetService(Type serviceType)
-		{
-			if (serviceType == typeof(RpcClient))
-				return rpcClient;
-
-			return serviceType == typeof(Microsoft.Extensions.DependencyInjection.IServiceProviderIsService)
-				? this
-				: null;
-		}
-
-		public bool IsService(Type serviceType)
-		{
-			return serviceType == typeof(RpcClient);
-		}
+		return _broadcaster.BroadcastAsync(method, @params);
 	}
 }
 

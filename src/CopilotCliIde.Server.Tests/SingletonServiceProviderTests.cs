@@ -8,7 +8,7 @@ public class SingletonServiceProviderTests
 	public void GetService_ReturnsRpcClient()
 	{
 		var rpcClient = new RpcClient();
-		var provider = CreateProvider(rpcClient);
+		var provider = new SingletonServiceProvider(rpcClient);
 
 		var resolved = provider.GetService(typeof(RpcClient));
 
@@ -19,7 +19,7 @@ public class SingletonServiceProviderTests
 	public void GetService_ReturnsNull_ForUnknownType()
 	{
 		var rpcClient = new RpcClient();
-		var provider = CreateProvider(rpcClient);
+		var provider = new SingletonServiceProvider(rpcClient);
 
 		Assert.Null(provider.GetService(typeof(string)));
 		Assert.Null(provider.GetService(typeof(int)));
@@ -30,7 +30,7 @@ public class SingletonServiceProviderTests
 	public void GetService_ReturnsSelf_ForIServiceProviderIsService()
 	{
 		var rpcClient = new RpcClient();
-		var provider = CreateProvider(rpcClient);
+		var provider = new SingletonServiceProvider(rpcClient);
 
 		var isService = provider.GetService(typeof(IServiceProviderIsService));
 
@@ -41,7 +41,7 @@ public class SingletonServiceProviderTests
 	public void IsService_TrueForRpcClient()
 	{
 		var rpcClient = new RpcClient();
-		var provider = CreateProvider(rpcClient);
+		var provider = new SingletonServiceProvider(rpcClient);
 		var isServiceCheck = (IServiceProviderIsService)provider;
 
 		Assert.True(isServiceCheck.IsService(typeof(RpcClient)));
@@ -51,17 +51,10 @@ public class SingletonServiceProviderTests
 	public void IsService_FalseForOtherTypes()
 	{
 		var rpcClient = new RpcClient();
-		var provider = CreateProvider(rpcClient);
+		var provider = new SingletonServiceProvider(rpcClient);
 		var isServiceCheck = (IServiceProviderIsService)provider;
 
 		Assert.False(isServiceCheck.IsService(typeof(string)));
 		Assert.False(isServiceCheck.IsService(typeof(HttpClient)));
-	}
-
-	// Creates via reflection since SingletonServiceProvider is a private nested class.
-	private static IServiceProvider CreateProvider(RpcClient rpcClient)
-	{
-		var type = typeof(McpPipeServer).GetNestedType("SingletonServiceProvider", System.Reflection.BindingFlags.NonPublic)!;
-		return (IServiceProvider)Activator.CreateInstance(type, rpcClient)!;
 	}
 }

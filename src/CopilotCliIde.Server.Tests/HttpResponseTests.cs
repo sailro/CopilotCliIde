@@ -17,7 +17,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, statusCode, "test", CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, statusCode, "test", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.StartsWith($"HTTP/1.1 {statusCode} {expectedText}\r\n", response);
@@ -28,7 +28,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 999, "test", CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 999, "test", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.StartsWith("HTTP/1.1 999 Unknown\r\n", response);
@@ -40,7 +40,7 @@ public class HttpResponseTests
 		using var stream = new MemoryStream();
 		const string body = "Hello, World!";
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.Contains($"content-length: {Encoding.UTF8.GetByteCount(body)}\r\n", response);
@@ -51,7 +51,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.Contains("content-type: text/plain\r\n", response);
@@ -62,7 +62,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, "{}", CancellationToken.None,
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, "{}", CancellationToken.None,
 			contentType: "text/event-stream");
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
@@ -76,7 +76,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None,
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None,
 			extraHeaders: "Mcp-Session-Id: session-42\r\n");
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
@@ -88,7 +88,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, "", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.Contains("connection: keep-alive\r\n", response);
@@ -99,7 +99,7 @@ public class HttpResponseTests
 	{
 		using var stream = new MemoryStream();
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 202, "", CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 202, "", CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.Contains("content-length: 0\r\n", response);
@@ -111,7 +111,7 @@ public class HttpResponseTests
 		using var stream = new MemoryStream();
 		const string body = """{"result":"ok"}""";
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		// Body comes after the double CRLF that ends headers
@@ -127,7 +127,7 @@ public class HttpResponseTests
 		using var stream = new MemoryStream();
 		const string body = "naïve café ☕";
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None);
 
 		var response = Encoding.UTF8.GetString(stream.ToArray());
 		var byteCount = Encoding.UTF8.GetByteCount(body);
@@ -142,7 +142,7 @@ public class HttpResponseTests
 		using var stream = new MemoryStream();
 		const string body = """{"jsonrpc":"2.0","result":{"tools":[]},"id":1}""";
 
-		await McpPipeServer.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None,
+		await HttpPipeFraming.WriteHttpResponseAsync(stream, 200, body, CancellationToken.None,
 			contentType: "text/event-stream",
 			extraHeaders: "Mcp-Session-Id: test-session\r\n");
 

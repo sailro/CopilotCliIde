@@ -1505,7 +1505,7 @@ public partial class TrafficReplayTests
 		}
 
 		if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
-			return await McpPipeServer.ReadChunkedBodyAsync(pipe, ct);
+			return await HttpPipeFraming.ReadChunkedBodyAsync(pipe, ct);
 
 		if (!headers.TryGetValue("content-length", out var clStr) || !int.TryParse(clStr, out var contentLength) || contentLength <= 0)
 			return "";

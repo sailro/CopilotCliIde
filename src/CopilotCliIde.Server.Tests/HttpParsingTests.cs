@@ -10,7 +10,7 @@ public class HttpParsingTests
 		const string request = "GET /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Nonce abc123\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (method, path, headers, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, path, headers, body) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("GET", method);
 		Assert.Equal("/mcp", path);
@@ -26,7 +26,7 @@ public class HttpParsingTests
 		var request = $"POST /mcp HTTP/1.1\r\nContent-Length: {jsonBody.Length}\r\nContent-Type: application/json\r\n\r\n{jsonBody}";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (method, path, headers, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, path, headers, body) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("POST", method);
 		Assert.Equal("/mcp", path);
@@ -40,7 +40,7 @@ public class HttpParsingTests
 		const string request = "GET / HTTP/1.1\r\ncontent-type: text/plain\r\nAUTHORIZATION: Nonce xyz\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (_, _, headers, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (_, _, headers, _) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("text/plain", headers["Content-Type"]);
 		Assert.Equal("Nonce xyz", headers["authorization"]);
@@ -51,7 +51,7 @@ public class HttpParsingTests
 	{
 		using var stream = new MemoryStream([]);
 
-		var (method, path, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, path, _, body) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Null(method);
 		Assert.Null(path);
@@ -64,7 +64,7 @@ public class HttpParsingTests
 		const string request = "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (method, path, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, path, _, body) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("POST", method);
 		Assert.Equal("/", path);
@@ -77,7 +77,7 @@ public class HttpParsingTests
 		const string request = "DELETE /mcp HTTP/1.1\r\nAuthorization: Nonce test\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (method, path, _, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, path, _, _) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("DELETE", method);
 		Assert.Equal("/mcp", path);
@@ -90,7 +90,7 @@ public class HttpParsingTests
 		const string request = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n5\r\nWorld\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (method, _, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, _, _, body) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("POST", method);
 		Assert.Equal("HelloWorld", body);
@@ -103,7 +103,7 @@ public class HttpParsingTests
 		var request = $"POST / HTTP/1.1\r\nContent-Length: {largePayload.Length}\r\n\r\n{largePayload}";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (method, _, _, body) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (method, _, _, body) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("POST", method);
 		Assert.Equal(10_000, body.Length);
@@ -116,7 +116,7 @@ public class HttpParsingTests
 		const string request = "GET / HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\nX-Custom: foo\r\nMcp-Session-Id: session-123\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (_, _, headers, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (_, _, headers, _) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal(4, headers.Count);
 		Assert.Equal("session-123", headers["Mcp-Session-Id"]);
@@ -129,7 +129,7 @@ public class HttpParsingTests
 		const string request = "GET / HTTP/1.1\r\nAuthorization: Bearer abc:def:ghi\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(request));
 
-		var (_, _, headers, _) = await McpPipeServer.ReadHttpRequestAsync(stream, CancellationToken.None);
+		var (_, _, headers, _) = await HttpPipeFraming.ReadHttpRequestAsync(stream, CancellationToken.None);
 
 		Assert.Equal("Bearer abc:def:ghi", headers["Authorization"]);
 	}
@@ -142,6 +142,6 @@ public class HttpParsingTests
 		using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(
-			() => McpPipeServer.ReadHttpRequestAsync(pipe, cts.Token));
+			() => HttpPipeFraming.ReadHttpRequestAsync(pipe, cts.Token));
 	}
 }

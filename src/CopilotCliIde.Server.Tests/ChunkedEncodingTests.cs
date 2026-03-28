@@ -10,7 +10,7 @@ public class ChunkedEncodingTests
 		const string chunked = "D\r\nHello, World!\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal("Hello, World!", body);
 	}
@@ -21,7 +21,7 @@ public class ChunkedEncodingTests
 		const string chunked = "5\r\nHello\r\n1\r\n \r\n5\r\nWorld\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal("Hello World", body);
 	}
@@ -32,7 +32,7 @@ public class ChunkedEncodingTests
 		const string chunked = "0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal("", body);
 	}
@@ -45,7 +45,7 @@ public class ChunkedEncodingTests
 		var chunked = $"{hexSize}\r\n{data}\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal(4096, body.Length);
 		Assert.Equal(data, body);
@@ -57,7 +57,7 @@ public class ChunkedEncodingTests
 		const string chunked = "A\r\n0123456789\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal("0123456789", body);
 	}
@@ -68,7 +68,7 @@ public class ChunkedEncodingTests
 		const string chunked = "a\r\n0123456789\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal("0123456789", body);
 	}
@@ -80,7 +80,7 @@ public class ChunkedEncodingTests
 		const string chunked = "5;ext=val\r\nHello\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal("Hello", body);
 	}
@@ -93,7 +93,7 @@ public class ChunkedEncodingTests
 		var chunked = $"{hexSize}\r\n{json}\r\n0\r\n\r\n";
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal(json, body);
 	}
@@ -110,7 +110,7 @@ public class ChunkedEncodingTests
 			.ToArray();
 		using var stream = new MemoryStream(chunkedBytes);
 
-		var body = await McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None);
+		var body = await HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None);
 
 		Assert.Equal(text, body);
 	}
@@ -123,6 +123,6 @@ public class ChunkedEncodingTests
 		using var stream = new MemoryStream(Encoding.UTF8.GetBytes(chunked));
 
 		await Assert.ThrowsAsync<EndOfStreamException>(
-			() => McpPipeServer.ReadChunkedBodyAsync(stream, CancellationToken.None));
+			() => HttpPipeFraming.ReadChunkedBodyAsync(stream, CancellationToken.None));
 	}
 }
