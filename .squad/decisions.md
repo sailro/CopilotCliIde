@@ -2029,3 +2029,116 @@ For completeness — these are all **confirmed identical** between 0.39 and 0.41
 - SSE event format for notifications
 - Tool response envelope structure (result.content[0].type="text")
 
+
+---
+
+# Hudson Fast Retry Decision — 2026-03-28
+
+## Context
+vscode-0.41 capture introduced overlapping same-id tool calls, plain-text HTTP 400 responses, and non-terminal DELETE placement that broke replay/cross-capture assertions.
+
+## Decision
+Use **tool-response shape filtering** in `TrafficParser.GetAllToolCallResponses` when correlating responses, and make replay tests tolerant of protocol-valid variants seen in 0.41.
+
+## What changed
+1. Parser correlation now:
+   - propagates client session IDs from HTTP request headers into parsed request bodies,
+   - matches raw tool names with whitespace-tolerant parsing,
+   - filters candidate responses by expected output shape per tool (`open_diff`, `close_diff`, `get_vscode_info`, `update_session_name`).
+2. Tests now:
+   - assert DELETE has a valid response rather than strict end-of-file sequence position,
+   - accept JSON-RPC and plain-text 400 error payload formats.
+
+## Rationale
+ID-only matching is insufficient when captures contain concurrent same-id requests across tool calls and sessions. Shape-aware correlation keeps parser behavior deterministic for replay tests while staying capture-driven and avoiding fixture edits.
+
+## Verification
+- `dotnet build src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj --no-restore`
+- `dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj --no-build --filter "ToolResponseFields_ExactMatchWithVsCode|Http400RetrySequence_HasValidErrorStructure|CloseDiffResponse_HasExpectedStructure|DeleteMcpDisconnect_PresentIn039Captures|CloseDiffLifecycle_TabNamesAndAlreadyClosedConsistency"`
+- `dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj --no-build`
+
+All green (21/21 targeted, 213/213 full).
+
+
+---
+
+# StreamJsonRpc Version Compatibility for VS2022
+
+**Date:** 2026-03-26  
+**Author:** Hicks (Extension Dev)  
+**Status:** Implemented  
+
+## Problem
+
+Extension crashed on VS2022 with error: "Could not load file or assembly 'StreamJsonRpc, Version=2.24.0.0'". The VSIX worked on VS2026 but not VS2022 because:
+
+1. We referenced StreamJsonRpc 2.24.84 (assembly version 2.24.0.0)
+2. VS2026 ships with StreamJsonRpc 2.24.x → worked
+3. VS2022 ships with StreamJsonRpc 2.9.x–2.22.x depending on update → failed
+4. VSSDK build tools strip VS-provided assemblies from VSIX → StreamJsonRpc wasn't packaged
+
+## Solution
+
+**Downgraded to VS SDK 17.0.31902.203 and StreamJsonRpc 2.9.85** to match VS 2022.0 (the minimum version declared in the manifest `[17.0,19.0)`).
+
+### Changes Made
+
+1. **Directory.Packages.props**:
+   - `Microsoft.VisualStudio.SDK`: 17.14.40265 → 17.0.31902.203
+   - `Microsoft.VSSDK.BuildTools`: 17.14.2120 → 17.0.5232
+   - `StreamJsonRpc`: 2.24.84 → 2.9.85
+   - Added `System.Text.Json` 8.0.5 (not included in VS SDK 17.0)
+
+2. **CopilotCliIde.csproj**:
+   - StreamJsonRpc reference: added `ExcludeAssets="runtime" PrivateAssets="all"` to prevent inclusion in VSIX
+   - Added System.Text.Json reference for IdeDiscovery JSON serialization
+
+3. **CopilotCliIde.Shared/Contracts.cs**:
+   - Removed `[JsonRpcContract]` attribute (introduced in StreamJsonRpc 2.13, not available in 2.9)
+   - Removed `using StreamJsonRpc;`
+
+4. **CopilotCliIde.Shared.csproj**:
+   - Removed StreamJsonRpc PackageReference entirely (not needed, interfaces are POCOs)
+   - Removed NoWarn for StreamJsonRpc0008 analyzer
+
+5. **DiagnosticTracker.cs**:
+   - Replaced `HashCode` struct (not fully supported in net472 with old SDK) with manual hash combining using `unchecked` block and prime multiplication (17 + 31 * value pattern)
+
+6. **source.extension.vsixmanifest**:
+   - Removed arm64 architecture support (not supported by VS SDK 17.0)
+
+### Verification
+
+- Build succeeds with 0 errors (only warnings for MessagePack vulnerability in ModelContextProtocol dependency and VSTHRD analyzer suggestions)
+- VSIX generated: `CopilotCliIde.vsix` (5.1 MB)
+- **StreamJsonRpc.dll is NOT in VSIX root** → extension uses VS's copy (2.9.x on VS2022.0, 2.24.x on VS2026)
+- **StreamJsonRpc.dll IS in McpServer/** → server (net10.0) has its own copy (safe, separate process)
+
+## Architecture Notes
+
+- **Extension (net472)**: Runs in VS process, uses VS's StreamJsonRpc via binding resolution
+- **Server (net10.0)**: Standalone child process, bundles its own StreamJsonRpc 2.9.85
+- **Shared (netstandard2.0)**: No StreamJsonRpc dependency, just RPC contract POCOs
+- StreamJsonRpc is wire-compatible across 2.x versions (server 2.9 can talk to VS extension using VS's 2.24)
+
+## VS Version Compatibility Table
+
+| VS Version | StreamJsonRpc Shipped | Supported |
+|------------|----------------------|-----------|
+| 2022.0 (17.0) | 2.9.x | ✅ Yes (now) |
+| 2022.1–2022.3 (17.1–17.3) | 2.10.x–2.12.x | ✅ Yes |
+| 2022.4+ (17.4+) | 2.13.x+ | ✅ Yes |
+| 2026.0+ (19.0+) | 2.23.x+ | ✅ Yes |
+
+## Tradeoffs
+
+- **Lost JsonRpcContractAttribute**: This is an analyzer suggestion for proxy generation. We don't use proxy generation, so no functional impact.
+- **Lost arm64 support**: VS SDK 17.0 schema doesn't support arm64 architecture in manifest. Can be re-added if we move minimum to VS 2022.4+.
+- **Manual hash combining**: Slightly less collision-resistant than `HashCode` struct, but adequate for deduplication key generation.
+
+## References
+
+- [StreamJsonRpc VS Integration Docs](https://microsoft.github.io/vs-streamjsonrpc/docs/vs.html)
+- VS 2022.0 ships StreamJsonRpc 2.9.x
+- VS SDK 17.0.31902.203 = VS 2022 RTM SDK
+

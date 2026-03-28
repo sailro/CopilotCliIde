@@ -263,3 +263,14 @@ Performed exhaustive protocol comparison between CLI 0.41 (VS Code 1.113.0) and 
 - P1: Fix TrafficParser session propagation for overlapping blocking calls (fixes tests 1, 3, 5)
 - P2: Update `Http400RetrySequence` to handle plain-text 400 bodies (fixes test 2)
 - P2: Update `DeleteMcpDisconnect` to allow multiple DELETEs (fixes test 4)
+
+### 2026-03-28 — Fast Retry Fix: Parser/Test Alignment for 0.41 Capture
+
+- Implemented targeted `TrafficParser` hardening for multi-session and out-of-order traffic:
+  - Propagate `mcp-session-id` from HTTP request headers to following `cli_to_vscode` JSON body entries (symmetry with existing response propagation).
+  - Relax raw tool request detection to support whitespace in JSON (`"name"\s*:\s*"..."`) for truncated HTTP-frame parsing.
+  - Add response-shape gating in `GetAllToolCallResponses` so tool correlation ignores same-id responses that belong to different tools (`open_diff` vs `close_diff` vs `get_vscode_info` vs `update_session_name`).
+- Updated replay tests for 0.41-compatible behavior without touching captures:
+  - `DeleteMcpDisconnect_PresentIn039Captures` now validates DELETE request structure plus existence of a server response (instead of strict “last 3 entries” positioning).
+  - `Http400RetrySequence_HasValidErrorStructure` now accepts both JSON-RPC 400 errors and plain-text 400 bodies (`Invalid or missing session ID`).
+- Verification: targeted fast-retry filter passed (21/21), then full `CopilotCliIde.Server.Tests` suite passed (213/213).
