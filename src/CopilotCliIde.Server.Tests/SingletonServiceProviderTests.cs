@@ -42,9 +42,8 @@ public class SingletonServiceProviderTests
 	{
 		var rpcClient = new RpcClient();
 		var provider = new SingletonServiceProvider(rpcClient);
-		var isServiceCheck = (IServiceProviderIsService)provider;
 
-		Assert.True(isServiceCheck.IsService(typeof(RpcClient)));
+		Assert.True(provider.IsService(typeof(RpcClient)));
 	}
 
 	[Fact]
@@ -52,9 +51,8 @@ public class SingletonServiceProviderTests
 	{
 		var rpcClient = new RpcClient();
 		var provider = new SingletonServiceProvider(rpcClient);
-		var isServiceCheck = (IServiceProviderIsService)provider;
 
-		Assert.False(isServiceCheck.IsService(typeof(string)));
-		Assert.False(isServiceCheck.IsService(typeof(HttpClient)));
+		Assert.False(provider.IsService(typeof(string)));
+		Assert.False(provider.IsService(typeof(HttpClient)));
 	}
 }
