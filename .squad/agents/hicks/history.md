@@ -91,3 +91,7 @@ Completed comprehensive review of all 11 source files in `src/CopilotCliIde/`. P
 **Cross-references:** HIGH-1 aligns with Ripley's H3 (diff cleanup race). HIGH-2 = Ripley H1 (threading hazard). M3 (GetSelectionAsync) relates to Hudson's extension test coverage gaps. Multiple findings reinforce silent catch block pattern (Ripley H4).
 
 **Decision:** Report filed. Ready for sprint planning and cross-team coordination.
+
+### 2026-03-28 — Shared DiagnosticSeverity constants for extension mapping
+
+Diagnostic severities used by extension diagnostics mapping are now centralized in `CopilotCliIde.Shared.Contracts` via `DiagnosticSeverity` (`Error`, `Warning`, `Information`). `DiagnosticTracker` maps `__VSERRORCATEGORY` to these constants with the same fallback behavior (`Information`) so wire values and protocol behavior stay unchanged while removing local string literals.

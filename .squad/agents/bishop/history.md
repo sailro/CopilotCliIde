@@ -529,3 +529,4 @@ Analyzed `vscode-0.41.ndjson` capture (129 lines, 8 MCP sessions, captured 2026-
 5. `Http400RetrySequence_HasValidErrorStructure` — 0.41 capture's 400 response structure differs from expected
 
 These are Hudson's domain (test infrastructure fixes for the 0.41 capture's multi-session format).
+- **Diagnostic severity contract centralized (2026-03-28):** Added `DiagnosticSeverity` constants (`error`, `warning`, `information`) to `CopilotCliIde.Shared\Contracts.cs` and updated extension/server test usage to consume this shared contract instead of ad-hoc literals. Kept `DiagnosticItem.Severity` as `string` to preserve existing wire format compatibility while removing scattered literal drift risk.

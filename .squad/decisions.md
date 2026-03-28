@@ -2142,3 +2142,35 @@ Extension crashed on VS2022 with error: "Could not load file or assembly 'Stream
 - VS 2022.0 ships StreamJsonRpc 2.9.x
 - VS SDK 17.0.31902.203 = VS 2022 RTM SDK
 
+
+---
+
+## DiagnosticSeverity Shared Contract (2026-03-28)
+
+**Owner(s):** Bishop, Hicks  
+**Topic:** Diagnostics
+
+### Context
+Diagnostics severity values were represented as ad-hoc string literals across extension and server tests ("error", "warning", "information"). The team requested extraction into a shared contract in CopilotCliIde.Shared.
+
+### Decision
+Introduce DiagnosticSeverity as a shared constants contract in CopilotCliIde.Shared\Contracts.cs. Migrate extension and server consumers to use those constants. Keep DiagnosticItem.Severity typed as string for backward-compatible serialization and protocol parity.
+
+### Rationale
+- Wire format already uses lowercase strings and is relied on by capture-compatibility tests.
+- Changing the property type to enum/value object would add serialization risk and wider churn.
+- Shared constants eliminate duplicated literals while preserving protocol behavior.
+- No JSON shape or transport behavior changes.
+
+### Impact
+- Centralized source of truth for supported severities.
+- Reduced chance of casing drift or typo regressions in diagnostics payloads.
+- DiagnosticTracker in extension now uses shared constants when mapping from __VSERRORCATEGORY.
+- All tests updated to reference shared definitions.
+- All 213 tests passing (msbuild + dotnet).
+
+### Files Modified
+- src/CopilotCliIde.Shared/Contracts.cs — added DiagnosticSeverity constants
+- src/CopilotCliIde/DiagnosticTracker.cs — use shared constants in severity mapping
+- Test files in both projects — reference shared constants
+
