@@ -124,6 +124,12 @@ public static class DiagnosticSeverity
 	public const string Information = "information";
 }
 
+public static class Notification
+{
+	public const string SelectionChanged = "selection_changed";
+	public const string DiagnosticsChanged = "diagnostics_changed";
+}
+
 public class DiagnosticRange
 {
 	public SelectionPosition? Start { get; set; }

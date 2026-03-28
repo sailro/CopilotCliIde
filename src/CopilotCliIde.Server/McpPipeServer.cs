@@ -475,7 +475,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 	public Task PushSelectionChangedAsync(SelectionNotification notification)
 	{
-		return PushNotificationAsync("selection_changed", new
+		return PushNotificationAsync(Notification.SelectionChanged, new
 		{
 			text = notification.Text ?? "",
 			filePath = notification.FilePath,
@@ -491,7 +491,7 @@ public sealed class McpPipeServer : IAsyncDisposable
 
 	public Task PushDiagnosticsChangedAsync(DiagnosticsChangedNotification notification)
 	{
-		return PushNotificationAsync("diagnostics_changed", new
+		return PushNotificationAsync(Notification.DiagnosticsChanged, new
 		{
 			uris = notification.Uris?.Select(u => new
 			{

@@ -232,7 +232,7 @@ internal sealed class DiagnosticTracker : IDisposable
 
 				var notification = new DiagnosticsChangedNotification { Uris = uris };
 				var totalDiagnostics = uris.Sum(u => u.Diagnostics?.Count ?? 0);
-				_logger?.Log($"Push diagnostics_changed: {uris.Count} file(s), {totalDiagnostics} diagnostic(s)");
+				_logger?.Log($"Push {Notification.DiagnosticsChanged}: {uris.Count} file(s), {totalDiagnostics} diagnostic(s)");
 
 				await Task.Run(async () =>
 				{

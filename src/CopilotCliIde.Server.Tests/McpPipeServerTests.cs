@@ -1,3 +1,5 @@
+using CopilotCliIde.Shared;
+
 namespace CopilotCliIde.Server.Tests;
 
 public class McpPipeServerTests
@@ -33,7 +35,7 @@ public class McpPipeServerTests
 		var server = new McpPipeServer();
 
 		// No SSE clients connected — should silently succeed
-		await server.PushNotificationAsync("selection_changed", new
+		await server.PushNotificationAsync(Notification.SelectionChanged, new
 		{
 			text = "hello",
 			filePath = @"C:\test.cs"

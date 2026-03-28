@@ -25,7 +25,7 @@ public class NotificationFormatTests
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
-			method = "selection_changed",
+			method = Notification.SelectionChanged,
 			@params = notification
 		});
 
@@ -33,7 +33,7 @@ public class NotificationFormatTests
 		var root = doc.RootElement;
 
 		Assert.Equal("2.0", root.GetProperty("jsonrpc").GetString());
-		Assert.Equal("selection_changed", root.GetProperty("method").GetString());
+		Assert.Equal(Notification.SelectionChanged, root.GetProperty("method").GetString());
 
 		var p = root.GetProperty("params");
 		Assert.Equal("var x = 42;", p.GetProperty("text").GetString());
@@ -60,7 +60,7 @@ public class NotificationFormatTests
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
-			method = "selection_changed",
+			method = Notification.SelectionChanged,
 			@params = notification
 		});
 
@@ -146,7 +146,7 @@ public class NotificationFormatTests
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
-			method = "diagnostics_changed",
+			method = Notification.DiagnosticsChanged,
 			@params = notification
 		});
 
@@ -154,7 +154,7 @@ public class NotificationFormatTests
 		var root = doc.RootElement;
 
 		Assert.Equal("2.0", root.GetProperty("jsonrpc").GetString());
-		Assert.Equal("diagnostics_changed", root.GetProperty("method").GetString());
+		Assert.Equal(Notification.DiagnosticsChanged, root.GetProperty("method").GetString());
 
 		var p = root.GetProperty("params");
 		var uris = p.GetProperty("uris");
@@ -179,7 +179,7 @@ public class NotificationFormatTests
 		var jsonRpc = JsonSerializer.Serialize(new
 		{
 			jsonrpc = "2.0",
-			method = "diagnostics_changed",
+			method = Notification.DiagnosticsChanged,
 			@params = new { uris = Array.Empty<object>() }
 		});
 

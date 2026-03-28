@@ -172,7 +172,7 @@ internal sealed class SelectionTracker : IDisposable
 
 		var sel = notification.Selection;
 		var isEmpty = sel?.IsEmpty ?? true;
-		_logger?.Log($"Push selection_changed: {Path.GetFileName(notification.FilePath ?? "")} L{sel?.Start?.Line + 1}:{sel?.Start?.Character + 1}{(isEmpty ? "" : $" → L{sel?.End?.Line + 1}:{sel?.End?.Character + 1}")}");
+		_logger?.Log($"Push {Notification.SelectionChanged}: {Path.GetFileName(notification.FilePath ?? "")} L{sel?.Start?.Line + 1}:{sel?.Start?.Character + 1}{(isEmpty ? "" : $" → L{sel?.End?.Line + 1}:{sel?.End?.Character + 1}")}");
 
 		_ = Task.Run(async () =>
 		{

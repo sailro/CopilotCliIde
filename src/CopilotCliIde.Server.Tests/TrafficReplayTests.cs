@@ -189,14 +189,14 @@ public partial class TrafficReplayTests
 	public void VsCodeSelectionChanged_HasExpectedStructure(string captureFile)
 	{
 		var parser = LoadCapture(captureFile);
-		var notifications = parser.GetNotifications("selection_changed");
+		var notifications = parser.GetNotifications(Notification.SelectionChanged);
 		Assert.NotEmpty(notifications);
 
 		foreach (var notification in notifications)
 		{
 			// JSON-RPC envelope
 			Assert.Equal("2.0", notification.GetProperty("jsonrpc").GetString());
-			Assert.Equal("selection_changed", notification.GetProperty("method").GetString());
+			Assert.Equal(Notification.SelectionChanged, notification.GetProperty("method").GetString());
 
 			var @params = notification.GetProperty("params");
 
@@ -236,14 +236,14 @@ public partial class TrafficReplayTests
 	public void VsCodeDiagnosticsChanged_HasExpectedStructure(string captureFile)
 	{
 		var parser = LoadCapture(captureFile);
-		var notifications = parser.GetNotifications("diagnostics_changed");
+		var notifications = parser.GetNotifications(Notification.DiagnosticsChanged);
 		Assert.NotEmpty(notifications);
 
 		foreach (var notification in notifications)
 		{
 			// JSON-RPC envelope
 			Assert.Equal("2.0", notification.GetProperty("jsonrpc").GetString());
-			Assert.Equal("diagnostics_changed", notification.GetProperty("method").GetString());
+			Assert.Equal(Notification.DiagnosticsChanged, notification.GetProperty("method").GetString());
 
 			var @params = notification.GetProperty("params");
 			Assert.True(@params.TryGetProperty("uris", out var uris));
@@ -292,8 +292,8 @@ public partial class TrafficReplayTests
 
 	private static readonly HashSet<string> _knownNotificationMethods =
 	[
-		"selection_changed",
-		"diagnostics_changed"
+		Notification.SelectionChanged,
+		Notification.DiagnosticsChanged
 	];
 
 	[Theory]

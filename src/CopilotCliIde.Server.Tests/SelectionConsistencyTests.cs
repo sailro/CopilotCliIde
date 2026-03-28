@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CopilotCliIde.Shared;
 
 namespace CopilotCliIde.Server.Tests;
 
@@ -30,7 +31,7 @@ public class SelectionConsistencyTests
 			if (entry is { Direction: "vscode_to_cli", JsonRpcMessage: not null })
 			{
 				var msg = entry.JsonRpcMessage.Value;
-				if (TryGetString(msg, "method") == "selection_changed"
+				if (TryGetString(msg, "method") == Notification.SelectionChanged
 					&& msg.TryGetProperty("params", out var p))
 				{
 					lastPushParams = p.Clone();

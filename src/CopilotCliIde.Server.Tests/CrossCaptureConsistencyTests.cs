@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CopilotCliIde.Shared;
 
 namespace CopilotCliIde.Server.Tests;
 
@@ -74,14 +75,14 @@ public class CrossCaptureConsistencyTests
 		var vsCodeFields = new HashSet<string>();
 		foreach (var (_, parser) in vsCodeParsers)
 		{
-			var fields = ExtractNotificationParamsFields(parser, "selection_changed");
+			var fields = ExtractNotificationParamsFields(parser, Notification.SelectionChanged);
 			if (fields is not null)
 				vsCodeFields.UnionWith(fields);
 		}
 
 		Assert.True(vsCodeFields.Count > 0, "No selection_changed notifications found in VS Code captures");
 
-		var vsFields = ExtractNotificationParamsFields(vsParser, "selection_changed");
+		var vsFields = ExtractNotificationParamsFields(vsParser, Notification.SelectionChanged);
 		Assert.NotNull(vsFields);
 
 		var errors = new List<string>();
@@ -473,7 +474,7 @@ public class CrossCaptureConsistencyTests
 
 	private static HashSet<string>? ExtractDiagnosticItemFields(TrafficParser parser)
 	{
-		var notifications = parser.GetNotifications("diagnostics_changed");
+		var notifications = parser.GetNotifications(Notification.DiagnosticsChanged);
 		if (notifications.Count == 0)
 			return null;
 
@@ -508,7 +509,7 @@ public class CrossCaptureConsistencyTests
 		var ends = new List<(int Line, int Character)>();
 		foreach (var parser in parsers)
 		{
-			var notifications = parser.GetNotifications("diagnostics_changed");
+			var notifications = parser.GetNotifications(Notification.DiagnosticsChanged);
 			foreach (var notification in notifications)
 			{
 				if (!notification.TryGetProperty("params", out var @params))
