@@ -81,7 +81,9 @@ internal sealed class DiagnosticTracker : IDisposable
 
 	public void SchedulePush()
 	{
-		if (_getCallbacks() == null) return;
+		if (_getCallbacks() == null)
+			return;
+
 		_pusher.Schedule();
 	}
 
@@ -100,15 +102,18 @@ internal sealed class DiagnosticTracker : IDisposable
 		var count = 0;
 		foreach (var sink in sinks)
 		{
-			if (count >= maxItems) break;
+			if (count >= maxItems)
+				break;
 
 			foreach (var snapshot in sink.GetCurrentSnapshots())
 			{
-				if (count >= maxItems) break;
+				if (count >= maxItems)
+					break;
 
 				for (var i = 0; i < snapshot.Count; i++)
 				{
-					if (count >= maxItems) break;
+					if (count >= maxItems)
+						break;
 
 					var fileName = TryGetString(snapshot, i, StandardTableKeyNames.DocumentName) ?? "";
 

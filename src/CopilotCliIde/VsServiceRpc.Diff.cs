@@ -110,18 +110,12 @@ public partial class VsServiceRpc
 	{
 		var entry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 		if (entry.Key == null)
-		{
-			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (already closed)");
-			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
-		}
+			return CreateAlreadyClosedResult(tabName);
 
 		entry.Value.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
 
 		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
-		{
-			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (already closed)");
-			return new CloseDiffResult { Success = true, AlreadyClosed = true, TabName = tabName, Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)." };
-		}
+			return CreateAlreadyClosedResult(tabName);
 
 		try
 		{
@@ -159,9 +153,7 @@ public partial class VsServiceRpc
 		ThreadHelper.ThrowIfNotOnUIThread();
 
 		if (Package.GetGlobalService(typeof(SVsInfoBarUIFactory)) is not IVsInfoBarUIFactory factory)
-		{
 			return;
-		}
 
 		var model = new InfoBarModel(
 			"Copilot CLI: review proposed changes",
@@ -171,9 +163,7 @@ public partial class VsServiceRpc
 
 		var uiElement = factory.CreateInfoBar(model);
 		if (uiElement == null)
-		{
 			return;
-		}
 
 		var handler = new DiffInfoBarEvents(state.Completion!);
 		uiElement.Advise(handler, out var cookie);
@@ -188,6 +178,18 @@ public partial class VsServiceRpc
 		state.InfoBarCookie = cookie;
 	}
 
+	private static CloseDiffResult CreateAlreadyClosedResult(string tabName)
+	{
+		VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (already closed)");
+		return new CloseDiffResult
+		{
+			Success = true,
+			AlreadyClosed = true,
+			TabName = tabName,
+			Message = $"No active diff found with tab name \"{tabName}\" (may already be closed)."
+		};
+	}
+
 	private static void MonitorFrameClose(IVsWindowFrame frame, TaskCompletionSource<(string Result, string Trigger)> tcs)
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
@@ -197,9 +199,7 @@ public partial class VsServiceRpc
 	private void CleanupDiff(string diffId)
 	{
 		if (!_activeDiffs.TryRemove(diffId, out var diff))
-		{
 			return;
-		}
 
 		try
 		{

@@ -103,7 +103,8 @@ internal sealed class SelectionTracker : IDisposable
 	// Captures selection data on UI thread and schedules a 200ms debounced push.
 	private void PushCurrentSelection()
 	{
-		if (_getCallbacks() == null || _trackedView == null) return;
+		if (_getCallbacks() == null || _trackedView == null)
+			return;
 
 		try
 		{
@@ -159,11 +160,15 @@ internal sealed class SelectionTracker : IDisposable
 		var key = _pendingKey;
 		_pendingNotification = null;
 
-		if (notification == null || key == null) return;
-		if (_pusher.IsDuplicate(key)) return;
+		if (notification == null || key == null)
+			return;
+
+		if (_pusher.IsDuplicate(key))
+			return;
 
 		var callbacks = _getCallbacks();
-		if (callbacks == null) return;
+		if (callbacks == null)
+			return;
 
 		var sel = notification.Selection;
 		var isEmpty = sel?.IsEmpty ?? true;
