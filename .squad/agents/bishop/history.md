@@ -610,3 +610,7 @@ Refactored McpPipeServer to split request handling into focused route handlers a
 
 **Next:** Phase C — Per-client chunk deduplication (if needed).
 
+
+### 2026-03-10 — HttpPipeFraming Literal Extraction
+
+Extracted four `private const string` fields (`Crlf`, `HeaderTerminator`, `ContentLengthHeader`, `TransferEncodingHeader`) from repeated literals in `HttpPipeFraming.cs`. Each constant replaced 2+ occurrences across read and write paths. Single-use header names and UTF-8 byte literals (`u8` chunk terminators) left as-is — they don't repeat and are already readable. All 213 server tests pass; wire output unchanged. Decision doc written to `.squad/decisions/inbox/bishop-http-literals.md`.
