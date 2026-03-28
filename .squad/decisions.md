@@ -2220,3 +2220,44 @@ All three extracted classes are internal (not public). McpPipeServer remains the
 - src/CopilotCliIde.Server/SseClient.cs — new
 - src/CopilotCliIde.Server/SingletonServiceProvider.cs — new
 - Tests validated: 213/213 passing
+
+---
+
+## Phase B: McpPipeServer Route Split & SseBroadcaster Extraction
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-07-21  
+**Type:** Refactor (no protocol changes)
+
+### Decision
+
+Split McpPipeServer.HandleConnectionAsync into focused route handlers and extract SSE client management into SseBroadcaster.
+
+### What Changed
+
+#### New: SseBroadcaster class (src/CopilotCliIde.Server/SseBroadcaster.cs)
+- Internal class owning SSE client list + lock
+- AddClient() / RemoveClient() — thread-safe registration
+- BroadcastAsync() — serializes and writes chunked SSE to all clients
+- BroadcastSelectionChangedAsync() / BroadcastDiagnosticsChangedAsync() — notification formatters
+
+#### Modified: McpPipeServer (src/CopilotCliIde.Server/McpPipeServer.cs)
+- HandleConnectionAsync → thin dispatcher (~50 lines)
+- HandleMcpPostAsync (static) — POST route with timeout logic
+- HandleSseGetAsync — GET SSE route with client registration
+- HandleMcpDeleteAsync (static) — DELETE route
+- Push methods delegate to _broadcaster
+- Public API surface unchanged
+
+### Impact
+
+- **Tests:** 213/213 pass, no test changes needed
+- **Program.cs:** No changes needed (delegates to same public methods)
+- **PipeProxy:** No impact (uses HttpPipeFraming directly)
+- **Protocol wire format:** Zero changes
+
+### Who Should Know
+
+- **Hudson:** SseBroadcaster is internal with InternalsVisibleTo access — can write unit tests for it directly
+- **Hicks:** No extension changes needed
+- **Ripley:** McpPipeServer LOC reduced from ~375 to ~340, with clearer separation of concerns

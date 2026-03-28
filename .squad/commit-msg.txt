@@ -1,11 +1,10 @@
-.squad: Merge decision inbox & update team memory
+docs(.squad): log Phase A execution, merge decisions, update agent histories
 
-- Merged: hicks-map-severity-extension-method.md → decisions.md
-- Updated: .squad/agents/hicks/history.md with MapSeverity extension method work
-- Outcome: MapSeverity → ToProtocolSeverity() extension method on vsBuildErrorLevel
+- Orchestration logs: bishop and hudson Phase A work recorded
+- Session log: Phase A McpPipeServer extraction execution summary
+- Decisions: merged bishop-phase-a.md into canonical decisions.md
+- Agent histories: appended Phase A completion note to bishop and hudson
 
-Session orchestration:
-- Hicks (Extension Dev): Converted MapSeverity helper to extension method
-- Outcome: SUCCESS — 109 tests pass, server builds clean
+No code changes. Recording and memory consolidation only.
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

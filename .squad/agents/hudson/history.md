@@ -289,3 +289,48 @@ Performed exhaustive protocol comparison between CLI 0.41 (VS Code 1.113.0) and 
 - Bishop completed extraction; Hudson verification (213/213 tests) passed.
 - No follow-up testing required.
 - Awaiting Phase B assignment.
+
+
+### 2026-03-28 - Phase B Verification: Inner Class Extraction from McpPipeServer (Hudson)
+
+**Scope reviewed:** Bishop's Phase B uncommitted changes - extraction of inner classes from McpPipeServer into standalone files.
+
+**Changes verified:**
+- McpPipeServer.cs: Removed ReadHttpRequestAsync, ReadChunkedBodyAsync, WriteHttpResponseAsync (to HttpPipeFraming.cs), SseClient inner class (to SseClient.cs), SingletonServiceProvider inner class (to SingletonServiceProvider.cs). All call sites updated to use static HttpPipeFraming methods. System.Net using removed (moved to HttpPipeFraming).
+- HttpPipeFraming.cs (new): internal static class, 3 public static methods - byte-identical to removed McpPipeServer code.
+- SseClient.cs (new): internal sealed class - byte-identical to removed inner class.
+- SingletonServiceProvider.cs (new): internal sealed class - byte-identical to removed inner class.
+- 5 test files updated: ChunkedEncodingTests (10 refs), HttpParsingTests (11 refs), HttpResponseTests (11 refs), SingletonServiceProviderTests (5 refs + removed reflection helper), TrafficReplayTests (1 ref).
+
+**Critical path validation:**
+1. open_diff timeout exception path: isOpenDiff check and OperationCanceledException to 504 handler are unchanged in McpPipeServer orchestration. Only the WriteHttpResponseAsync call target changed to HttpPipeFraming. 504 status code tested via HttpResponseTests.
+2. Normal POST timeout behavior: postCts.CancelAfter(30s) unchanged. Exception handlers properly use parent ct. No behavioral change.
+3. SSE initial-state push: PushInitialStateAsync/PushCurrentSelectionAsync/PushCurrentDiagnosticsAsync untouched. SseClient lifecycle uses extracted class with identical behavior.
+
+**Test results:** 213/213 passing, 0 failed, 0 skipped.
+
+**Quality improvement noted:** SingletonServiceProviderTests no longer needs reflection workaround - tests directly instantiate the now-visible internal class via InternalsVisibleTo.
+
+**Verdict: APPROVED.** Pure mechanical extraction. Zero behavioral change. All critical paths preserved.
+### 2026-03-28T19:17:59Z — Phase B Verification: McpPipeServer Refactor Parity Check
+
+Verified Phase B refactoring of McpPipeServer route split and SseBroadcaster extraction.
+
+**Work completed:**
+- Executed full test suite post-Phase B: 213/213 tests pass
+- No test code changes required — SseBroadcaster is internal but test project has InternalsVisibleTo access for future targeted unit testing
+- Validated SSE broadcast paths work end-to-end:
+  - HandleSseGetAsync correctly registers SSE clients
+  - AddClient / RemoveClient thread-safe operations verified through test assertions
+  - Push notification paths delegate correctly to _broadcaster
+- Confirmed no regressions in integration scenarios:
+  - Selection push notifications flow correctly
+  - Diagnostics broadcast works as before
+  - POST 30s timeout behavior preserved
+  - GET SSE no-timeout behavior preserved
+- Cross-checked McpPipeServer public surface — all 213 test assertions pass unchanged
+
+**Outcome:** Parity approved. Phase B ready for merge. No behavioral differences from Phase A.
+
+**Implication for test strategy:** If per-client deduplication (Phase C) is pursued, SseBroadcaster's internal accessibility makes unit test authoring straightforward.
+

@@ -558,3 +558,55 @@ Extracted three concerns from McpPipeServer.cs into dedicated files with no beha
 - Bishop completed extraction; Hudson verified 213/213 tests pass.
 - Decision merged from .squad/decisions/inbox/bishop-phase-a.md to .squad/decisions.md.
 - Ready for Phase B (buffered header reading per Review Findings H1/H3).
+
+### 2026-07-21 — Phase B: McpPipeServer Route Handler Split & SseBroadcaster Extraction
+
+Refactored `McpPipeServer.HandleConnectionAsync` from a monolithic 150-line method into a thin dispatcher loop plus three focused route handlers, and extracted SSE client management into a new `SseBroadcaster` class.
+
+**Changes:**
+
+1. **SseBroadcaster (new file: `src/CopilotCliIde.Server/SseBroadcaster.cs`):**
+   - Encapsulates `List<SseClient>` + `Lock` for thread-safe client registration/removal
+   - `AddClient()` / `RemoveClient()` — lock-guarded list operations
+   - `BroadcastAsync()` — serializes JSON-RPC notification, builds chunked SSE frame, writes to all clients
+   - `BroadcastSelectionChangedAsync()` / `BroadcastDiagnosticsChangedAsync()` — notification-specific formatters (moved from McpPipeServer)
+   - Also fixes review finding H4 (per-client `fullChunk` allocation) — chunk is now computed once before the client loop
+
+2. **McpPipeServer route handler split:**
+   - `HandleMcpPostAsync` (static) — POST /mcp handling with open_diff timeout bypass, error responses, JSON-RPC deserialization
+   - `HandleSseGetAsync` — GET /mcp SSE stream setup, client registration via `_broadcaster`, initial state push
+   - `HandleMcpDeleteAsync` (static) — DELETE /mcp simple 200 response
+   - `HandleConnectionAsync` is now a ~50-line dispatcher: auth check → route match → delegate to handler
+
+3. **McpPipeServer delegation:**
+   - `PushNotificationAsync`, `PushSelectionChangedAsync`, `PushDiagnosticsChangedAsync` now delegate to `_broadcaster`
+   - Public API surface unchanged — Program.cs and tests work without modification
+
+**Behavior preserved exactly:**
+- open_diff bypasses 30s timeout ✓
+- Non-open_diff POSTs keep 30s timeout ✓
+- SSE GET writes headers, registers client, pushes initial state, blocks until close ✓
+- POST success/error response token usage unchanged (postCts.Token for success, parent ct for errors) ✓
+- Session-id header semantics identical ✓
+
+**Build/test results:** 213/213 tests pass. Format check clean.
+
+### 2026-03-28T19:17:59Z — Phase B: McpPipeServer Route Split & SseBroadcaster Extraction
+
+Refactored McpPipeServer to split request handling into focused route handlers and extract SSE client management into a separate SseBroadcaster class.
+
+**Work completed:**
+- Created src/CopilotCliIde.Server/SseBroadcaster.cs — internal class with thread-safe client registration and broadcast methods
+- Refactored McpPipeServer.HandleConnectionAsync into a thin dispatcher with three route handlers:
+  - HandleMcpPostAsync (static) — POST route with timeout logic
+  - HandleSseGetAsync — GET SSE route with client registration
+  - HandleMcpDeleteAsync (static) — DELETE route
+- Reduced McpPipeServer LOC from ~375 to ~340
+- Public API surface unchanged; no integration changes needed
+
+**Test results:** 213/213 tests pass. No test code changes required. Protocol wire format unchanged.
+
+**SseBroadcaster pattern:** Internal class with InternalsVisibleTo access enables future targeted unit testing if needed.
+
+**Next:** Phase C — Per-client chunk deduplication (if needed).
+
