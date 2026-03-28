@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CopilotCliIde.Shared;
 
 namespace CopilotCliIde.Server.Tests;
 
@@ -128,7 +129,7 @@ public class NotificationFormatTests
 						new
 						{
 							message = "CS0103: The name 'x' does not exist",
-							severity = "error",
+							severity = DiagnosticSeverity.Error,
 							range = new
 							{
 								start = new { line = 41, character = 7 },
@@ -163,7 +164,7 @@ public class NotificationFormatTests
 		Assert.Equal("file:///C:/src/Program.cs", firstUri.GetProperty("uri").GetString());
 
 		var diag = firstUri.GetProperty("diagnostics")[0];
-		Assert.Equal("error", diag.GetProperty("severity").GetString());
+		Assert.Equal(DiagnosticSeverity.Error, diag.GetProperty("severity").GetString());
 		Assert.Equal("CS0103", diag.GetProperty("code").GetString());
 		Assert.Equal("WebApp", diag.GetProperty("source").GetString());
 

@@ -109,7 +109,7 @@ public class RpcClientTests
 					Uri = "file:///C:/test.cs",
 					Diagnostics =
 					[
-						new DiagnosticItem { Severity = "error", Message = "CS0001" }
+						new DiagnosticItem { Severity = DiagnosticSeverity.Error, Message = "CS0001" }
 					]
 				}
 			]
@@ -139,7 +139,7 @@ public class RpcClientTests
 					[
 						new DiagnosticItem
 						{
-							Severity = "error",
+							Severity = DiagnosticSeverity.Error,
 							Message = "CS0103: The name 'x' does not exist",
 							Code = "CS0103",
 							Range = new DiagnosticRange
@@ -158,7 +158,7 @@ public class RpcClientTests
 		Assert.NotNull(received);
 		Assert.Single(received!.Uris!);
 		Assert.Equal("file:///C:/src/Program.cs", received.Uris![0].Uri);
-		Assert.Equal("error", received.Uris[0].Diagnostics![0].Severity);
+		Assert.Equal(DiagnosticSeverity.Error, received.Uris[0].Diagnostics![0].Severity);
 		Assert.Equal("CS0103", received.Uris[0].Diagnostics![0].Code);
 	}
 

@@ -146,15 +146,15 @@ internal sealed class DiagnosticTracker : IDisposable
 					}
 					catch { /* Snapshot may have changed — fall back to end = start */ }
 
-					var severity = "information";
+					var severity = DiagnosticSeverity.Information;
 					if (snapshot.TryGetValue(i, StandardTableKeyNames.ErrorSeverity, out var sevObj)
 						&& sevObj is __VSERRORCATEGORY cat)
 					{
 						severity = cat switch
 						{
-							__VSERRORCATEGORY.EC_ERROR => "error",
-							__VSERRORCATEGORY.EC_WARNING => "warning",
-							_ => "information"
+							__VSERRORCATEGORY.EC_ERROR => DiagnosticSeverity.Error,
+							__VSERRORCATEGORY.EC_WARNING => DiagnosticSeverity.Warning,
+							_ => DiagnosticSeverity.Information
 						};
 					}
 

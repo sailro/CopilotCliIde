@@ -235,7 +235,7 @@ public class ToolOutputSchemaTests
 					[
 						new DiagnosticItem
 						{
-							Severity = "error",
+							Severity = DiagnosticSeverity.Error,
 							Message = "CS0103",
 							Range = new DiagnosticRange
 							{

@@ -187,7 +187,7 @@ public class DtoSerializationTests
 					[
 						new DiagnosticItem
 						{
-							Severity = "Error",
+							Severity = DiagnosticSeverity.Error,
 							Message = "CS0103: The name 'x' does not exist",
 							Code = "CS0103",
 							Range = new DiagnosticRange
@@ -206,7 +206,7 @@ public class DtoSerializationTests
 					[
 						new DiagnosticItem
 						{
-							Severity = "Warning",
+							Severity = DiagnosticSeverity.Warning,
 							Message = "CS0168: Variable declared but never used",
 							Code = "CS0168",
 							Range = new DiagnosticRange
@@ -224,9 +224,9 @@ public class DtoSerializationTests
 		var deserialized = JsonSerializer.Deserialize<DiagnosticsResult>(json, _jsonOptions)!;
 
 		Assert.Equal(2, deserialized.Files!.Count);
-		Assert.Equal("Error", deserialized.Files[0].Diagnostics![0].Severity);
+		Assert.Equal(DiagnosticSeverity.Error, deserialized.Files[0].Diagnostics![0].Severity);
 		Assert.Equal(42, deserialized.Files[0].Diagnostics![0].Range!.Start!.Line);
-		Assert.Equal("Warning", deserialized.Files[1].Diagnostics![0].Severity);
+		Assert.Equal(DiagnosticSeverity.Warning, deserialized.Files[1].Diagnostics![0].Severity);
 	}
 
 	[Fact]

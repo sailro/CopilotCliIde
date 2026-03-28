@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace CopilotCliIde.Shared;
 
-public partial interface IVsServiceRpc
+public interface IVsServiceRpc
 {
 	Task<DiffResult> OpenDiffAsync(string originalFilePath, string newFileContents, string tabName);
 	Task<CloseDiffResult> CloseDiffByTabNameAsync(string tabName);
@@ -14,7 +14,7 @@ public partial interface IVsServiceRpc
 	Task ResetNotificationStateAsync();
 }
 
-public partial interface IMcpServerCallbacks
+public interface IMcpServerCallbacks
 {
 	Task OnSelectionChangedAsync(SelectionNotification notification);
 	Task OnDiagnosticsChangedAsync(DiagnosticsChangedNotification notification);
@@ -115,6 +115,13 @@ public class DiagnosticItem
 	public string? Severity { get; set; }
 	public DiagnosticRange? Range { get; set; }
 	public string? Code { get; set; }
+}
+
+public static class DiagnosticSeverity
+{
+	public const string Error = "error";
+	public const string Warning = "warning";
+	public const string Information = "information";
 }
 
 public class DiagnosticRange
