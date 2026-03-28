@@ -638,3 +638,10 @@ Extracted four magic literals from `McpPipeServer.cs` into `private const` field
 - `SessionIdHeader = "mcp-session-id"` — used in 4 places: two POST response `extraHeaders`, the SSE GET header lookup, and the SSE response header line
 
 All replacements are string-interpolation safe. Wire output is byte-identical. 213 tests pass. No other files touched.
+### 2026-03-28T21:19:03Z — Multi-VS-Capture Test Support
+
+New vs-1.0.12 capture added alongside existing vs-1.0.8. CrossCaptureConsistencyTests.LoadVsCapture() asserted exactly 1 VS capture and broke. Replaced with LoadVsCaptures() returning a list, matching the LoadVsCodeCaptures() pattern. All 6 affected tests now aggregate fields across all VS captures before comparing to VS Code.
+
+**Protocol analysis:** No behavior drift found. Both VS captures produce identical initialize responses, tools/list, notification schemas, and diagnostic structures. The refactor (OOPize commit) changed no wire behavior.
+
+**Outcome:** ✅ 231 tests passing. No server/shared code changes needed — the captures confirmed post-refactor protocol compatibility. Test infrastructure now handles N VS captures for future growth.
