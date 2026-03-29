@@ -652,3 +652,33 @@ Hudson validated new capture schema for multi-VS scenario support. Refactored te
 
 **Cross-agent note:** Bishop's McpPipeServer literal extraction aligns with this pattern — the SessionIdHeader constant now eliminates duplication risk in the session ID tracking code that Hudson's multi-capture tests exercise.
 
+
+### 2026-03-29T20:35:55Z — TrackingSseEventStreamStore Simplification Evaluation
+
+Evaluated whether TrackingSseEventStreamStore can be replaced or minimized. Conclusion: **minimal simplification only — removed dead BroadcastNotificationAsync method**.
+
+**Why the store cannot be removed:**
+- Without an ISseEventStreamStore, the MCP SDK returns HTTP 400 when clients send Last-Event-ID for stream resume — breaks protocol correctness
+- The onStreamCreatedAsync callback in CreateStreamAsync is the only reliable hook for initial-state push (middleware can't do it because 
+ext() blocks for the lifetime of SSE GET streams)
+- No built-in/default implementation exists in the MCP SDK (null store = no resume support)
+
+**What was removed:**
+- BroadcastNotificationAsync — dead code, never called. Live push now goes through McpServer.SendNotificationAsync via _activeSessions dictionary in AspNetMcpPipeServer
+
+**What remains and why:**
+- CreateStreamAsync + onStreamCreatedAsync → initial-state push on SSE connect (essential)
+- History tracking + GetStreamReaderAsync → resume/replay (ISseEventStreamStore contract requirement)
+- RemoveSession → cleanup on HTTP DELETE (called by middleware)
+- OnWriterDisposed no-op → documents that writer disposal is intentionally ignored to keep stream state alive
+
+**Build/test:** Clean build, 234 server tests passing.
+
+## Cross-Agent Update (2026-03-29)
+
+**SSE Store Simplification Complete**
+
+- **Decision merged:** Hudson's SSE Resume is a Custom Store Feature decision now in canonical decisions.md
+- **Impact:** Custom TrackingSseEventStreamStore is **required** for resume behavior (Last-Event-ID replay)
+- **Next steps:** Monitor production; if resume becomes obsolete, custom store can be removed
+- **Coordination:** Both Bishop and Hudson aligned on store necessity

@@ -418,3 +418,22 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 **Team coordination:**
 - Ripley completed Note 1 fix in subsequent spawn — changelog now complete and release-ready.
 - Workflow split best practice captured for future infrastructure releases.
+
+### 2026-03-29T20:35:56Z — SSE Regression Tests for Store Simplification
+
+- **10 new tests** added to `SseNotificationIntegrationTests.cs`, bringing total from 224 to 234.
+- **Live push visibility:** `SelectionChanged_IsDeliveredOnOpenGetMcpStream`, `SelectionChanged_StillDeliveredAfterRegularPostTraffic`, `DiagnosticsChanged_IsDeliveredOnOpenSseStream`, `MultiplePushes_AllDeliveredInOrder` — verify notifications reach connected SSE clients.
+- **Initial push on connect:** `InitialState_SelectionPushedOnSseConnect`, `InitialState_DiagnosticsPushedOnSseConnect`, `InitialState_BothSelectionAndDiagnosticsPushedOnConnect`, `InitialState_NoSelectionPushed_WhenNoActiveEditor` — verify `PushInitialStateAsync` fires automatically when SSE stream opens, mocking VS services via `BootServerAsync` helper.
+- **Resume (Last-Event-ID):** `SseEvents_ContainStructuredEventIds`, `SseEventIds_AreMonotonicallyIncreasing`, `Resume_ReplaysMissedEvents_WhenLastEventIdProvided` — verify event ID format (sessionId:streamId:sequence), monotonic ordering, and that reconnecting with `Last-Event-ID` header replays missed events.
+- **Transport robustness:** `SsePayload_IsValidJsonWithinDataLine` — extracts data: line and parses as valid JSON-RPC.
+- **Refactored:** Existing 2 tests now use shared `BootServerAsync` helper (eliminates ~60 lines of duplicated handshake setup). Added `MakeSelection`, `MakeDiagnostics`, `ExtractSseEventIds`, `ExtractSseDataJson`, `CountOccurrences`, `OpenSseGetStreamWithLastEventIdAsync` helpers.
+- **Key finding:** Resume via `Last-Event-ID` works end-to-end through the real ASP.NET MCP transport. This is a `TrackingSseEventStreamStore`-specific feature. If the custom store is removed, this test will fail — signaling that resume behavior needs an alternative.
+- **No blockers found.** All behaviors work correctly with the current server code.
+## Cross-Agent Update (2026-03-29)
+
+**SSE Store Simplification Complete**
+
+- **Decision merged:** Hudson's SSE Resume is a Custom Store Feature decision now in canonical decisions.md
+- **Impact:** Custom TrackingSseEventStreamStore is **required** for resume behavior (Last-Event-ID replay)
+- **Next steps:** Monitor production; if resume becomes obsolete, custom store can be removed
+- **Coordination:** Both Hudson and Bishop aligned on store necessity

@@ -2541,3 +2541,29 @@ Hudson's code review (`.squad/decisions/inbox/hudson-changelog-review.md`, Note 
 
 When adding CI/build infrastructure in future releases, each distinct workflow file should get its own changelog bullet. Lumping them under a single description loses traceability back to commits and makes the changelog less useful as a historical record.
 
+
+---
+
+# Hudson — SSE Resume is a Custom Store Feature
+
+**Author:** Hudson (Tester)  
+**Date:** 2026-03-29  
+**Scope:** CopilotCliIde.Server  
+**Type:** Architecture decision
+
+## Context
+
+Regression tests for the TrackingSseEventStreamStore simplification effort confirm that resume via Last-Event-ID is implemented entirely by the custom store. The test Resume_ReplaysMissedEvents_WhenLastEventIdProvided exercises this end-to-end.
+
+## Decision
+
+If the custom SSE store is removed or replaced with the MCP SDK default:
+1. The Resume_ReplaysMissedEvents_WhenLastEventIdProvided test **will fail** — this is intentional.
+2. The team must decide whether resume is required for CLI behavior. If yes, an alternative implementation is needed.
+3. All other SSE behaviors (live push, initial push on connect, event delivery order) should continue working with the default store.
+
+## Impact
+
+- **10 regression tests** now guard the SSE notification contract
+- **Resume is the only behavior** that depends on the custom store's history/replay logic
+- Live push and initial-push-on-connect work through the MCP SDK's session mechanism, not the custom store
