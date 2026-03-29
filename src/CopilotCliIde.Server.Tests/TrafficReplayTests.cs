@@ -1767,10 +1767,12 @@ public partial class TrafficReplayTests
 
 	#endregion
 
-	#region Test D6 — HTTP 404 from double-DELETE after session teardown
+	#region Test D6 — HTTP 404 from session-not-found responses
 
-	// vs-1.0.12 sends 2 DELETEs for the same session; the second pair gets 404 Not Found.
-	// This is valid protocol behavior — the server should return 404 for unknown session IDs.
+	// 404 "Session not found" is valid MCP protocol behavior in two scenarios:
+	//   1. Double-DELETE: vs-1.0.12 sends 2 DELETEs for the same session; the second gets 404.
+	//   2. Stale session probe: vs-1.0.14 POSTs with unknown/expired session IDs; server returns 404.
+	// In both cases, the preceding client request carries a session ID the server doesn't recognize.
 	[Theory]
 	[MemberData(nameof(CaptureFiles))]
 	public void Http404AfterDelete_IsExpectedBehavior(string captureFile)
@@ -1786,18 +1788,26 @@ public partial class TrafficReplayTests
 		if (http404Entries.Count == 0)
 			return; // No 404s in this capture — valid
 
-		// Every 404 should be preceded by a DELETE request
+		// Every 404 must be a response to a client request that references a session ID.
+		// This covers both DELETE teardown and POST/GET with stale session IDs.
 		foreach (var entry404 in http404Entries)
 		{
-			var precedingDelete = parser.Entries
+			var precedingRequest = parser.Entries
 				.Where(e => e.Seq < entry404.Seq
-					&& e is { Direction: "cli_to_vscode", Event: not null }
-					&& e.Event.StartsWith("DELETE", StringComparison.Ordinal))
+					&& e is { Direction: "cli_to_vscode", Event: not null })
 				.OrderByDescending(e => e.Seq)
 				.FirstOrDefault();
 
-			Assert.True(precedingDelete is not null,
-				$"404 at seq={entry404.Seq} has no preceding DELETE request");
+			Assert.True(precedingRequest is not null,
+				$"404 at seq={entry404.Seq} has no preceding client request");
+
+			var isDelete = precedingRequest!.Event!.StartsWith("DELETE", StringComparison.Ordinal);
+			var hasSessionId = precedingRequest.Event.Contains("Mcp-Session-Id:", StringComparison.OrdinalIgnoreCase)
+				|| precedingRequest.Event.Contains("mcp-session-id:", StringComparison.OrdinalIgnoreCase);
+
+			Assert.True(isDelete || hasSessionId,
+				$"404 at seq={entry404.Seq} is not from a DELETE or a request with a session ID " +
+				$"(preceding request at seq={precedingRequest.Seq})");
 		}
 	}
 

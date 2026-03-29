@@ -25,13 +25,14 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 	private string? _nonce;
 	private TrackingSseEventStreamStore? _eventStreamStore;
 	private readonly ConcurrentDictionary<string, McpServer> _activeSessions = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, byte> _resetNotificationStateSessions = new(StringComparer.Ordinal);
 
 	public async Task StartAsync(RpcClient rpcClient, string pipeName, string nonce, CancellationToken ct)
 	{
 		_rpcClient = rpcClient;
 		_nonce = nonce;
 		_cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		_eventStreamStore = new TrackingSseEventStreamStore(_ => PushInitialStateAsync());
+		_eventStreamStore = new TrackingSseEventStreamStore(PushInitialStateAsync);
 
 		var builder = WebApplication.CreateSlimBuilder();
 		builder.WebHost.ConfigureKestrel(options =>
@@ -80,6 +81,7 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 				_eventStreamStore?.RemoveSession(deleteSessionId);
 				if (!string.IsNullOrWhiteSpace(deleteSessionId))
 				{
+					_resetNotificationStateSessions.TryRemove(deleteSessionId, out _);
 					_activeSessions.TryRemove(deleteSessionId, out _);
 				}
 			}
@@ -204,10 +206,15 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 		}
 	}
 
-	private async Task PushInitialStateAsync()
+	private async Task PushInitialStateAsync(string sessionId)
 	{
-		try { await _rpcClient!.VsServices!.ResetNotificationStateAsync(); }
-		catch { /* VS not ready */ }
+		var shouldReset = string.IsNullOrWhiteSpace(sessionId)
+			|| _resetNotificationStateSessions.TryAdd(sessionId, 0);
+		if (shouldReset)
+		{
+			try { await _rpcClient!.VsServices!.ResetNotificationStateAsync(); }
+			catch { /* VS not ready */ }
+		}
 
 		await PushCurrentSelectionAsync();
 		await PushCurrentDiagnosticsAsync();

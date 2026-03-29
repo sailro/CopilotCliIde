@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using CopilotCliIde.Shared;
@@ -326,6 +327,111 @@ public class SseNotificationIntegrationTests
 		}
 	}
 
+	[Fact]
+	public async Task InitialState_ResetNotificationState_CalledOncePerSessionAcrossSseReconnects()
+	{
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		IVsServiceRpc? vsServices = null;
+
+		var (server, pipeName, nonce, sessionId) = await BootServerAsync(cts.Token, mock =>
+		{
+			vsServices = mock;
+			mock.GetSelectionAsync().Returns(new SelectionResult
+			{
+				Current = true,
+				FilePath = @"C:\Dev\vsext\src\once.cs",
+				FileUrl = "file:///C:/Dev/vsext/src/once.cs",
+				Text = "initial-once",
+				Selection = new SelectionRange
+				{
+					Start = new SelectionPosition { Line = 1, Character = 0 },
+					End = new SelectionPosition { Line = 1, Character = 12 },
+					IsEmpty = false
+				}
+			});
+			mock.GetDiagnosticsAsync(null).Returns(new DiagnosticsResult { Files = [] });
+		});
+
+		await using (server)
+		{
+			await using (var ssePipe1 = await OpenSseGetStreamAsync(pipeName, nonce, sessionId, cts.Token))
+			{
+				await ReadUntilContainsAsync(ssePipe1, "initial-once", cts.Token);
+			}
+
+			var pushInitialStateAsync = typeof(AspNetMcpPipeServer).GetMethod("PushInitialStateAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+			Assert.NotNull(pushInitialStateAsync);
+			var secondCall = pushInitialStateAsync!.Invoke(server, [sessionId]) as Task;
+			Assert.NotNull(secondCall);
+			await secondCall!;
+
+			Assert.NotNull(vsServices);
+			_ = vsServices!.Received(1).ResetNotificationStateAsync();
+		}
+	}
+
+	[Fact]
+	public async Task InitialState_ResetNotificationState_ResetsAgainAfterDeleteSession()
+	{
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		IVsServiceRpc? vsServices = null;
+
+		var (server, pipeName, nonce, sessionId) = await BootServerAsync(cts.Token, mock =>
+		{
+			vsServices = mock;
+			mock.GetSelectionAsync().Returns(new SelectionResult
+			{
+				Current = true,
+				FilePath = @"C:\Dev\vsext\src\delete-reset.cs",
+				FileUrl = "file:///C:/Dev/vsext/src/delete-reset.cs",
+				Text = "initial-delete",
+				Selection = new SelectionRange
+				{
+					Start = new SelectionPosition { Line = 1, Character = 0 },
+					End = new SelectionPosition { Line = 1, Character = 14 },
+					IsEmpty = false
+				}
+			});
+			mock.GetDiagnosticsAsync(null).Returns(new DiagnosticsResult { Files = [] });
+		});
+
+		await using (server)
+		{
+			await using (var ssePipe = await OpenSseGetStreamAsync(pipeName, nonce, sessionId, cts.Token))
+			{
+				await ReadUntilContainsAsync(ssePipe, "initial-delete", cts.Token);
+			}
+
+			await SendHttpDeleteOnNewPipeAsync(pipeName, nonce, sessionId, cts.Token);
+
+			var initRequest = JsonSerializer.Serialize(new
+			{
+				method = "initialize",
+				@params = new
+				{
+					protocolVersion = "2025-11-25",
+					capabilities = new { },
+					clientInfo = new { name = "sse-test", version = "1.0.0" }
+				},
+				jsonrpc = "2.0",
+				id = 100
+			});
+			var (_, newSessionId) = await SendHttpPostOnNewPipeAsync(pipeName, initRequest, nonce, null, cts.Token);
+			Assert.False(string.IsNullOrWhiteSpace(newSessionId));
+
+			var initializedRequest = JsonSerializer.Serialize(new { method = "notifications/initialized", jsonrpc = "2.0" });
+			await SendHttpPostOnNewPipeAsync(pipeName, initializedRequest, nonce, newSessionId, cts.Token);
+
+			await using (var ssePipe = await OpenSseGetStreamAsync(pipeName, nonce, newSessionId!, cts.Token))
+			{
+				await ReadUntilContainsAsync(ssePipe, "initial-delete", cts.Token);
+			}
+
+			Assert.NotNull(vsServices);
+			_ = vsServices!.Received(2).ResetNotificationStateAsync();
+		}
+	}
+
 	#endregion
 
 	#region SSE event IDs (resume contract)
@@ -532,6 +638,21 @@ public class SseNotificationIntegrationTests
 		}
 
 		return (responseBody, effectiveSessionId);
+	}
+
+	private static async Task SendHttpDeleteOnNewPipeAsync(string pipeName, string nonce, string sessionId, CancellationToken ct)
+	{
+		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await pipe.ConnectAsync(ct);
+
+		var request =
+			$"DELETE /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Nonce {nonce}\r\nmcp-session-id: {sessionId}\r\nConnection: keep-alive\r\n\r\n";
+		await pipe.WriteAsync(Encoding.UTF8.GetBytes(request), ct);
+		await pipe.FlushAsync(ct);
+
+		var headers = await ReadHeadersAsync(pipe, ct);
+		Assert.True(headers.Contains("200", StringComparison.Ordinal) || headers.Contains("404", StringComparison.Ordinal),
+			$"Expected 200 or 404 response to DELETE, got:\n{headers}");
 	}
 
 	private static async Task<string> ReadUntilContainsAsync(Stream stream, string expected, CancellationToken ct)
