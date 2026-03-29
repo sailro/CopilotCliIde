@@ -5,17 +5,9 @@ namespace CopilotCliIde.Server.Tests;
 public class McpPipeServerTests
 {
 	[Fact]
-	public void PipeName_IsNull_BeforeStart()
-	{
-		var server = new McpPipeServer();
-
-		Assert.Null(server.PipeName);
-	}
-
-	[Fact]
 	public async Task DisposeAsync_BeforeStart_DoesNotThrow()
 	{
-		var server = new McpPipeServer();
+		var server = new AspNetMcpPipeServer();
 
 		await server.DisposeAsync();
 	}
@@ -23,7 +15,7 @@ public class McpPipeServerTests
 	[Fact]
 	public async Task DisposeAsync_MultipleTimes_DoesNotThrow()
 	{
-		var server = new McpPipeServer();
+		var server = new AspNetMcpPipeServer();
 
 		await server.DisposeAsync();
 		await server.DisposeAsync();
@@ -32,7 +24,7 @@ public class McpPipeServerTests
 	[Fact]
 	public async Task PushNotificationAsync_NoClients_DoesNotThrow()
 	{
-		var server = new McpPipeServer();
+		var server = new AspNetMcpPipeServer();
 
 		// No SSE clients connected — should silently succeed
 		await server.PushNotificationAsync(Notification.SelectionChanged, new
@@ -47,7 +39,7 @@ public class McpPipeServerTests
 	{
 		// Verify the notification format indirectly — if PushNotificationAsync
 		// doesn't throw with valid JSON-serializable objects, the serialization works
-		var server = new McpPipeServer();
+		var server = new AspNetMcpPipeServer();
 
 		// Various payload shapes that must serialize without error
 		Assert.NotNull(server.PushNotificationAsync("test", null));

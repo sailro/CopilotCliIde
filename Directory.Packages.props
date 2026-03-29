@@ -6,7 +6,8 @@
     <PackageVersion Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
     <PackageVersion Include="Microsoft.VisualStudio.SDK.VsixSuppression" Version="14.1.37" />
     <PackageVersion Include="Microsoft.VSSDK.BuildTools" Version="17.14.2120" />
-    <PackageVersion Include="ModelContextProtocol" Version="1.1.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <PackageVersion Include="Microsoft.Bcl.HashCode" Version="6.0.0" />
     <!-- VS2022 provides StreamJsonRpc 2.22 at runtime, VS2026 has 2.24 with binding redirects. See CopilotCliIde.Server.csproj -->
     <PackageVersion Include="StreamJsonRpc" Version="[2.22.23]" />

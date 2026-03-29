@@ -22,7 +22,7 @@ public class ToolDiscoveryTests
 	[Fact]
 	public void AllToolTypes_HaveMcpServerToolTypeAttribute()
 	{
-		var toolTypes = typeof(McpPipeServer).Assembly.GetTypes()
+		var toolTypes = typeof(AspNetMcpPipeServer).Assembly.GetTypes()
 			.Where(t => t.GetCustomAttribute<McpServerToolTypeAttribute>() != null)
 			.ToList();
 
@@ -149,7 +149,7 @@ public class ToolDiscoveryTests
 	[Fact]
 	public void ToolTypes_AreSealed()
 	{
-		var toolTypes = typeof(McpPipeServer).Assembly.GetTypes()
+		var toolTypes = typeof(AspNetMcpPipeServer).Assembly.GetTypes()
 			.Where(t => t.GetCustomAttribute<McpServerToolTypeAttribute>() != null);
 
 		foreach (var type in toolTypes)
@@ -160,7 +160,7 @@ public class ToolDiscoveryTests
 
 	private static IEnumerable<MethodInfo> GetAllToolMethods()
 	{
-		return typeof(McpPipeServer).Assembly.GetTypes()
+		return typeof(AspNetMcpPipeServer).Assembly.GetTypes()
 			.Where(t => t.GetCustomAttribute<McpServerToolTypeAttribute>() != null)
 			.SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic))
 			.Where(m => m.GetCustomAttribute<McpServerToolAttribute>() != null);

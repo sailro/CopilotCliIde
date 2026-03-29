@@ -7,15 +7,15 @@ This is a Visual Studio extension (VSIX) that bridges GitHub Copilot CLI's `/ide
 ## Architecture
 
 ```
-Copilot CLI ──(MCP over named pipe)──▶ CopilotCliIde.Server (net10.0)
-                                            │
-                                     (StreamJsonRpc over named pipe)
-                                            │
-                                     CopilotCliIde (VS extension, net472)
+Copilot CLI ──(Streamable HTTP over named pipe)──▶ CopilotCliIde.Server (net10.0)
+                                                        │
+                                                 (StreamJsonRpc over named pipe)
+                                                        │
+                                                 CopilotCliIde (VS extension, net472)
 ```
 
 - **CopilotCliIde** (`net472`) — The VS extension package. Loads when a solution opens, manages the connection lifecycle (pipes, server process, lock file), subscribes to DTE events, and exposes VS services via `VsServiceRpc`.
-- **CopilotCliIde.Server** (`net10.0`) — A standalone child process hosting an MCP server on a Windows named pipe. Receives tool calls from Copilot CLI and forwards them to VS via RPC. Contains 7 MCP tools in the `Tools/` folder.
+- **CopilotCliIde.Server** (`net10.0`) — ASP.NET Core (Kestrel) process hosting the MCP server on a Windows named pipe. Uses `ModelContextProtocol.AspNetCore` for the Streamable HTTP transport — Kestrel handles HTTP/1.1 framing, SSE streaming, and session management. `AspNetMcpPipeServer` is the server entry point; `TrackingSseEventStreamStore` manages SSE stream lifecycle. Contains 7 MCP tools in the `Tools/` folder.
 - **CopilotCliIde.Shared** (`netstandard2.0`) — Shared RPC contracts (`IVsServiceRpc`, `IMcpServerCallbacks`) and DTOs used by both the extension and the server.
 
 ### Connection Lifecycle
@@ -75,11 +75,11 @@ The RPC push runs via `Task.Run` off the UI thread. Deduplication via `_lastSele
 
 ### Initial Selection on Connect
 
-The VS extension may push selection events before Copilot CLI connects. To avoid a stale initial display, the **MCP server** (`McpPipeServer.PushCurrentSelectionAsync`) fetches the current selection from VS via RPC when a new SSE client connects and pushes it immediately.
+The VS extension may push selection events before Copilot CLI connects. To avoid a stale initial display, the **MCP server** (`AspNetMcpPipeServer.PushInitialStateAsync`) fetches the current selection and diagnostics from VS via RPC when a new SSE stream is created and pushes them immediately.
 
 ### MCP Tool Registration
 
-Tools are discovered via reflection at startup. Each tool is a class decorated with `[McpServerToolType]` containing methods decorated with `[McpServerTool]`. Tools receive an `RpcClient` from the DI container to call back into VS.
+Tools are discovered via `WithToolsFromAssembly()` at startup using the `ModelContextProtocol` SDK's reflection-based discovery. Each tool is a class decorated with `[McpServerToolType]` containing methods decorated with `[McpServerTool]`. Tools receive an `RpcClient` from the DI container to call back into VS.
 
 ### RPC Communication
 
@@ -95,7 +95,7 @@ Bidirectional `StreamJsonRpc` over named pipes:
 
 ### open_diff Blocking
 
-`OpenDiffAsync` uses a `TaskCompletionSource<string>` that blocks until the user clicks Accept/Reject in the InfoBar or closes the diff tab. The MCP server skips its 30s timeout for `open_diff` calls specifically.
+`OpenDiffAsync` uses a `TaskCompletionSource<string>` that blocks until the user clicks Accept/Reject in the InfoBar or closes the diff tab. The `open_diff` tool call blocks the Streamable HTTP response until the user acts — ASP.NET Core keeps the connection alive with no fixed timeout.
 
 ## MCP Tool Compatibility
 

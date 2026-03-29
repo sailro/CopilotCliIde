@@ -13,7 +13,7 @@ if (rpcPipe == null || mcpPipe == null || nonce == null)
 var rpcClient = new RpcClient();
 await rpcClient.ConnectAsync(rpcPipe);
 
-var mcpServer = new McpPipeServer();
+var mcpServer = new AspNetMcpPipeServer();
 await mcpServer.StartAsync(rpcClient, mcpPipe, nonce, CancellationToken.None);
 
 // Forward selection changes from VS to all connected CLI clients

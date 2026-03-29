@@ -111,6 +111,14 @@ Copilot CLI connects to the pipe / socket specified in `socketPath` and speaks
 **HTTP/1.1** directly over it. This is the
 [Streamable HTTP MCP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
 
+> **Implementation note:** This project uses
+> [ModelContextProtocol.AspNetCore](https://github.com/modelcontextprotocol/csharp-sdk)
+> with **Kestrel** listening on a Windows named pipe. Kestrel handles all HTTP/1.1
+> framing, SSE streaming, and chunked transfer encoding — there is no custom HTTP
+> parser. `AspNetMcpPipeServer` configures the ASP.NET Core pipeline, and
+> `TrackingSseEventStreamStore` manages per-session SSE stream lifecycle (creation,
+> replay on reconnect, teardown).
+
 ### Authentication
 
 Every HTTP request MUST include the `Authorization` header from the lock file:
@@ -737,6 +745,13 @@ IDE                            MCP Server                     Copilot CLI
 ---
 
 ## 7. Implementation Guide
+
+> **This project's implementation:** The MCP server (`CopilotCliIde.Server`) is built
+> on `ModelContextProtocol.AspNetCore` with Kestrel. The transport layer — HTTP parsing,
+> SSE streaming, session management — is handled by the ASP.NET Core pipeline. Key
+> classes: `AspNetMcpPipeServer` (server host and notification broadcasting),
+> `TrackingSseEventStreamStore` (SSE stream tracking with replay support). MCP tools
+> are registered via `WithToolsFromAssembly()` from the `ModelContextProtocol` SDK.
 
 ### Required Behaviors
 

@@ -553,7 +553,7 @@ public partial class TrafficReplayTests
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
 		const string nonce = "test-nonce";
 
-		await using var server = new McpPipeServer();
+		await using var server = new AspNetMcpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
 
@@ -640,13 +640,9 @@ public partial class TrafficReplayTests
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
 		const string nonce = "test-nonce";
 
-		await using var server = new McpPipeServer();
+		await using var server = new AspNetMcpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
-
-		// Connect and initialize
-		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-		await pipe.ConnectAsync(cts.Token);
 
 		var initRequest = JsonSerializer.Serialize(new
 		{
@@ -660,8 +656,9 @@ public partial class TrafficReplayTests
 			jsonrpc = "2.0",
 			id = 0
 		});
-		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
-		await ReadHttpResponseAsync(pipe, cts.Token);
+		var (initBody, sessionId) = await SendHttpPostOnNewPipeAsync(pipeName, initRequest, nonce, null, cts.Token);
+		Assert.Contains("protocolVersion", initBody);
+		Assert.False(string.IsNullOrWhiteSpace(sessionId));
 
 		// Send notifications/initialized
 		var initializedNotification = JsonSerializer.Serialize(new
@@ -669,8 +666,8 @@ public partial class TrafficReplayTests
 			method = "notifications/initialized",
 			jsonrpc = "2.0"
 		});
-		await SendHttpPostAsync(pipe, initializedNotification, nonce, cts.Token);
-		await ReadHttpResponseAsync(pipe, cts.Token);
+		var (initializedBody, _) = await SendHttpPostOnNewPipeAsync(pipeName, initializedNotification, nonce, sessionId, cts.Token);
+		Assert.NotNull(initializedBody);
 
 		// Call tools/call with get_selection
 		var getSelectionRequest = JsonSerializer.Serialize(new
@@ -684,8 +681,7 @@ public partial class TrafficReplayTests
 			jsonrpc = "2.0",
 			id = 2
 		});
-		await SendHttpPostAsync(pipe, getSelectionRequest, nonce, cts.Token);
-		var responseBody = await ReadHttpResponseAsync(pipe, cts.Token);
+		var (responseBody, _) = await SendHttpPostOnNewPipeAsync(pipeName, getSelectionRequest, nonce, sessionId, cts.Token);
 
 		var json = ExtractJsonRpcFromResponse(responseBody);
 		Assert.NotNull(json);
@@ -752,7 +748,7 @@ public partial class TrafficReplayTests
 		const string correctNonce = "correct-nonce";
 		const string wrongNonce = "wrong-nonce";
 
-		await using var server = new McpPipeServer();
+		await using var server = new AspNetMcpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		await server.StartAsync(rpcClient, pipeName, correctNonce, cts.Token);
 
@@ -903,13 +899,9 @@ public partial class TrafficReplayTests
 		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
 		const string nonce = "test-nonce";
 
-		await using var server = new McpPipeServer();
+		await using var server = new AspNetMcpPipeServer();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
-
-		// Connect to the pipe and send initialize + tools/list
-		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-		await pipe.ConnectAsync(cts.Token);
 
 		// Send initialize
 		var initRequest = JsonSerializer.Serialize(new
@@ -924,9 +916,9 @@ public partial class TrafficReplayTests
 			jsonrpc = "2.0",
 			id = 0
 		});
-		await SendHttpPostAsync(pipe, initRequest, nonce, cts.Token);
-		var initResponse = await ReadHttpResponseAsync(pipe, cts.Token);
+		var (initResponse, sessionId) = await SendHttpPostOnNewPipeAsync(pipeName, initRequest, nonce, null, cts.Token);
 		Assert.Contains("protocolVersion", initResponse);
+		Assert.False(string.IsNullOrWhiteSpace(sessionId));
 
 		// Send notifications/initialized
 		var initializedNotification = JsonSerializer.Serialize(new
@@ -934,8 +926,8 @@ public partial class TrafficReplayTests
 			method = "notifications/initialized",
 			jsonrpc = "2.0"
 		});
-		await SendHttpPostAsync(pipe, initializedNotification, nonce, cts.Token);
-		await ReadHttpResponseAsync(pipe, cts.Token);
+		var (initializedBody, _) = await SendHttpPostOnNewPipeAsync(pipeName, initializedNotification, nonce, sessionId, cts.Token);
+		Assert.NotNull(initializedBody);
 
 		// Send tools/list
 		var toolsListRequest = JsonSerializer.Serialize(new
@@ -944,8 +936,7 @@ public partial class TrafficReplayTests
 			jsonrpc = "2.0",
 			id = 1
 		});
-		await SendHttpPostAsync(pipe, toolsListRequest, nonce, cts.Token);
-		var toolsResponse = await ReadHttpResponseAsync(pipe, cts.Token);
+		var (toolsResponse, _) = await SendHttpPostOnNewPipeAsync(pipeName, toolsListRequest, nonce, sessionId, cts.Token);
 
 		// Parse the SSE response body — extract the JSON-RPC from the event stream
 		var ourToolNames = ExtractToolNamesFromResponse(toolsResponse);
@@ -1467,10 +1458,11 @@ public partial class TrafficReplayTests
 		return Directory.GetFiles(FindCapturesDir(), "*.ndjson");
 	}
 
-	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct)
+	private static async Task SendHttpPostAsync(Stream pipe, string body, string nonce, CancellationToken ct, string? sessionId = null)
 	{
 		var bodyBytes = Encoding.UTF8.GetBytes(body);
-		var request = $"POST /mcp HTTP/1.1\r\nAuthorization: Nonce {nonce}\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n\r\n";
+		var sessionHeader = string.IsNullOrWhiteSpace(sessionId) ? "" : $"mcp-session-id: {sessionId}\r\n";
+		var request = $"POST /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Nonce {nonce}\r\nAccept: application/json, text/event-stream\r\n{sessionHeader}Content-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: keep-alive\r\n\r\n";
 		var headerBytes = Encoding.UTF8.GetBytes(request);
 
 		await pipe.WriteAsync(headerBytes, ct);
@@ -1479,6 +1471,31 @@ public partial class TrafficReplayTests
 	}
 
 	private static async Task<string> ReadHttpResponseAsync(Stream pipe, CancellationToken ct)
+	{
+		return (await ReadHttpResponsePartsAsync(pipe, ct)).Body;
+	}
+
+	private static async Task<(string Body, string? SessionId)> SendHttpPostOnNewPipeAsync(
+		string pipeName,
+		string body,
+		string nonce,
+		string? sessionId,
+		CancellationToken ct)
+	{
+		await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		await pipe.ConnectAsync(ct);
+		await SendHttpPostAsync(pipe, body, nonce, ct, sessionId);
+		var (responseBody, responseHeaders) = await ReadHttpResponsePartsAsync(pipe, ct);
+		responseHeaders.TryGetValue("mcp-session-id", out var resolvedSessionId);
+		if (!string.IsNullOrWhiteSpace(resolvedSessionId))
+		{
+			sessionId = resolvedSessionId;
+		}
+
+		return (responseBody, sessionId);
+	}
+
+	private static async Task<(string Body, Dictionary<string, string> Headers)> ReadHttpResponsePartsAsync(Stream pipe, CancellationToken ct)
 	{
 		// Read HTTP response headers byte-by-byte until \r\n\r\n
 		var sb = new StringBuilder();
@@ -1505,10 +1522,14 @@ public partial class TrafficReplayTests
 		}
 
 		if (headers.TryGetValue("transfer-encoding", out var te) && te.Contains("chunked", StringComparison.OrdinalIgnoreCase))
-			return await HttpPipeFraming.ReadChunkedBodyAsync(pipe, ct);
+		{
+			return (await ReadChunkedBodyAsync(pipe, ct), headers);
+		}
 
 		if (!headers.TryGetValue("content-length", out var clStr) || !int.TryParse(clStr, out var contentLength) || contentLength <= 0)
-			return "";
+		{
+			return ("", headers);
+		}
 
 		var bodyBuffer = new byte[contentLength];
 		var totalRead = 0;
@@ -1518,7 +1539,7 @@ public partial class TrafficReplayTests
 			if (read == 0) break;
 			totalRead += read;
 		}
-		return Encoding.UTF8.GetString(bodyBuffer, 0, totalRead);
+		return (Encoding.UTF8.GetString(bodyBuffer, 0, totalRead), headers);
 	}
 
 	private static HashSet<string> ExtractToolNamesFromResponse(string responseBody)
@@ -1548,6 +1569,46 @@ public partial class TrafficReplayTests
 			TryExtractToolNames(responseBody[jsonStart..(jsonEnd + 1)], names);
 
 		return names;
+	}
+
+	private static async Task<string> ReadChunkedBodyAsync(Stream stream, CancellationToken ct)
+	{
+		var result = new StringBuilder();
+		var lineBuf = new StringBuilder();
+
+		while (true)
+		{
+			lineBuf.Clear();
+			while (true)
+			{
+				var b = new byte[1];
+				var read = await stream.ReadAsync(b.AsMemory(0, 1), ct);
+				if (read == 0) return result.ToString();
+				lineBuf.Append((char)b[0]);
+				if (lineBuf is [.., '\r', '\n']) break;
+			}
+
+			var sizeLine = lineBuf.ToString().TrimEnd('\r', '\n').Trim();
+			var semiIdx = sizeLine.IndexOf(';');
+			if (semiIdx >= 0) sizeLine = sizeLine[..semiIdx];
+			if (!int.TryParse(sizeLine, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
+				break;
+
+			var chunkBuf = new byte[chunkSize];
+			var totalRead = 0;
+			while (totalRead < chunkSize)
+			{
+				var read = await stream.ReadAsync(chunkBuf.AsMemory(totalRead, chunkSize - totalRead), ct);
+				if (read == 0) break;
+				totalRead += read;
+			}
+			result.Append(Encoding.UTF8.GetString(chunkBuf, 0, totalRead));
+
+			await stream.ReadExactlyAsync(new byte[2], ct);
+		}
+
+		await stream.ReadExactlyAsync(new byte[2], ct);
+		return result.ToString();
 	}
 
 	private static JsonElement? ExtractJsonRpcFromResponse(string responseBody)

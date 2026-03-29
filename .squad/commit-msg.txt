@@ -1,10 +1,10 @@
-docs(.squad): log Phase A execution, merge decisions, update agent histories
+.squad: SSE store simplification orchestration
 
-- Orchestration logs: bishop and hudson Phase A work recorded
-- Session log: Phase A McpPipeServer extraction execution summary
-- Decisions: merged bishop-phase-a.md into canonical decisions.md
-- Agent histories: appended Phase A completion note to bishop and hudson
+- Orchestration logs: Bishop (store simplification), Hudson (regression tests)
+- Session log: SSE store simplification completion
+- Decision merged: Hudson — SSE Resume is a Custom Store Feature
+- Cross-agent updates: Bishop and Hudson history synchronized
 
-No code changes. Recording and memory consolidation only.
+All tests passing. No blockers.
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

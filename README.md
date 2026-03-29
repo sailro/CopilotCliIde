@@ -3,6 +3,8 @@
 
 A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) to interact with Visual Studio via the `/ide` command — the same way it works with VS Code.
 
+The MCP server uses **[ModelContextProtocol.AspNetCore](https://github.com/modelcontextprotocol/csharp-sdk)** with Kestrel hosting over a Windows named pipe — ASP.NET Core handles all HTTP and SSE transport.
+
 <img alt="copilot-cli with VS ide support" src="https://github.com/user-attachments/assets/8115c1a3-de87-44a8-b4e6-dbf79fad4626" />
 
 ## Getting Started
@@ -53,6 +55,20 @@ The extension logs all bridge activity to a dedicated **"Copilot CLI IDE"** pane
 This real-time log is useful for debugging connectivity issues, verifying that the CLI can see your edits, and monitoring the bridge during active sessions.
 
 <img alt="output pane in VS" src="https://github.com/user-attachments/assets/dfec519f-13fc-450c-afb5-c6b22eee079f" />
+
+## Architecture
+
+```
+Copilot CLI ──(Streamable HTTP over named pipe)──▶ CopilotCliIde.Server (net10.0)
+                                                        │
+                                                 (StreamJsonRpc over named pipe)
+                                                        │
+                                                 CopilotCliIde (VS extension, net472)
+```
+
+- **CopilotCliIde.Server** (`net10.0`) — ASP.NET Core (Kestrel) process hosting the MCP server on a Windows named pipe via `ModelContextProtocol.AspNetCore`. Handles Streamable HTTP transport (POST/GET/DELETE), SSE push notifications, and session tracking. Contains 7 MCP tools in the `Tools/` folder.
+- **CopilotCliIde** (`net472`) — The VS extension package. Manages the connection lifecycle, subscribes to editor events, and exposes VS services over StreamJsonRpc.
+- **CopilotCliIde.Shared** (`netstandard2.0`) — Shared RPC contracts and DTOs.
 
 ## Protocol
 

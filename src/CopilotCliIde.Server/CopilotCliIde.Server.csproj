@@ -10,7 +10,11 @@
     <InternalsVisibleTo Include="PipeProxy" />
   </ItemGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <!-- We need this one compatible with ModelContextProtocol -->
     <PackageReference Include="StreamJsonRpc" VersionOverride="[2.24.84]" />
   </ItemGroup>
