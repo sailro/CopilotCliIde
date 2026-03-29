@@ -2419,3 +2419,125 @@ Extracted four magic literals from `McpPipeServer.cs` into `private const` field
 - 213 server tests pass (`dotnet test`).
 - Wire output is byte-identical (all constants inline at compile time).
 - No other files modified.
+
+---
+
+### 2026-03-28T22:23:46Z: User directive
+**By:** Sebastien Lebreton (via Copilot)
+**What:** protocol.md should describe VS Code observed protocol only, not note potential extras from our implementation.
+**Why:** User request — captured for team memory
+
+---
+
+# Hudson — CHANGELOG.md Review
+
+**Date:** 2026-03-29
+**Verdict:** ✅ APPROVED (with minor notes)
+**Reviewed file:** `CHANGELOG.md` (created by Hicks)
+**Audit method:** Independent cross-reference of all 160+ commits across 14 git tags (1.0.0–1.0.13 + HEAD)
+
+---
+
+## Audit Checklist vs. Changelog Coverage
+
+| Version | Date ✓ | Features ✓ | Fixes ✓ | PRs ✓ | Links ✓ | Notes |
+|---------|--------|------------|---------|-------|---------|-------|
+| 1.0.0   | ✅     | ✅          | n/a     | n/a   | ✅       | All 7 tools listed correctly |
+| 1.0.1   | ✅     | ✅          | ✅       | n/a   | ✅       | |
+| 1.0.2   | ✅     | ✅          | n/a     | n/a   | ✅       | Correctly marked as version-bump-only |
+| 1.0.3   | ✅     | ✅          | ✅       | n/a   | ✅       | |
+| 1.0.4   | ✅     | ✅          | n/a     | n/a   | ✅       | |
+| 1.0.5   | ✅     | ✅          | ✅       | n/a   | ✅       | |
+| 1.0.6   | ✅     | ✅          | ✅       | n/a   | ✅       | Large release, well-organized |
+| 1.0.7   | ✅     | ✅          | ✅       | n/a   | ✅       | |
+| 1.0.8   | ✅     | ✅          | ✅       | n/a   | ✅       | |
+| 1.0.9   | ✅     | ⚠️          | n/a     | n/a   | ✅       | See Note 1 |
+| 1.0.10  | ✅     | n/a        | ✅       | ✅ #2  | ✅       | |
+| 1.0.11  | ✅     | ✅          | n/a     | n/a   | ✅       | Dual-tag correctly noted |
+| 1.0.12  | ✅     | ✅          | n/a     | ✅ #3  | ✅       | Community PR credited |
+| 1.0.13  | ✅     | ✅          | n/a     | n/a   | ✅       | |
+
+---
+
+## Notes (non-blocking)
+
+### Note 1: 1.0.9 — CI workflow omitted
+
+The changelog says "GitHub Actions release workflow for automated builds" but 1.0.9 introduced **two** separate workflows:
+- `ci.yml` — CI build/test workflow (commit `7a7dd2a`)
+- `release.yml` — Automated release workflow (commit `29e9b54`)
+
+**Suggested fix:** Change to:
+```markdown
+### Added
+
+- GitHub Actions CI workflow (`ci.yml`)
+- GitHub Actions release workflow (`release.yml`)
+- Build status badge in README
+```
+
+### Note 2: Non-standard Keep a Changelog categories
+
+The header claims "based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)" but uses custom categories (`### Test`, `### Docs`, `### Build`) not in the spec (which only defines: Added, Changed, Deprecated, Removed, Fixed, Security).
+
+This isn't wrong — it's a reasonable extension — but it's **inconsistent**: some releases use `### Docs` for README changes (1.0.4, 1.0.6, 1.0.13) while others fold them into `### Changed` (1.0.5). Similarly, `### Build` appears in 1.0.9 and 1.0.13 but CI/build changes are under `### Changed` elsewhere.
+
+**Suggested fix:** Either:
+- (a) Fold `Test`/`Docs`/`Build` items into the standard categories, OR
+- (b) Keep the custom categories but use them consistently across all releases
+
+### Note 3: 1.0.4 internal docs in changelog
+
+The entry "Add Copilot instructions and code review instructions" under `### Docs` refers to `.github/copilot-instructions.md` — a development-time file, not user-facing. Debatable whether it belongs in a public changelog. Not a blocker.
+
+---
+
+## Factual Accuracy
+
+Every date, PR reference, feature description, and compare link verified against git history. **No factual errors found.** The only substantive omission is the CI workflow in 1.0.9 (Note 1).
+
+---
+
+## Decision
+
+**APPROVED.** The changelog is factually accurate, well-structured, and covers all 14 releases. The two notes above are quality improvements, not blockers. Recommend addressing Note 1 (CI workflow omission) before shipping — it's a one-line fix.
+
+---
+
+# Decision: Remove diagnostics source field from NotificationFormatTests
+
+- **Date:** 2026-03-28T22:21:54Z
+- **Requester:** Sebastien Lebreton
+- **Context:** The diagnostics source field is obsolete and should no longer be validated in server notification format tests.
+- **Decision:** Remove all source references (input payload and assertions) from src/CopilotCliIde.Server.Tests/NotificationFormatTests.cs while keeping notification format intent intact.
+- **Outcome:** Test now validates remaining diagnostics fields (message, severity, range, code) without asserting obsolete source.
+
+---
+
+# Ripley — CHANGELOG.md Polish (Hudson Note 1)
+
+**Date:** 2026-03-29
+**Requested by:** Sebastien Lebreton
+**Status:** Applied
+
+---
+
+## What changed
+
+In CHANGELOG.md release 1.0.9 under `### Added`, the single bullet:
+
+> GitHub Actions release workflow for automated builds
+
+was split into two bullets to match what was actually shipped:
+
+- GitHub Actions CI workflow (`ci.yml`)
+- GitHub Actions release workflow (`release.yml`)
+
+## Why
+
+Hudson's code review (`.squad/decisions/inbox/hudson-changelog-review.md`, Note 1) identified that 1.0.9 introduced **two** separate workflow files but the changelog only mentioned one. This is a factual omission — the CI workflow (`ci.yml`, commit `7a7dd2a`) was missing entirely.
+
+## Team relevance
+
+When adding CI/build infrastructure in future releases, each distinct workflow file should get its own changelog bullet. Lumping them under a single description loses traceability back to commits and makes the changelog less useful as a historical record.
+

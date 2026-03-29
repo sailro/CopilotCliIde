@@ -406,3 +406,32 @@ Executed a full codebase review across all three projects (extension, server, sh
 **Cross-references:** Hicks' HIGH-2 (DebouncePusher race) aligns exactly with H1. Silent catch block pattern (H4) spans extension and server. Bishop's H1 (cache-control header) is simple fix. Hudson's test coverage gaps (especially L4, L5) are direct consequences.
 
 **Decision:** Report filed to `.squad/decisions.md`. Ready for sprint planning and cross-team coordination.
+### 2026-03-29 — CHANGELOG.md Generation
+
+Generated comprehensive CHANGELOG.md covering all 14 tagged releases (1.0.0 through 1.0.13) plus Unreleased.
+
+**Key observations:**
+- Tags 1.0.10 and 1.0.11 point to the same commit (f72ce8b) — re-tag situation
+- 1.0.2 was a version-bump-only release with no functional changes
+- Major architecture shifts: 1.0.0 (initial), 1.0.3 (blocking diff + SSE), 1.0.5 (native VS editor APIs), 1.0.6 (Output Window logging + refactoring wave), 1.0.7 (live diagnostics + capture-based testing)
+- PRs #2 (VS2022 compat) and #3 (Launch Copilot CLI menu) are the only external contributions
+- Changelog follows Keep a Changelog format with compare links
+
+
+### 2026-03-29 — CHANGELOG.md Polish (Hudson Note 1)
+
+Applied Hudson's non-blocking correction to CHANGELOG.md release 1.0.9. The original entry merged two distinct GitHub Actions workflows into one bullet ("GitHub Actions release workflow for automated builds"). Split into two explicit bullets matching the actual commits: `ci.yml` (CI build/test, commit 7a7dd2a) and `release.yml` (automated release, commit 29e9b54). Straightforward factual fix — no judgment calls required.
+
+---
+
+## Session Update: 2026-03-29 Changelog Audit Cycle
+
+**Work completed:**
+- **Spawn 1:** Drafted CHANGELOG.md from git history — 14 releases with full commit coverage, compare links, and PR references.
+- **Spawn 2:** Applied Hudson Note 1 fix — split 1.0.9 "GitHub Actions release workflow" into two bullets: CI workflow (ci.yml) + release workflow (release.yml).
+
+**Merged decisions:**
+- **ripley-changelog-polish.md:** Note 1 fix complete. Workflow separation documented as best practice for future infrastructure releases.
+
+**Team learning:**
+- When documenting infrastructure changes (CI, build tools), list each distinct workflow/tool separately rather than grouping under a single description. Improves traceability to commits and historical accuracy.

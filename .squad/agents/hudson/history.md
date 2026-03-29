@@ -299,6 +299,16 @@ Performed exhaustive protocol comparison between CLI 0.41 (VS Code 1.113.0) and 
 - McpPipeServer.cs: Removed ReadHttpRequestAsync, ReadChunkedBodyAsync, WriteHttpResponseAsync (to HttpPipeFraming.cs), SseClient inner class (to SseClient.cs), SingletonServiceProvider inner class (to SingletonServiceProvider.cs). All call sites updated to use static HttpPipeFraming methods. System.Net using removed (moved to HttpPipeFraming).
 - HttpPipeFraming.cs (new): internal static class, 3 public static methods - byte-identical to removed McpPipeServer code.
 - SseClient.cs (new): internal sealed class - byte-identical to removed inner class.
+
+### 2026-03-29 — CHANGELOG.md Audit and Review
+
+- **Audited all 160+ commits** across 14 git tags (1.0.0–1.0.13 + HEAD) to build ground-truth changelog coverage checklist.
+- **CHANGELOG.md** created by Hicks; reviewed and **approved** with minor notes.
+- **Key finding:** 1.0.9 introduced two separate GitHub Actions workflows (`ci.yml` and `release.yml`), but the changelog only mentions the release workflow.
+- **Style note:** Custom categories (`### Test`, `### Docs`, `### Build`) used inconsistently alongside standard Keep a Changelog categories.
+- **1.0.10/1.0.11 dual-tag:** Both tags point to the same commit (`f72ce8b`). Changelog correctly documents this.
+- **All dates, PR references, and compare links verified as accurate.**
+- Review findings written to `.squad/decisions/inbox/hudson-changelog-review.md`.
 - SingletonServiceProvider.cs (new): internal sealed class - byte-identical to removed inner class.
 - 5 test files updated: ChunkedEncodingTests (10 refs), HttpParsingTests (11 refs), HttpResponseTests (11 refs), SingletonServiceProviderTests (5 refs + removed reflection helper), TrafficReplayTests (1 ref).
 
@@ -396,3 +406,15 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 - Removed assertion reading diag.GetProperty("source").
 - Preserved notification format validation coverage for jsonrpc, method, uri, severity, code, and range values.
 - Ran targeted tests: NotificationFormatTests (6/6 passing).
+
+---
+
+## Session Update: 2026-03-29 Changelog Audit Cycle
+
+**Merged decisions:**
+- **hudson-changelog-review.md:** CHANGELOG.md audit approved with minor notes. All 160+ commits verified accurate across 14 releases. Note 1 (1.0.9 CI workflow omission) escalated to Ripley for fix; Notes 2–3 are quality improvements (non-blocking).
+- **hudson-remove-source-field.md:** Decision to remove diagnostics source field from NotificationFormatTests applied. Test now validates remaining fields (message, severity, range, code) without obsolete source assertion.
+
+**Team coordination:**
+- Ripley completed Note 1 fix in subsequent spawn — changelog now complete and release-ready.
+- Workflow split best practice captured for future infrastructure releases.
