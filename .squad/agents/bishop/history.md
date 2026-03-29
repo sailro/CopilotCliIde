@@ -682,3 +682,13 @@ ext() blocks for the lifetime of SSE GET streams)
 - **Impact:** Custom TrackingSseEventStreamStore is **required** for resume behavior (Last-Event-ID replay)
 - **Next steps:** Monitor production; if resume becomes obsolete, custom store can be removed
 - **Coordination:** Both Bishop and Hudson aligned on store necessity
+
+### ModelContextProtocol.AspNetCore Transport Baseline
+
+- **Transport migration committed (e0a79d6):** Replaced entire custom HTTP/MCP stack (McpPipeServer, HttpPipeFraming, SseBroadcaster, SseClient, SingletonServiceProvider) with ModelContextProtocol.AspNetCore + Kestrel named-pipe hosting.
+- **Key classes:** `AspNetMcpPipeServer` (server host, auth middleware, session tracking, notification broadcasting), `TrackingSseEventStreamStore` (ISseEventStreamStore with event history replay).
+- **No custom HTTP parsing:** Kestrel handles all HTTP/1.1 framing, chunked encoding, SSE streaming. The old `ReadHttpRequestAsync`/`WriteHttpResponseAsync`/`ReadChunkedBodyAsync` internal statics are gone.
+- **Test count:** 234 server tests passing (up from 153 — old HTTP parsing tests removed, new SSE integration tests added).
+- **Documentation updated:** README.md, doc/protocol.md, .github/copilot-instructions.md all reference ModelContextProtocol.AspNetCore as the transport layer.
+- **MCP tools registered via** `WithToolsFromAssembly()` — same reflection-based `[McpServerToolType]`/`[McpServerTool]` discovery, but through the SDK's API.
+- **Session tracking:** `_activeSessions` ConcurrentDictionary maps session IDs to `McpServer` instances for notification broadcasting. Cleaned up on DELETE and on `ObjectDisposedException`/`InvalidOperationException` during pushes.

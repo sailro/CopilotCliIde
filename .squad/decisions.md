@@ -1078,6 +1078,41 @@ None. All new files. Existing 109 tests untouched. The `ProtocolCompatibilityTes
 
 ---
 
+---
+
+## Decision: ModelContextProtocol.AspNetCore Transport Baseline
+
+**Author:** Bishop  
+**Date:** 2026-03-10 (merged 2026-03-29)  
+**Status:** Decided  
+
+### Context
+
+The MCP server previously used a custom HTTP/MCP stack: `McpPipeServer` with hand-rolled HTTP parsing (`HttpPipeFraming`), custom SSE broadcasting (`SseBroadcaster`, `SseClient`), and a manual service provider (`SingletonServiceProvider`).
+
+### Decision
+
+Replace the custom stack with **ModelContextProtocol.AspNetCore** using Kestrel named-pipe hosting. The new baseline consists of:
+
+- **`AspNetMcpPipeServer`** — ASP.NET Core `WebApplication` with Kestrel listening on a named pipe (`HttpProtocols.Http1`). Configures auth middleware, MCP endpoint mapping via `MapMcp()`, and session lifecycle tracking.
+- **`TrackingSseEventStreamStore`** — Custom `ISseEventStreamStore` providing event history replay for SSE reconnection (Last-Event-ID support).
+
+### Implications
+
+- **No custom HTTP parsing.** All HTTP framing, chunked encoding, SSE streaming is handled by Kestrel and the ModelContextProtocol.AspNetCore middleware. The old internal static methods (`ReadHttpRequestAsync`, `WriteHttpResponseAsync`, `ReadChunkedBodyAsync`) no longer exist.
+- **Test infrastructure changed.** Tests now connect via real named pipes to a real Kestrel server. The old HTTP parsing and chunked encoding test classes have been removed. SSE notification integration tests use `AspNetMcpPipeServer` directly.
+- **MCP tool registration** uses `WithToolsFromAssembly()` — same `[McpServerToolType]`/`[McpServerTool]` attributes, discovered through the SDK's API.
+- **Session tracking** uses `_activeSessions` mapping session IDs to `McpServer` instances for broadcast. Cleaned on DELETE and on disposed-session exceptions.
+- **open_diff blocking** is now naturally handled by ASP.NET Core's async pipeline — no special timeout-skip logic needed.
+
+### Who Should Know
+
+- **Hudson:** Test infrastructure is different — no more `HttpPipeFraming` internals to test.
+- **Hicks:** Extension code unchanged — `RpcClient` connection and callbacks work identically.
+- **Ripley:** Architecture docs updated. README and protocol.md reflect the new stack.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

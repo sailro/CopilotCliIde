@@ -8,8 +8,9 @@
 ## Core Context
 
 Hudson owns test suite, coverage analysis, and test infrastructure. Key decisions:
+- **2026-03-29 — Bishop completed AspNet transport baseline refactor.** MCP server switched from custom HTTP/MCP stack (McpPipeServer with hand-rolled HTTP parsing) to ModelContextProtocol.AspNetCore using Kestrel named-pipe hosting. No changes to extension; RPC client connection and callbacks work identically. Tests now connect via real named pipes to real Kestrel server. See `.squad/decisions.md` "Decision: ModelContextProtocol.AspNetCore Transport Baseline" for full scope.
 - **xUnit v3 migration (2026-03-05):** Migrated from v2 (2.9.3) to v3 (3.2.2); all 94 tests passed
-- **143 tests current status:** Multi-session capture fix resolved 4 failing tests; all now pass
+- **213 tests current status:** Multi-session capture fix resolved 4 failing tests; all now pass
 - **Test infrastructure:** 11 test files covering HTTP parsing, DTO serialization, tool discovery, protocol compatibility, traffic replay
 - **TrafficParser:** Now session-aware; GetToolCallResponse scopes by sequence number to isolate IDs across sessions
 - **Coverage gaps identified:** New tests needed for open_diff/close_diff/get_vscode_info response structures (P1 priority, deferred)

@@ -8,6 +8,7 @@
 ## Core Context
 
 Ripley leads protocol analysis, reverse-engineering, and spec validation. Key decisions:
+- **2026-03-29 — Bishop completed AspNet transport baseline refactor.** MCP server switched from custom HTTP/MCP stack to ModelContextProtocol.AspNetCore using Kestrel named-pipe hosting. Test infrastructure changed; tests now connect via real named pipes to real Kestrel server. Documentation updated (README.md, protocol.md, copilot-instructions.md reflect new stack). See `.squad/decisions.md` "Decision: ModelContextProtocol.AspNetCore Transport Baseline" for full scope.
 - **Capture source truth (2026-03-08):** vs-1.0.7.ndjson is our code; vscode captures are ground truth
 - **Multi-session protocol analysis:** All contract changes verified correct; 4 test failures were infrastructure issues
 - **Deep capture analysis:** Confirmed 3 NDJSON files structurally identical across VS/VS Code, minor cosmetic differences only
