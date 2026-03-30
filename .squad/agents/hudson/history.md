@@ -429,6 +429,29 @@ Initial implementation used seq-number comparison to enforce close_diff-before-o
 
 **Verdict: APPROVED.** Extraction is clean, byte-identical, and improves readability. Named constants for CRLF/headers are a net win. All 213 tests green.
 
+### 2026-03-30 — Cleared Event Timing Review (Revised Fix)
+
+**Context:** User reported that the initial stale-selection fix (by Hicks) had bad timing — `OnViewClosed` was pushing `PushClearedSelection()` on every tab close, resulting in 3 spurious cleared events when closing 3 files instead of 1.
+
+**Review of revised working tree:**
+- `SelectionTracker.OnViewClosed` now calls only `UntrackView()` — no cleared push ✅
+- `PushClearedSelection()` is only called from `TrackActiveView` when `wpfView == null` (no active editor) ✅
+- `PushClearedSelection` method added with debounce integration ✅
+- Logging improved: separate log message for "no editor" vs file selection ✅
+
+**3-file workflow trace (verified correct):**
+1. Close A → `OnViewClosed` → `UntrackView()` → VS activates B → `TrackActiveView(B)` → push selection B
+2. Close B → `OnViewClosed` → `UntrackView()` → VS activates C → `TrackActiveView(C)` → push selection C
+3. Close C → `OnViewClosed` → `UntrackView()` → VS activates non-editor → `TrackActiveView(null)` → `PushClearedSelection()` (exactly 1)
+
+**Tests added (3 new, 288 total):**
+- `ThreeFileWorkflow_OnlyFinalClose_EmitsOneCleared` — Core acceptance test: simulates 3-file close workflow, asserts exactly 1 cleared event, 3 file selections, cleared is last
+- `ServerDoesNotFilter_MultipleCleared_AllDelivered` — Counter-test proving the guard must be in SelectionTracker, not server-side filtering
+- `SingleFileClose_EmitsOneCleared` — Edge case: closing the only open file emits exactly 1 cleared event
+- Helper `MakeSelectionForFile` added for per-file selection notifications
+
+**Verdict: APPROVED.** Revised implementation correctly handles the 3-file close workflow. Only `TrackActiveView` (via SEID_WindowFrame) pushes cleared — never `OnViewClosed`. All 288 tests passing.
+
 
 ### 2026-03-28T20:20:37Z — McpPipeServer Literal Extraction (Bishop)
 

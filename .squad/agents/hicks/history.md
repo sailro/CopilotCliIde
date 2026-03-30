@@ -115,3 +115,21 @@ Diagnostic severities used by extension diagnostics mapping are now centralized 
 - The polled path (`VsServiceRpc.GetSelectionAsync`) was already correct — `dte.ActiveDocument` returns null when no editor is open.
 
 **Cross-team approval (2026-03-30):** Hudson reviewed and approved the fix. Added 3 comprehensive regression tests covering: (1) pull path when no editor active, (2) push path receives cleared notification, (3) consistency between both paths. All 285 tests passing (282 existing + 3 new).
+
+### 2026-07-20 — Fix cleared selection event timing (bad `OnViewClosed` push)
+
+**Bug:** The previous fix (2026-07-20 above) called `PushClearedSelection()` from both `OnViewClosed` and `TrackActiveView(null)`. The `OnViewClosed` call fires for every tab close — including intermediate closes where VS is about to focus another editor. In a 3-file workspace, closing all tabs emitted 3 cleared events when only the final one was correct.
+
+**Root cause:** `OnViewClosed` fires during the view close, *before* VS resolves the next active window. Emitting cleared here is premature — VS will fire `SEID_WindowFrame` moments later with the actual next active frame.
+
+**Fix:** Removed `PushClearedSelection()` from `OnViewClosed`. It now only calls `UntrackView()`. The cleared event is emitted solely from `TrackActiveView` (driven by `SEID_WindowFrame`) when `wpfView == null` — meaning VS has confirmed no editor is active.
+
+**Event ordering (verified):** When a tab closes: (1) `IWpfTextView.Closed` fires → `OnViewClosed` → untrack only. (2) VS picks next active frame → `SEID_WindowFrame` fires → `TrackActiveView` → either tracks new editor (normal selection push) or pushes cleared (last tab). This gives exactly one cleared event when the workspace becomes empty.
+
+**Build:** Server compiles clean. All 285 tests pass.
+
+## Cross-Agent Context — Session 2026-03-30
+
+**From Hudson:** Approved the revised fix. Added 3 regression tests covering 3-file workflow, server transparency, and single-file edge case. All 288 tests passing.
+
+**From Ripley:** Identified the original regression commit `3d17a6f` (2026-03-05 09:49) which removed `PushEmptySelection()` under the incorrect assumption "copilot-cli ignores empty file paths." Your fix (with dual-emit guard in OnViewClosed removed) is the correct implementation.

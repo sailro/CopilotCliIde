@@ -448,3 +448,32 @@ Applied Hudson's non-blocking correction to CHANGELOG.md release 1.0.9. The orig
 - All 281 tests passing post-integration
 - Committed full code state with artifact
 - Established clear commit boundaries for code and documentation phases
+
+### 2026-07-19 — Regression Archaeology: Selection Clear on All-Tabs-Closed
+
+Traced the removal of "clear selection when all documents close" to a single commit.
+
+**Root cause: `3d17a6f` — "Push current selection when copilot-cli SSE client connects" (2026-03-05)**
+
+This commit explicitly removed `PushEmptySelection()` from three locations:
+1. `TrackActiveView()` — the `wpfView == null` branch (focus moves to non-editor or last tab closes)
+2. `OnViewClosed()` — when a document tab closes
+3. The entire `PushEmptySelection()` method definition
+
+The commit message states: *"Remove PushEmptySelection (copilot-cli ignores empty file paths). Close-all-tabs just untracks the view without sending a notification."*
+
+**Timeline:**
+- `912f832` (2026-03-05 09:43) — Added `PushEmptySelection()` — behavior was correct.
+- `3d17a6f` (2026-03-05 09:49) — Removed it 6 minutes later. Regression introduced.
+- `be35e41` (2026-03-07) — Extraction to `SelectionTracker.cs` carried forward the broken state.
+- All subsequent commits preserved the broken state.
+
+**Why the rationale was wrong:** The commit assumed Copilot CLI ignores empty file paths, so there was no point sending the notification. But the CLI needs the cleared-selection push to update its internal state display — even if the file path is empty, the notification itself matters as a state transition signal.
+
+**Verdict:** Single commit, not incremental. `3d17a6f` is the exact regression point.
+
+## Cross-Agent Context — Session 2026-03-30
+
+**From Hicks:** Implemented the fix by removing `PushClearedSelection()` from `OnViewClosed()`. Cleared selection now emits exclusively from `TrackActiveView` when `SEID_WindowFrame` fires with `wpfView == null`. This eliminates spurious cleared events.
+
+**From Hudson:** Approved Hicks' fix and added 3 regression tests. All 288 tests passing. The dual-emit pattern (both OnViewClosed and TrackActiveView) was the earlier attempt to cover timing gaps — your regression archaeology explains why that approach was necessary (the broken state from `3d17a6f`) but no longer needed with correct event ordering.

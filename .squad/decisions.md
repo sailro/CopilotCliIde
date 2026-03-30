@@ -2756,3 +2756,100 @@ Prior analysis of the vs-1.0.14 capture identified 3 concrete test gaps. This im
 - Closes the 3 identified P1 gaps from the vs-1.0.14 analysis
 - No remaining high-priority capture test gaps
 
+
+---
+
+# Decision: Cleared Selection Event Timing
+
+**Author:** Hicks (Extension Dev)
+**Date:** 2026-07-20
+**Status:** Implemented
+
+## Context
+
+When closing editor tabs, `OnViewClosed` was calling `PushClearedSelection()` for **every** tab close. In a 3-file workspace, closing all tabs would emit 3 cleared events — but only the last one (when no editors remain) is meaningful. The first two are immediately superseded by VS focusing the next editor tab and `SEID_WindowFrame` firing a real selection event.
+
+## Decision
+
+**`OnViewClosed` must NOT push a cleared selection.** It only calls `UntrackView()`.
+
+The cleared event is emitted solely from `TrackActiveView` (driven by `SEID_WindowFrame`) when `wpfView == null` — meaning VS has settled on a non-editor window as the active frame, confirming no editors remain.
+
+## Rationale
+
+- `SEID_WindowFrame` fires AFTER VS resolves the next active window, so it reflects actual editor state, not a transient closing state.
+- `OnViewClosed` fires during the close of the tracked view, BEFORE VS has decided what to focus next — emitting cleared here is premature.
+- The 200ms debounce in `DebouncePusher` provides additional protection against rapid close sequences, but the root fix is not relying on it — we simply don't emit from the wrong event.
+
+## Implications
+
+- **Server code:** Unchanged. The server receives the same `SelectionNotification` shape — just fewer spurious cleared events.
+- **Testing:** Server integration tests pass (285/285). Extension-side behavior is validated by the VS event model contract: `SEID_WindowFrame` always fires when the active frame changes.
+- **Edge cases:** "Close All Tabs" produces exactly one cleared event (VS activates a non-editor window once). Rapid Ctrl+W across all tabs also produces one event (debounce coalesces).
+
+---
+
+# Decision: Cleared Event Timing — OnViewClosed Must Not Push (Approved)
+
+**Author:** Hudson (Testing & QA)
+**Date:** 2026-03-30
+**Status:** APPROVED (revised fix)
+
+## Context
+
+The initial stale-selection fix had `OnViewClosed` calling `PushClearedSelection()` on every editor tab close. This caused 3 spurious cleared events when closing 3 files sequentially — the user reported "sending 3x for nothing and with a bad timing."
+
+## Decision
+
+`OnViewClosed` must only call `UntrackView()`. The `PushClearedSelection()` call belongs exclusively in `TrackActiveView` when `wpfView == null` (meaning VS has no active editor after a `SEID_WindowFrame` change).
+
+**Why this is correct:**
+- When closing an intermediate tab, VS fires `SEID_WindowFrame` to activate the next tab → `TrackActiveView` gets a valid editor → pushes selection (not cleared)
+- When closing the last tab, VS fires `SEID_WindowFrame` with a non-editor frame (tool window or null) → `TrackActiveView` gets `wpfView == null` → pushes cleared (exactly once)
+
+## Impact
+
+- SelectionTracker: `OnViewClosed` = `UntrackView()` only
+- SelectionTracker: `PushClearedSelection()` called only from `TrackActiveView` null path
+- 3 new regression tests added (288 total): 3-file workflow, server transparency, single-file edge case
+- The server does NOT filter cleared events — the guard is in the extension
+
+---
+
+# Decision: Selection Clear Regression Root Cause
+
+**Author:** Ripley (Regression Archaeology)
+**Date:** 2026-07-19
+**Status:** Finding (no code change)
+
+## Context
+
+The extension stopped sending `selection_changed` notifications with cleared state when all document tabs close. This left Copilot CLI displaying stale selection data.
+
+## Finding
+
+**Exact regression commit: `3d17a6f`** — "Push current selection when copilot-cli SSE client connects" (2026-03-05 09:49)
+
+This commit deliberately removed `PushEmptySelection()` from `TrackActiveView()`, `OnViewClosed()`, and deleted the method entirely. The commit message justified it with: *"copilot-cli ignores empty file paths."*
+
+The assumption was incorrect — the CLI needs the notification as a state transition signal regardless of payload content.
+
+## Timeline
+
+| Commit | Date | Effect |
+|--------|------|--------|
+| `912f832` | 2026-03-05 09:43 | Added PushEmptySelection — behavior correct |
+| `3d17a6f` | 2026-03-05 09:49 | Removed PushEmptySelection — **regression** |
+| `be35e41` | 2026-03-07 | Extraction to SelectionTracker carried broken state |
+
+## Implication
+
+The fix (adding `PushClearedSelection` back) is already in progress as an uncommitted change in the working tree. The new implementation correctly:
+- Pushes clear from `TrackActiveView` only (not `OnViewClosed`)
+- Uses the debouncer instead of immediate send
+- Sends a bare `SelectionNotification()` (all nulls) rather than the old empty-string-filled version
+
+## Team Impact
+
+- Hicks: If implementing the fix, the working-tree change is the right approach. Verify the notification shape matches what CLI expects.
+- Hudson: Add a regression test for the "all tabs closed → cleared selection push" path.
