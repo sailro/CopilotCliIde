@@ -735,3 +735,16 @@ Analyzed the vs-1.0.14.ndjson capture (120 entries, 7 MCP sessions). Key finding
 6. Three open_diff outcomes: SAVED/accepted_via_button, REJECTED/rejected_via_button, REJECTED/closed_via_tool
 
 **Coverage result:** 260 tests pass (auto-picks up new capture). Covered: diagnostics code field, all three open_diff outcomes, auto-discovery. Uncovered gaps: dual DELETE idempotency, cross-session diff resolution, get_selection current=false exact shape, Content-Length vs chunked framing, missing X-Copilot headers, get_diagnostics URI filter empty result.
+
+### 2026-03-30 — execution.taskSupport Parity Fix
+
+Implemented automatic taskSupport filtering on tools/list response to match VS Code behavior exactly. VS Code sets `execution.taskSupport = "forbidden"` on all tools; our server was omitting this field.
+
+**Fix applied:** Added `ListToolsFilters` in `AspNetMcpPipeServer.WithServerOptionsAsync()` configuration. Filter intercepts tools/list response and injects `tool.Execution.TaskSupport = ToolTaskSupport.Forbidden` for all 7 tools. Wrapped in `#pragma warning disable MCPEXP001` (experimental MCP SDK feature).
+
+**Test coverage:** Enhanced `TrafficReplayTests.C1_ToolsListResponseStructure` with assertion loop validating every tool in response has `execution.taskSupport == "forbidden"`. Assertion fails if any tool omits execution metadata or has different value.
+
+**Result:** 153 tests pass (full suite). Focused test validates all 7 tools (get_vscode_info, get_selection, open_diff, close_diff, get_diagnostics, read_file, update_session_name). Protocol alignment with VS Code complete.
+
+**Orchestration log:** `.squad/orchestration-log/20260330T090200Z-bishop.md`  
+**Session log:** `.squad/log/20260330T090200Z-taskSupport-parity-fix.md`
