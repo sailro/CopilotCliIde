@@ -11,7 +11,7 @@
     <PackageVersion Include="Microsoft.Bcl.HashCode" Version="6.0.0" />
     <!-- VS2022 provides StreamJsonRpc 2.22 at runtime, VS2026 has 2.24 with binding redirects. See CopilotCliIde.Server.csproj -->
     <PackageVersion Include="StreamJsonRpc" Version="[2.22.23]" />
-    <PackageVersion Include="coverlet.collector" Version="8.0.0" />
+    <PackageVersion Include="coverlet.collector" Version="8.0.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
