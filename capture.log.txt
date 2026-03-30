@@ -1,0 +1,48 @@
+[09:54:48.394] Extension loaded, starting connection...
+[09:54:49.046] Push diagnostics_changed: 0 file(s), 0 diagnostic(s)
+[09:55:39.374] ResetNotificationState: new CLI client connected
+[09:55:39.385] Tool get_selection: AspNetMcpPipeServer.cs L226:31
+[09:55:39.408] Tool get_diagnostics: (all) 0 file(s), 0 diagnostic(s)
+[09:56:35.395] Tool get_selection: AspNetMcpPipeServer.cs L226:31
+[09:56:41.538] Push selection_changed: AspNetMcpPipeServer.cs L226:31
+[09:56:56.783] Push selection_changed: OutputLogger.cs L26:1
+[09:57:09.133] Push diagnostics_changed: 0 file(s), 0 diagnostic(s)
+[09:57:19.606] Tool get_selection: (no editor)
+[09:57:25.176] Push selection_changed: DebouncePusher.cs L1:1
+[09:58:06.751] Push selection_changed: DebouncePusher.cs L12:59
+[09:58:19.171] Push selection_changed: DebouncePusher.cs L20:16
+[09:58:23.531] Push selection_changed: DebouncePusher.cs L17:14 → L17:25
+[09:58:29.400] Tool get_selection: DebouncePusher.cs L17:14 → L17:25
+[09:58:32.517] Push selection_changed: DebouncePusher.cs L20:16
+[09:58:37.312] Push selection_changed: DebouncePusher.cs L20:1
+[09:58:37.688] Push selection_changed: DebouncePusher.cs L19:1
+[09:58:39.813] Push selection_changed: DebouncePusher.cs L28:1
+[09:58:41.083] Push selection_changed: DebouncePusher.cs L28:1 → L34:1
+[09:58:48.319] Tool get_selection: DebouncePusher.cs L28:1 → L34:1
+[09:58:51.246] Push selection_changed: DebouncePusher.cs L22:18
+[09:58:55.328] Push selection_changed: DebouncePusher.cs L20:16
+[09:58:56.159] Push selection_changed: DebouncePusher.cs L1:1 → L37:1
+[09:59:02.749] Tool get_selection: DebouncePusher.cs L1:1 → L37:1
+[09:59:14.156] Push selection_changed: DebouncePusher.cs L24:3
+[09:59:15.985] Push selection_changed: DebouncePusher.cs L37:1
+[09:59:17.980] Push diagnostics_changed: 1 file(s), 2 diagnostic(s)
+[09:59:31.679] Tool get_diagnostics: (all) 1 file(s), 2 diagnostic(s)
+[10:00:10.546] Tool get_diagnostics: IdeDiscovery.cs 0 file(s), 0 diagnostic(s)
+[10:00:27.317] Push selection_changed: DebouncePusher.cs L35:35
+[10:00:30.944] Push selection_changed: DebouncePusher.cs L37:5
+[10:00:33.079] Push diagnostics_changed: 0 file(s), 0 diagnostic(s)
+[10:01:00.854] Tool get_diagnostics: (all) 0 file(s), 0 diagnostic(s)
+[10:01:39.628] Tool get_vscode_info: v18.0
+[10:01:52.196] Tool open_diff: mcp-tool-smoke (DebouncePusher.cs)
+[10:01:52.751] Push selection_changed: mcp-tool-smoke-proposed.cs L3:1
+[10:02:01.078] Tool open_diff: REJECTED (closed_via_tool)
+[10:02:13.842] Tool close_diff: mcp-tool-smoke (closed)
+[10:02:13.986] Push selection_changed: DebouncePusher.cs L37:1
+[10:03:00.503] Tool open_diff: mcp-tool-accept (DebouncePusher.cs)
+[10:03:01.156] Push selection_changed: mcp-tool-accept-proposed.cs L3:1
+[10:03:27.247] Tool open_diff: SAVED (accepted_via_button)
+[10:03:27.490] Push selection_changed: DebouncePusher.cs L37:1
+[10:03:52.765] Tool open_diff: mcp-tool-reject (DebouncePusher.cs)
+[10:03:53.171] Push selection_changed: mcp-tool-reject-proposed.cs L3:1
+[10:04:17.222] Tool open_diff: REJECTED (rejected_via_button)
+[10:04:17.502] Push selection_changed: DebouncePusher.cs L37:1
