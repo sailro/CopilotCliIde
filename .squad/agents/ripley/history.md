@@ -436,3 +436,15 @@ Applied Hudson's non-blocking correction to CHANGELOG.md release 1.0.9. The orig
 
 **Team learning:**
 - When documenting infrastructure changes (CI, build tools), list each distinct workflow/tool separately rather than grouping under a single description. Improves traceability to commits and historical accuracy.
+
+## Session: 2026-03-30T10:27:07Z - Code Integration (Commits 5ef330d, 5cf849d)
+
+- Integrated capture-driven test suite from Hudson session (2026-03-30T08:24:15Z)
+- Refined SSE session lifecycle in AspNetMcpPipeServer
+- Updated stream tracking in TrackingSseEventStreamStore
+- Normalized vs-1.0.14.ndjson capture data for replay tests
+- Fixed OutputLogger logging issue
+- Improved mcp-call.mjs script reliability
+- All 281 tests passing post-integration
+- Committed full code state with artifact
+- Established clear commit boundaries for code and documentation phases
