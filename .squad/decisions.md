@@ -1766,6 +1766,70 @@ We previously tried subscribing to Error List WPF table changes, but the WPF Dat
 - Already what we have via BuildEvents.OnBuildDone
 - ❌ No improvement
 
+---
+
+## Stale File Selection Fix (2026-03-30)
+
+### Decision: Push cleared selection when all editors close
+
+**Author:** Hicks  
+**Date:** 2026-03-30  
+**Status:** Implemented & Approved  
+
+#### Context
+
+When all editor tabs were closed in VS (solution still loaded), Copilot CLI continued showing the last opened file name. The `SelectionTracker` correctly untracked the view but never pushed a "cleared" notification to the MCP server — the server's cached push state retained the stale file name.
+
+#### Decision
+
+`SelectionTracker` now pushes a `SelectionNotification` with all-null fields (no file, no selection, no text) when there is no active text editor view. This goes through the existing 200ms debouncer with dedup key `"cleared"`.
+
+Two call sites trigger the cleared push:
+1. `TrackActiveView` when `wpfView == null` (non-editor frame becomes active)
+2. `OnViewClosed` (editor tab closes — belt-and-suspenders for SEID_WindowFrame timing)
+
+#### Impact
+
+- **Pull path:** `VsServiceRpc.GetSelectionAsync` was already correct — returns null `FilePath` when no editor is open.
+- **Server (MCP server):** Receives `SelectionNotification` with null fields. The `PushInitialStateAsync` path and cached selection state handle null `FilePath`/`FileUrl` gracefully.
+- **Tests (Hudson):** No server test changes needed — the fix is extension-only. Added 3 new regression tests; existing 282 tests + 3 new = 285 tests passing.
+
+#### Production Changes
+
+- `src/CopilotCliIde/SelectionTracker.cs`: Added `PushClearedSelection()` method and updated `OnDebounceElapsed` logging.
+
+---
+
+### Decision: All-Documents-Closed Regression Coverage
+
+**Author:** Hudson  
+**Date:** 2026-03-30  
+**Status:** Implemented & Approved
+
+#### Context
+
+When all editor documents close in VS (solution still loaded), Copilot CLI was still showing the last opened file name. The expected behavior is: `get_selection` reports no file, and the push path sends a cleared notification.
+
+#### Decision
+
+Added 3 regression tests in `SseNotificationIntegrationTests.cs` covering:
+1. **Pull path** — `get_selection` tool returns `current: false` with no `filePath` when no editor is active.
+2. **Push path** — A cleared `SelectionNotification` (all null fields) arrives on the SSE stream with `text: ""` and `filePath` null or absent.
+3. **Push/pull consistency** — After documents close, both paths agree: push shows cleared, pull shows `current: false`.
+
+#### Production Fix Status
+
+**Approved.** The production fix in `SelectionTracker.PushClearedSelection()` is correct and complete:
+- Called from `TrackActiveView()` when `wpfView == null` (window frame change to non-editor)
+- Called from `OnViewClosed()` when a tracked view closes
+- Creates empty `SelectionNotification()` and schedules debounced push
+
+#### Impact
+
+- Test count: 282 → 285 (3 new regression tests)
+- No production code changes by Hudson
+- New reusable helpers: `CallToolAsync`, `ExtractJsonRpcFromResponse`, `ExtractAllSseDataJsonForMethod`
+
 **Option 2: Roslyn IDiagnosticService.DiagnosticsUpdated (Internal API)**
 - internal to Roslyn; not public API
 - Could break on any VS update

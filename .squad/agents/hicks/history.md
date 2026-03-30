@@ -97,3 +97,21 @@ Completed comprehensive review of all 11 source files in `src/CopilotCliIde/`. P
 ### 2026-03-28 — Shared DiagnosticSeverity constants for extension mapping
 
 Diagnostic severities used by extension diagnostics mapping are now centralized in `CopilotCliIde.Shared.Contracts` via `DiagnosticSeverity` (`Error`, `Warning`, `Information`). `DiagnosticTracker` maps `__VSERRORCATEGORY` to these constants with the same fallback behavior (`Information`) so wire values and protocol behavior stay unchanged while removing local string literals.
+
+### 2026-07-20 — Fix stale file name when all editors close
+
+**Bug:** When all editor tabs were closed (solution still loaded), Copilot CLI continued showing the last opened file name. `SelectionTracker.UntrackView()` nulled `_trackedView` and unsubscribed events but never pushed a "cleared" notification to the MCP server, so the server's cached push state retained the stale file name.
+
+**Fix in `SelectionTracker.cs`:**
+- Added `PushClearedSelection()` — schedules a `SelectionNotification` with all-null fields (no file, no selection) through the existing 200ms debouncer with dedup key `"cleared"`.
+- Called from `TrackActiveView` when `wpfView == null` (non-editor frame becomes active, e.g., Solution Explorer).
+- Called from `OnViewClosed` (editor tab closed) as belt-and-suspenders — covers timing gaps where SEID_WindowFrame may not fire immediately.
+- Updated `OnDebounceElapsed` logging: cleared notifications log as `Push selection_changed: (no editor)`, matching the `get_selection` tool log format.
+
+**Key design decisions:**
+- Push goes through `DebouncePusher` (not bypassed) so rapid close+reopen doesn't spam the server.
+- Dedup key `"cleared"` prevents duplicate cleared pushes when both OnViewClosed and SEID_WindowFrame fire.
+- `PushClearedSelection` checks `_getCallbacks() == null` first — safe at startup when RPC isn't connected yet.
+- The polled path (`VsServiceRpc.GetSelectionAsync`) was already correct — `dte.ActiveDocument` returns null when no editor is open.
+
+**Cross-team approval (2026-03-30):** Hudson reviewed and approved the fix. Added 3 comprehensive regression tests covering: (1) pull path when no editor active, (2) push path receives cleared notification, (3) consistency between both paths. All 285 tests passing (282 existing + 3 new).

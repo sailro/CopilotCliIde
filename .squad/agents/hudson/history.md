@@ -533,3 +533,43 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 - **Key design decision:** Avoided fragile seq-number lookups. Used `GetAllToolCallResponses()` + tab-name correlation instead of raw entry matching. The invariant is structural (pairing exists) not temporal (ordering guaranteed).
 - **No capture files modified.** No production code changed.
 - All 281 tests pass.
+
+### 2026-03-30T12:46:21Z — All-Documents-Closed Regression Coverage
+
+Added 3 regression tests to `SseNotificationIntegrationTests.cs` for the stale-file-name bug (when all editor documents close, `get_selection` should not report the previously active file).
+
+**Tests added (282 → 285):**
+- **`GetSelection_ReturnsCurrentFalse_WhenNoActiveEditor`** — Pull path: boots server with mock returning `Current=false`, calls `get_selection` tool via pipe, asserts `current:false` and no `filePath` string present. Uses new `CallToolAsync` and `ExtractJsonRpcFromResponse` helpers.
+- **`SelectionCleared_PushHasNoFilePath_WhenAllDocumentsClose`** — Push path: pushes a real selection, then pushes a cleared `SelectionNotification` (all null fields), asserts the cleared notification arrives with `text:""` and `filePath` null or absent.
+- **`PushPullConsistency_AfterAllDocumentsClose`** — Full lifecycle: starts with active selection, switches mock to `Current=false`, pushes cleared notification, verifies push has no file info AND pull via `get_selection` tool returns `current:false`.
+
+**Production fix verified:** `SelectionTracker.PushClearedSelection()` already implemented — called from both `TrackActiveView()` (when `wpfView==null`) and `OnViewClosed()`. Creates empty `SelectionNotification()` and schedules debounced push. Fix is correct and complete.
+
+**New helpers added:**
+- `CallToolAsync` — Constructs `tools/call` JSON-RPC request and sends via pipe.
+- `ExtractJsonRpcFromResponse` — Extracts JSON-RPC from SSE/raw/brace-matched response bodies.
+- `ExtractAllSseDataJsonForMethod` — Returns ALL matching `data:` lines for a method (not just first).
+
+**No production code changes.** All 285 tests pass.
+
+### 2026-03-30T12:47:31Z — Orchestration Complete: Stale File Selection Fix
+
+Orchestration log written to `.squad/orchestration-log/2026-03-30T12:47-31Z-hudson.md`. Cross-team session coordinated:
+
+**Hicks' production fix (extension-side):**
+- Added `PushClearedSelection()` to `SelectionTracker.cs`
+- Pushes cleared `SelectionNotification` (all null fields) when no editor is active
+- Called from `TrackActiveView()` when `wpfView==null` and `OnViewClosed()` (belt-and-suspenders)
+- Debounced with dedup key `"cleared"` to prevent redundant sends
+
+**Hudson's regression coverage (test-side):**
+- 3 new tests in `SseNotificationIntegrationTests.cs`:
+  1. Pull path: `get_selection` returns `current:false, no filePath` when no editor active
+  2. Push path: cleared notification arrives with `text:""` and `filePath` null/absent
+  3. Consistency: both paths agree after documents close
+- New test helpers: `CallToolAsync`, `ExtractJsonRpcFromResponse`, `ExtractAllSseDataJsonForMethod`
+- Test count: 282 → 285 ✅
+
+**Decisions merged:** Hicks' decision ("Push cleared selection when all editors close") and Hudson's decision ("All-Documents-Closed Regression Coverage") merged to `.squad/decisions.md` with deduplication.
+
+**Impact:** Copilot CLI will now correctly report "no file open" when all VS editor tabs close, even if the solution remains loaded. Both push (notifications) and pull (tool calls) paths are covered by regression tests.
