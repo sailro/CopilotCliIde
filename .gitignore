@@ -6,6 +6,7 @@ node_modules/
 *.suo
 *.vsix
 *.nupkg
+capture.log.txt
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/orchestration-log/
 .squad/log/
