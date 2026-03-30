@@ -14,7 +14,6 @@
 import http from 'http';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { randomUUID } from 'crypto';
 
 const toolName = process.argv[2];
 if (!toolName) {
@@ -36,45 +35,69 @@ if (lockFiles.length === 0) {
 const lock = JSON.parse(readFileSync(join(ideDir, lockFiles[0]), 'utf8'));
 const pipePath = lock.socketPath.replace(/^\\\\\.\\pipe\\/, '//./pipe/');
 const auth = lock.headers.Authorization;
-const sessionId = randomUUID();
+let sessionId = null;
 console.error(`Pipe: ${pipePath}`);
 console.error(`Tool: ${toolName}`);
 
+function extractRpcMessages(payload) {
+  const messages = [];
+  for (const line of payload.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) {
+      continue;
+    }
+
+    const json = line.slice(5).trim();
+    if (!json) {
+      continue;
+    }
+
+    try {
+      messages.push(JSON.parse(json));
+    } catch {
+      // Ignore partial or non-JSON event payloads.
+    }
+  }
+  return messages;
+}
+
 // --- HTTP request helper ---
-function mcpPost(body) {
+function mcpPost(requestBody) {
   return new Promise((resolve, reject) => {
-    const data = JSON.stringify(body);
+    const data = JSON.stringify(requestBody);
+    const headers = {
+      'Host': 'localhost',
+      'Authorization': auth,
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream, application/json',
+      'Content-Length': Buffer.byteLength(data),
+      'Connection': 'keep-alive'
+    };
+
+    if (sessionId) {
+      headers['Mcp-Session-Id'] = sessionId;
+    }
+
     const req = http.request({
       socketPath: pipePath,
       path: '/mcp',
       method: 'POST',
-      headers: {
-        'Host': 'localhost',
-        'Authorization': auth,
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream, application/json',
-        'Mcp-Session-Id': sessionId,
-        'Content-Length': Buffer.byteLength(data),
-        'Connection': 'keep-alive'
-      },
+      headers,
       timeout
     }, (res) => {
-      let body = '';
+      let responseBody = '';
       res.on('data', c => {
-        body += c;
-        // For SSE streams, resolve as soon as we see our response
-        const m = body.match(/data:\s*(\{.*\})/s);
-        if (m) {
-          try {
-            const parsed = JSON.parse(m[1]);
-            if (parsed.id !== undefined) {
-              resolve({ status: res.statusCode, headers: res.headers, body });
-              res.destroy(); // stop reading
-            }
-          } catch { /* partial, keep reading */ }
+        responseBody += c;
+
+        // For SSE streams, resolve as soon as we see our matching response.
+        if (requestBody.id !== undefined) {
+          const messages = extractRpcMessages(responseBody);
+          if (messages.some(message => message.id === requestBody.id)) {
+            resolve({ status: res.statusCode, headers: res.headers, body: responseBody });
+            res.destroy(); // stop reading
+          }
         }
       });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: responseBody }));
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
@@ -95,6 +118,14 @@ try {
     process.exit(1);
   }
 
+  const initSessionHeader = initRes.headers['mcp-session-id'];
+  sessionId = Array.isArray(initSessionHeader) ? initSessionHeader[0] : initSessionHeader;
+  if (!sessionId) {
+    console.error('Initialize response missing Mcp-Session-Id header.');
+    process.exit(1);
+  }
+  console.error(`Session: ${sessionId}`);
+
   // Step 2: notifications/initialized
   await mcpPost({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
@@ -105,15 +136,14 @@ try {
     params: { name: toolName, arguments: toolArgs }
   });
 
-  // Parse SSE body: "event: message\ndata: {...}\n\n"
-  const dataMatch = toolRes.body.match(/data:\s*(\{.*\})/s);
-  if (!dataMatch) {
+  const messages = extractRpcMessages(toolRes.body);
+  const rpc = messages.find(message => message.id === 1) ?? messages.find(message => message.result || message.error);
+  if (!rpc) {
     console.error('No data in response. Status:', toolRes.status);
     console.error('Body:', toolRes.body);
     process.exit(1);
   }
 
-  const rpc = JSON.parse(dataMatch[1]);
   const content = rpc.result?.content;
   if (content?.[0]?.text) {
     try {

@@ -1851,6 +1851,180 @@ public partial class TrafficReplayTests
 
 	#endregion
 
+	#region Test B5b — get_vscode_info response has all VS Code reference fields
+
+	// VS Code captures define the full field set: version, appName, appRoot, language,
+	// machineId, sessionId, uriScheme, shell. Our VS capture must include them all.
+	private static readonly string[] _vsCodeInfoExpectedFields =
+	[
+		"version", "appName", "appRoot", "language",
+		"machineId", "sessionId", "uriScheme", "shell"
+	];
+
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void GetVsCodeInfoResponse_HasAllExpectedFields(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var responses = parser.GetAllToolCallResponses("get_vscode_info");
+		if (responses.Count == 0)
+			return; // No get_vscode_info calls in this capture — skip
+
+		foreach (var response in responses)
+		{
+			var result = response.GetProperty("result");
+			var content = result.GetProperty("content");
+			var textValue = content[0].GetProperty("text").GetString()!;
+			var root = JsonDocument.Parse(textValue).RootElement;
+
+			var missingFields = _vsCodeInfoExpectedFields
+				.Where(field => !root.TryGetProperty(field, out _))
+				.ToList();
+
+			Assert.True(missingFields.Count == 0,
+				$"get_vscode_info response missing fields: {string.Join(", ", missingFields)}. " +
+				$"Present fields: {string.Join(", ", root.EnumerateObject().Select(p => p.Name))}");
+
+			// All fields must be non-null strings
+			foreach (var field in _vsCodeInfoExpectedFields)
+			{
+				var prop = root.GetProperty(field);
+				Assert.Equal(JsonValueKind.String, prop.ValueKind);
+				Assert.False(string.IsNullOrEmpty(prop.GetString()),
+					$"get_vscode_info field '{field}' should not be null or empty");
+			}
+		}
+	}
+
+	#endregion
+
+	#region Test B6 — get_diagnostics empty result has valid MCP envelope
+
+	// When get_diagnostics returns no diagnostics, the response must still have the
+	// correct MCP envelope: content[0].type == "text", content[0].text == "[]".
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void GetDiagnostics_EmptyResult_HasValidMcpEnvelope(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+		var responses = parser.GetAllToolCallResponses("get_diagnostics");
+		if (responses.Count == 0)
+			return; // No get_diagnostics calls in this capture — skip
+
+		var emptyResults = new List<JsonElement>();
+
+		foreach (var response in responses)
+		{
+			var result = response.GetProperty("result");
+			var content = result.GetProperty("content");
+			Assert.True(content.GetArrayLength() > 0, "get_diagnostics content should not be empty");
+
+			var firstItem = content[0];
+			Assert.Equal("text", firstItem.GetProperty("type").GetString());
+
+			var textValue = firstItem.GetProperty("text").GetString()!;
+			var innerDoc = JsonDocument.Parse(textValue);
+
+			if (innerDoc.RootElement.ValueKind == JsonValueKind.Array
+				&& innerDoc.RootElement.GetArrayLength() == 0)
+			{
+				emptyResults.Add(response);
+			}
+		}
+
+		if (emptyResults.Count == 0)
+			return; // No empty diagnostics in this capture — covered by Test 4
+
+		// Every empty-result response must have the full MCP envelope
+		foreach (var response in emptyResults)
+		{
+			// JSON-RPC structure
+			Assert.True(response.TryGetProperty("result", out var result));
+			Assert.True(result.TryGetProperty("content", out var content));
+			Assert.Equal(JsonValueKind.Array, content.ValueKind);
+			Assert.Equal(1, content.GetArrayLength());
+
+			var firstItem = content[0];
+			Assert.Equal("text", firstItem.GetProperty("type").GetString());
+			Assert.Equal("[]", firstItem.GetProperty("text").GetString());
+		}
+	}
+
+	#endregion
+
+	#region Test B7 — open_diff closed via tool resolves with matching close_diff
+
+	// When close_diff cancels an active open_diff, the capture must show:
+	//   - An open_diff response with trigger=closed_via_tool, result=REJECTED, success=true
+	//   - A close_diff response for the same tab_name with already_closed=false
+	// Both must be structurally valid. This validates the lifecycle pairing.
+	[Theory]
+	[MemberData(nameof(CaptureFiles))]
+	public void OpenDiffClosedViaTool_ResolvesAfterCloseDiff(string captureFile)
+	{
+		var parser = LoadCapture(captureFile);
+
+		// Find open_diff responses with trigger=closed_via_tool
+		var openDiffResponses = parser.GetAllToolCallResponses("open_diff");
+		var closedViaToolByTab = new Dictionary<string, JsonElement>();
+
+		foreach (var response in openDiffResponses)
+		{
+			var textValue = response.GetProperty("result")
+				.GetProperty("content")[0].GetProperty("text").GetString()!;
+			var inner = JsonDocument.Parse(textValue).RootElement;
+
+			if (inner.TryGetProperty("trigger", out var trigger)
+				&& trigger.GetString() == DiffTrigger.ClosedViaTool)
+			{
+				var tabName = inner.GetProperty("tab_name").GetString()!;
+				closedViaToolByTab[tabName] = inner;
+			}
+		}
+
+		if (closedViaToolByTab.Count == 0)
+			return; // No closed_via_tool pattern in this capture
+
+		// Find close_diff responses
+		var closeDiffResponses = parser.GetAllToolCallResponses("close_diff");
+		var closeDiffByTab = new Dictionary<string, List<JsonElement>>();
+
+		foreach (var response in closeDiffResponses)
+		{
+			var textValue = response.GetProperty("result")
+				.GetProperty("content")[0].GetProperty("text").GetString()!;
+			var inner = JsonDocument.Parse(textValue).RootElement;
+			var tabName = inner.GetProperty("tab_name").GetString()!;
+
+			if (!closeDiffByTab.ContainsKey(tabName))
+				closeDiffByTab[tabName] = [];
+			closeDiffByTab[tabName].Add(inner);
+		}
+
+		foreach (var (tabName, openDiffInner) in closedViaToolByTab)
+		{
+			// Validate open_diff response structure for closed_via_tool
+			Assert.True(openDiffInner.GetProperty("success").GetBoolean(),
+				$"open_diff closed_via_tool for tab '{tabName}' should have success=true");
+			Assert.Equal(DiffOutcome.Rejected, openDiffInner.GetProperty("result").GetString());
+			Assert.Equal(DiffTrigger.ClosedViaTool, openDiffInner.GetProperty("trigger").GetString());
+
+			// There must be a matching close_diff for this tab
+			Assert.True(closeDiffByTab.ContainsKey(tabName),
+				$"Tab '{tabName}' has open_diff with closed_via_tool but no close_diff response");
+
+			// At least one close_diff for this tab must have already_closed=false
+			// (it's the one that actually triggered the closure)
+			var closeDiffsForTab = closeDiffByTab[tabName];
+			var hasActualClose = closeDiffsForTab.Any(c => !c.GetProperty("already_closed").GetBoolean());
+			Assert.True(hasActualClose,
+				$"Tab '{tabName}' close_diff responses all have already_closed=true — " +
+				$"expected at least one with already_closed=false that triggered the open_diff closure");
+		}
+	}
+
+	#endregion
+
 	#region Test D8 — Our extension has zero HTTP errors
 
 	// Our VS extension captures (vs-*) should have zero 4xx or 5xx errors.

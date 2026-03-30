@@ -6,7 +6,7 @@ using ModelContextProtocol.Server;
 
 namespace CopilotCliIde.Server;
 
-internal sealed class TrackingSseEventStreamStore(Func<string, Task>? onStreamCreatedAsync = null) : ISseEventStreamStore
+internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? onStreamCreatedAsync = null) : ISseEventStreamStore
 {
 	private sealed class StreamState(string sessionId, string streamId)
 	{
@@ -167,7 +167,7 @@ internal sealed class TrackingSseEventStreamStore(Func<string, Task>? onStreamCr
 
 		if (onStreamCreatedAsync != null)
 		{
-			_ = Task.Run(async () => await onStreamCreatedAsync(options.SessionId), CancellationToken.None);
+			_ = Task.Run(async () => await onStreamCreatedAsync(options.SessionId, options.StreamId), CancellationToken.None);
 		}
 
 		return ValueTask.FromResult<ISseEventStreamWriter>(new StreamWriter(state));

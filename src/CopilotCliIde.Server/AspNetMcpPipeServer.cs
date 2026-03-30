@@ -18,6 +18,7 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 	private const int PipeStartupDelayMs = 200;
 	private const string AuthHeader = "authorization";
 	private const string SessionIdHeader = "mcp-session-id";
+	private const string GetStreamId = "__get__";
 
 	private WebApplication? _app;
 	private CancellationTokenSource? _cts;
@@ -25,7 +26,7 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 	private string? _nonce;
 	private TrackingSseEventStreamStore? _eventStreamStore;
 	private readonly ConcurrentDictionary<string, McpServer> _activeSessions = new(StringComparer.Ordinal);
-	private readonly ConcurrentDictionary<string, byte> _resetNotificationStateSessions = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, byte> _initializedSessions = new(StringComparer.Ordinal);
 
 	public async Task StartAsync(RpcClient rpcClient, string pipeName, string nonce, CancellationToken ct)
 	{
@@ -81,7 +82,7 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 				_eventStreamStore?.RemoveSession(deleteSessionId);
 				if (!string.IsNullOrWhiteSpace(deleteSessionId))
 				{
-					_resetNotificationStateSessions.TryRemove(deleteSessionId, out _);
+					_initializedSessions.TryRemove(deleteSessionId, out _);
 					_activeSessions.TryRemove(deleteSessionId, out _);
 				}
 			}
@@ -206,15 +207,23 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 		}
 	}
 
-	private async Task PushInitialStateAsync(string sessionId)
+	private async Task PushInitialStateAsync(string sessionId, string streamId)
 	{
-		var shouldReset = string.IsNullOrWhiteSpace(sessionId)
-			|| _resetNotificationStateSessions.TryAdd(sessionId, 0);
-		if (shouldReset)
+		// Only treat the long-lived GET SSE listener as a "client connect" for initial state.
+		// POST response streams are ephemeral and should not trigger initial-state fetches.
+		if (!string.Equals(streamId, GetStreamId, StringComparison.Ordinal)
+			|| string.IsNullOrWhiteSpace(sessionId))
 		{
-			try { await _rpcClient!.VsServices!.ResetNotificationStateAsync(); }
-			catch { /* VS not ready */ }
+			return;
 		}
+
+		if (!_initializedSessions.TryAdd(sessionId, 0))
+		{
+			return;
+		}
+
+		try { await _rpcClient!.VsServices!.ResetNotificationStateAsync(); }
+		catch { /* VS not ready */ }
 
 		await PushCurrentSelectionAsync();
 		await PushCurrentDiagnosticsAsync();

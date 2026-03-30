@@ -1,5 +1,4 @@
 using System.IO.Pipes;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using CopilotCliIde.Shared;
@@ -328,7 +327,7 @@ public class SseNotificationIntegrationTests
 	}
 
 	[Fact]
-	public async Task InitialState_ResetNotificationState_CalledOncePerSessionAcrossSseReconnects()
+	public async Task InitialState_IsFetchedOncePerSessionAcrossExtraSseStreams()
 	{
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		IVsServiceRpc? vsServices = null;
@@ -359,14 +358,16 @@ public class SseNotificationIntegrationTests
 				await ReadUntilContainsAsync(ssePipe1, "initial-once", cts.Token);
 			}
 
-			var pushInitialStateAsync = typeof(AspNetMcpPipeServer).GetMethod("PushInitialStateAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-			Assert.NotNull(pushInitialStateAsync);
-			var secondCall = pushInitialStateAsync!.Invoke(server, [sessionId]) as Task;
-			Assert.NotNull(secondCall);
-			await secondCall!;
+			var toolsListRequest = JsonSerializer.Serialize(new { method = "tools/list", jsonrpc = "2.0", id = 101 });
+			await SendHttpPostOnNewPipeAsync(pipeName, toolsListRequest, nonce, sessionId, cts.Token);
+			await SendHttpPostOnNewPipeAsync(pipeName, toolsListRequest, nonce, sessionId, cts.Token);
+			await SendHttpPostOnNewPipeAsync(pipeName, toolsListRequest, nonce, sessionId, cts.Token);
+			await Task.Delay(200, cts.Token);
 
 			Assert.NotNull(vsServices);
 			_ = vsServices!.Received(1).ResetNotificationStateAsync();
+			_ = vsServices.Received(1).GetSelectionAsync();
+			_ = vsServices.Received(1).GetDiagnosticsAsync(null);
 		}
 	}
 
@@ -429,6 +430,8 @@ public class SseNotificationIntegrationTests
 
 			Assert.NotNull(vsServices);
 			_ = vsServices!.Received(2).ResetNotificationStateAsync();
+			_ = vsServices.Received(2).GetSelectionAsync();
+			_ = vsServices.Received(2).GetDiagnosticsAsync(null);
 		}
 	}
 

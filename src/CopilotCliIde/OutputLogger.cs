@@ -30,7 +30,7 @@ internal sealed class OutputLogger
 		{
 			// OutputStringThreadSafe is explicitly designed to be called from any thread
 #pragma warning disable VSTHRD010
-			_pane.OutputStringThreadSafe($"[{DateTime.UtcNow:HH:mm:ss.fff}] {message}\n");
+			_pane.OutputStringThreadSafe($"[{DateTime.Now:HH:mm:ss.fff}] {message}\n");
 #pragma warning restore VSTHRD010
 		}
 		catch { /* Never crash VS */ }
