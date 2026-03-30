@@ -2659,3 +2659,36 @@ If the custom SSE store is removed or replaced with the MCP SDK default:
 - **10 regression tests** now guard the SSE notification contract
 - **Resume is the only behavior** that depends on the custom store's history/replay logic
 - Live push and initial-push-on-connect work through the MCP SDK's session mechanism, not the custom store
+
+
+---
+
+# Decision: vs-1.0.14 Capture Test Implementation
+
+**Author:** Hudson (Tester)
+**Date:** 2026-07-25
+**Status:** Implemented
+
+## Context
+
+Prior analysis of the vs-1.0.14 capture identified 3 concrete test gaps. This implements all three.
+
+## Tests Added (260 → 281)
+
+1. **B5b `GetVsCodeInfoResponse_HasAllExpectedFields`** — Validates all 8 VS Code reference fields (version, appName, appRoot, language, machineId, sessionId, uriScheme, shell) are present and non-empty strings. Extends B5 which only checked appName + version.
+
+2. **B6 `GetDiagnostics_EmptyResult_HasValidMcpEnvelope`** — Validates the empty-result path (content[0].text == "[]") has correct MCP envelope. Test 4 returns early on empty arrays, leaving this path uncovered.
+
+3. **B7 `OpenDiffClosedViaTool_ResolvesAfterCloseDiff`** — Validates the closed_via_tool lifecycle pairing between open_diff and close_diff. Uses structural validation (tab-name correlation) rather than temporal ordering (seq numbers), because VS Code and VS have different response ordering.
+
+## Design Decisions
+
+- **Structural over temporal:** Initial implementation used seq-number comparison to enforce close_diff-before-open_diff ordering. This failed on VS Code captures where the ordering differs. Redesigned as a structural pairing test — both responses must exist with correct fields.
+- **No capture modifications:** All tests work with existing capture data.
+- **Theory over Fact:** All 3 are [Theory] tests running against all 7 captures, providing cross-implementation coverage.
+
+## Impact
+
+- Closes the 3 identified P1 gaps from the vs-1.0.14 analysis
+- No remaining high-priority capture test gaps
+

@@ -377,6 +377,24 @@ Verified Phase B refactoring of McpPipeServer route split and SseBroadcaster ext
 **Date:** 2025-07-25
 **Scope:** Full class extraction of `HttpPipeFraming`, `SingletonServiceProvider`, `SseBroadcaster`, `SseClient` from `McpPipeServer.cs` into dedicated files. Tests updated to reference new types.
 
+---
+
+### 2026-03-30T08:24:15Z — vs-1.0.14 Capture Test Implementation
+
+Orchestration log written to `.squad/orchestration-log/20260330T082415Z-hudson.md`. Implemented 3 capture-driven tests addressing P1 gaps identified in prior analysis.
+
+**Tests Implemented:**
+- **B5b `GetVsCodeInfoResponse_HasAllExpectedFields`** — Validates all 8 VS Code reference fields (version, appName, appRoot, language, machineId, sessionId, uriScheme, shell) are present and non-empty strings. Extends B5 which only checked appName + version.
+- **B6 `GetDiagnostics_EmptyResult_HasValidMcpEnvelope`** — Validates the empty-result path (content[0].text == "[]") has correct MCP envelope. Test 4 returns early on empty arrays, leaving this path uncovered.
+- **B7 `OpenDiffClosedViaTool_ResolvesAfterCloseDiff`** — Validates the closed_via_tool lifecycle pairing between open_diff and close_diff using structural validation (tab-name correlation) rather than temporal ordering (seq numbers), because VS Code and VS have different response ordering.
+
+**Key Decision — Structural Over Temporal Validation:**
+Initial implementation used seq-number comparison to enforce close_diff-before-open_diff ordering. This approach failed on VS Code captures where response ordering differs from VS. Redesigned as structural pairing test — both responses must exist with correct fields, decoupled from temporal ordering.
+
+**Outcome:** ✅ SUCCESS. Added 3 tests (278 → 281, all passing). No capture files modified. No production code changes.
+
+**Impact:** Closes all 3 identified P1 gaps from the vs-1.0.14 analysis. No remaining high-priority capture test gaps.
+
 **1) Byte-identical semantics: CONFIRMED**
 - `"\r\n0\r\n\r\n"u8` and `"0\r\n\r\n"u8` chunk-end literals in `HttpPipeFraming.WriteHttpResponseAsync` are character-for-character identical to the originals in `McpPipeServer`.
 - `"\r\n"u8` chunk-trailer in `SseBroadcaster.BroadcastAsync` matches original.
@@ -488,3 +506,13 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 - #1: `OpenDiffClosedViaTool_ResolvesAfterCloseDiff` in `TrafficReplayTests.cs` — validates temporal invariant
 - #2: `GetDiagnostics_EmptyResult_HasValidMcpEnvelope` in `TrafficReplayTests.cs` — validates empty path
 - #3: `GetVsCodeInfoResponse_HasAllExpectedFields` in `TrafficReplayTests.cs` — validates extended field set
+
+### 2026-07-25 — vs-1.0.14 Capture Test Implementation (3 new tests, 21 executions)
+
+- **3 new [Theory] tests added** to `TrafficReplayTests.cs`, bringing total from 260 to 281 (21 new executions: 3 methods × 7 captures).
+- **B5b `GetVsCodeInfoResponse_HasAllExpectedFields`** — Per-capture validation of all 8 expected fields (`version`, `appName`, `appRoot`, `language`, `machineId`, `sessionId`, `uriScheme`, `shell`). Each must be a non-empty string. Skips captures without `get_vscode_info` calls.
+- **B6 `GetDiagnostics_EmptyResult_HasValidMcpEnvelope`** — Validates that `get_diagnostics` responses returning empty arrays (`"[]"`) still have correct MCP envelope: `content[0].type == "text"`, `content[0].text == "[]"`. Covers the empty-result path that Test 4 returns early on.
+- **B7 `OpenDiffClosedViaTool_ResolvesAfterCloseDiff`** — Validates the `closed_via_tool` lifecycle pairing: when `close_diff` cancels an active `open_diff`, both responses must exist, `open_diff` must have `result=REJECTED, trigger=closed_via_tool, success=true`, and a matching `close_diff` for the same `tab_name` must have `already_closed=false`. Initial approach with seq-based temporal ordering failed across VS Code captures (different server implementations have different response ordering). Redesigned as structural lifecycle pairing validation.
+- **Key design decision:** Avoided fragile seq-number lookups. Used `GetAllToolCallResponses()` + tab-name correlation instead of raw entry matching. The invariant is structural (pairing exists) not temporal (ordering guaranteed).
+- **No capture files modified.** No production code changed.
+- All 281 tests pass.

@@ -1,10 +1,19 @@
-.squad: SSE store simplification orchestration
+Scribe: Log capture analysis session (Bishop + Hudson)
 
-- Orchestration logs: Bishop (store simplification), Hudson (regression tests)
-- Session log: SSE store simplification completion
-- Decision merged: Hudson — SSE Resume is a Custom Store Feature
-- Cross-agent updates: Bishop and Hudson history synchronized
+Session: 2026-03-30 Multi-Agent Capture Analysis
+- Bishop: Protocol/session behavior analysis on vs-1.0.14.ndjson
+- Hudson: Test suite gap ranking for new capture
+- Outcome: 2 HIGH/MEDIUM test gaps identified, coverage solid
 
-All tests passing. No blockers.
+Changes:
+- Orchestration logs: 2026-03-30T14-30-00Z for both agents
+- Session log: capture-analysis summary
+- Merged decisions: Updated decisions.md with test recommendations
+- Cleaned inbox: Removed 3 merged decision files
+
+Team memory:
+- Capture contains traffic from copilot-cli v1.0.0 + mcp-call v1.0
+- Cross-session close_diff behavior and URI-filtered diagnostics coverage gaps
+- All 7 tools exercised; 260 existing tests pass with new capture
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
