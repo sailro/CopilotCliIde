@@ -248,6 +248,23 @@ After the fresh vs-1.0.7 capture (taken post-fixes), audited `TrafficReplayTests
 
 **Changes:** One edit — removed 2-line stale comment in `VsCodeGetSelectionResponse_HasExpectedStructure`, added `text` field assertion. All 142 tests pass.
 
+### 2026-03-30 — Deep Protocol Parity & Severity Matrix Analysis
+
+Orchestration log written to `.squad/orchestration-log/20260330T084856Z-bishop.md`. Completed deep protocol parity analysis against VS Code reference captures (v0.38.2026022303). Produced severity matrix for execution deltas.
+
+**Outcome:** ✅ SUCCESS. Zero stale references. All 7 MCP tools verified against captures:
+- Tool names aligned: `get_vscode_info`, `get_selection`, `open_diff`, `close_diff`, `get_diagnostics`, `read_file`, `update_session_name`
+- HTTP framing, SSE chunked encoding, session ID handling all correct
+- RPC contracts fully compatible
+
+**High-Priority Deltas (Severity Matrix):**
+1. **execution.taskSupport** — Server sets `"forbidden"` (via default); VS Code omits entirely. Recommendation: Remove field when false.
+2. **Logging Capability** — Server logs to stderr only; VS Code pushes structured `log_message` notifications. Recommendation: Implement `log_message` callback in `IMcpServerCallbacks`.
+
+**Impact:** Both HIGH deltas are non-breaking protocol extensions. Implementation needed for full Copilot CLI compatibility.
+
+**Next:** Phase 2 — Implement `log_message` callback; remove `taskSupport` from tool schemas.
+
 ### 2026-03-07 — get_diagnostics URI Schema Fix
 
 Fixed `get_diagnostics` tool's `uri` parameter type to match VS Code's schema. Changed parameter from `string? uri = null` to `string uri = ""` so the MCP SDK generates `{"type": "string"}` instead of `{"type": ["string","null"]}`. Updated method body to use `string.IsNullOrEmpty(uri) ? null : uri` to preserve identical RPC behavior. Removed `knownVariations` HashSet from `AllCaptures_ToolInputSchemas_AreConsistent` test since the variation is now fixed at the source. Updated `GetDiagnosticsTool_UriIsOptional` test to assert `""` default instead of `null`. 141/142 tests pass — the one remaining failure (`AllCaptures_ToolInputSchemas_AreConsistent`) is expected because the vs-1.0.7 capture file still contains the old `["string","null"]` schema and needs recapture.

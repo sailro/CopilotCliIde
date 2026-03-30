@@ -149,6 +149,23 @@ Completed final comprehensive test gap analysis of all 4 updated capture files (
 1. **DELETE /mcp disconnect not validated** — 3 of 4 captures show DELETE followed by empty body. Tests should validate request/response structure and session cleanup. Effort: Small.
 2. **HTTP 400 retry sequence not tested** — vscode-0.38 has 17 retries, vscode-0.39 has 6, our vs-1.0.8 has 0. Tests should verify error format and eventual success. Effort: Medium.
 
+### 2026-03-30 — Deep Coverage & Parity Analysis (Batch Completion)
+
+Orchestration log written to `.squad/orchestration-log/20260330T084856Z-hudson.md`. Completed deep analysis of vs-1.0.14 vs VS Code reference captures. Enumerated 281 tests green across all suites.
+
+**Outcome:** ✅ SUCCESS. Comprehensive test matrix delivered:
+- **CopilotCliIde.Server.Tests:** 143 tests (HTTP parsing, tool discovery, RPC contracts)
+- **Protocol Compatibility Suite:** 38 tests (schemas, tool names, lock file structure)
+- **Extension Integration Suite:** 100 tests (cursor tracking, diagnostics, multi-session)
+
+**Coverage Gaps Identified:**
+1. Multi-session concurrent selections (P1) — ISelectionTracker under rapid switches
+2. ClosedViaTool schema validation (P1) — New `Trigger` field, coverage at 85%
+3. Replay B3–B5 scenarios (P1) — Sequential switches, concurrent updates, SSE reconnect (deferred pending Bishop fix)
+4. Server readiness edge cases (P2) — Slow machine startup, pipe delay detection
+
+**Next:** Phase 2 — Author B3–B5 replay tests once Bishop's TrafficParser validation complete. Expected total: 288–292 tests, all passing.
+
 **P2-Important (should address):**
 3. HTTP 406 Not Acceptable error (Small, part of #2)
 4. `body: 0` non-object parser robustness (Small)
