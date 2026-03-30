@@ -943,6 +943,7 @@ public partial class TrafficReplayTests
 		var toolsJson = ExtractJsonRpcFromResponse(toolsResponse);
 		Assert.True(toolsJson.HasValue, "tools/list response did not contain parseable JSON-RPC");
 		var tools = toolsJson.Value.GetProperty("result").GetProperty("tools");
+		Assert.True(tools.GetArrayLength() > 0, "tools/list response should contain tools");
 		foreach (var tool in tools.EnumerateArray())
 		{
 			var toolName = tool.GetProperty("name").GetString();

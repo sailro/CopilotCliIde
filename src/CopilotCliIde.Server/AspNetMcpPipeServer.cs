@@ -50,27 +50,7 @@ public sealed class AspNetMcpPipeServer : IAsyncDisposable
 			.AddMcpServer(options =>
 			{
 				options.ServerInfo = new Implementation { Name = "vscode-copilot-cli", Version = "0.0.1", Title = "VS Code Copilot CLI" };
-				options.Capabilities = new ServerCapabilities
-				{
-					Tools = new ToolsCapability { ListChanged = true },
-					Logging = null
-				};
-#pragma warning disable MCPEXP001 // Tool execution metadata is currently experimental in MCP SDK.
-				options.Filters.Request.ListToolsFilters.Add(next => async (request, cancellationToken) =>
-				{
-					var result = await next(request, cancellationToken);
-					var updatedTools = new List<Tool>(result.Tools.Count);
-					foreach (var tool in result.Tools)
-					{
-						var updatedTool = tool;
-						updatedTool.Execution ??= new ToolExecution();
-						updatedTool.Execution.TaskSupport = ToolTaskSupport.Forbidden;
-						updatedTools.Add(updatedTool);
-					}
-					result.Tools = updatedTools;
-					return result;
-				});
-#pragma warning restore MCPEXP001
+				options.Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = true } };
 			})
 			.WithHttpTransport(options =>
 			{

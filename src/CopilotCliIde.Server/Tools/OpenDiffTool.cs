@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace CopilotCliIde.Server.Tools;
@@ -6,7 +7,7 @@ namespace CopilotCliIde.Server.Tools;
 [McpServerToolType]
 public sealed class OpenDiffTool
 {
-	[McpServerTool(Name = "open_diff"), Description("Opens a diff view comparing original file content with new content. Blocks until user accepts, rejects, or closes the diff.")]
+	[McpServerTool(Name = "open_diff", TaskSupport = ToolTaskSupport.Forbidden), Description("Opens a diff view comparing original file content with new content. Blocks until user accepts, rejects, or closes the diff.")]
 	public static async Task<object> OpenDiffAsync(
 		RpcClient rpcClient,
 		[Description("Path to the original file")] string original_file_path,

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace CopilotCliIde.Server.Tools;
@@ -6,7 +7,7 @@ namespace CopilotCliIde.Server.Tools;
 [McpServerToolType]
 public sealed class ReadFileTool
 {
-	[McpServerTool(Name = "read_file"), Description("Read the content of a file.")]
+	[McpServerTool(Name = "read_file", TaskSupport = ToolTaskSupport.Forbidden), Description("Read the content of a file.")]
 	public static async Task<object> ReadFileAsync(
 		RpcClient rpcClient,
 		[Description("Absolute path to the file to read")] string filePath,
