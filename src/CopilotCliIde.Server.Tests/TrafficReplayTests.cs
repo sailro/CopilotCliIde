@@ -1865,7 +1865,7 @@ public partial class TrafficReplayTests
 			Assert.True(precedingRequest is not null,
 				$"404 at seq={entry404.Seq} has no preceding client request");
 
-			var isDelete = precedingRequest!.Event!.StartsWith("DELETE", StringComparison.Ordinal);
+			var isDelete = precedingRequest.Event!.StartsWith("DELETE", StringComparison.Ordinal);
 			var hasSessionId = precedingRequest.Event.Contains("Mcp-Session-Id:", StringComparison.OrdinalIgnoreCase)
 				|| precedingRequest.Event.Contains("mcp-session-id:", StringComparison.OrdinalIgnoreCase);
 
@@ -1902,11 +1902,10 @@ public partial class TrafficReplayTests
 		{
 			// Find the next response from the server
 			var response = parser.Entries
-				.Where(e => e.Seq > del.Seq
-					&& e is { Direction: "vscode_to_cli", Event: not null }
-					&& (e.Event.Contains("200 OK", StringComparison.Ordinal)
-						|| e.Event.Contains("404 Not Found", StringComparison.Ordinal)))
-				.FirstOrDefault();
+				.FirstOrDefault(e => e.Seq > del.Seq
+									 && e is { Direction: "vscode_to_cli", Event: not null }
+									 && (e.Event.Contains("200 OK", StringComparison.Ordinal)
+										 || e.Event.Contains("404 Not Found", StringComparison.Ordinal)));
 
 			Assert.True(response is not null,
 				$"{captureName}: DELETE at seq={del.Seq} has no HTTP response (200 or 404)");

@@ -46,7 +46,7 @@ public class SseNotificationIntegrationTests
 		var initializedRequest = JsonSerializer.Serialize(new { method = "notifications/initialized", jsonrpc = "2.0" });
 		await SendHttpPostOnNewPipeAsync(pipeName, initializedRequest, nonce, sessionId, ct);
 
-		return (server, pipeName, nonce, sessionId!);
+		return (server, pipeName, nonce, sessionId);
 	}
 
 	private static SelectionNotification MakeSelection(string text, int line = 1) => new()
@@ -423,7 +423,7 @@ public class SseNotificationIntegrationTests
 			var initializedRequest = JsonSerializer.Serialize(new { method = "notifications/initialized", jsonrpc = "2.0" });
 			await SendHttpPostOnNewPipeAsync(pipeName, initializedRequest, nonce, newSessionId, cts.Token);
 
-			await using (var ssePipe = await OpenSseGetStreamAsync(pipeName, nonce, newSessionId!, cts.Token))
+			await using (var ssePipe = await OpenSseGetStreamAsync(pipeName, nonce, newSessionId, cts.Token))
 			{
 				await ReadUntilContainsAsync(ssePipe, "initial-delete", cts.Token);
 			}

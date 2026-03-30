@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
 
 namespace CopilotCliIde.Server;

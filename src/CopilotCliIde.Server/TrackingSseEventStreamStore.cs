@@ -82,7 +82,7 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 
 		public ValueTask DisposeAsync()
 		{
-			TrackingSseEventStreamStore.OnWriterDisposed(state);
+			OnWriterDisposed(state);
 			return ValueTask.CompletedTask;
 		}
 	}
@@ -96,20 +96,14 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 		public void SetLastEventId(string? lastEventId)
 		{
 			if (string.IsNullOrWhiteSpace(lastEventId))
-			{
 				return;
-			}
 
 			var parts = lastEventId.Split(':');
 			if (parts.Length != 3)
-			{
 				return;
-			}
 
 			if (long.TryParse(parts[2], out var seq))
-			{
 				_afterSequence = seq;
-			}
 		}
 
 		public async IAsyncEnumerable<SseItem<JsonRpcMessage?>> ReadEventsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
@@ -118,9 +112,7 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 			{
 				cancellationToken.ThrowIfCancellationRequested();
 				if (TryGetSequence(item.EventId, out var seq) && seq <= _afterSequence)
-				{
 					continue;
-				}
 
 				yield return item;
 			}
@@ -130,9 +122,7 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 				while (state.Reader.TryRead(out var item))
 				{
 					if (TryGetSequence(item.EventId, out var seq) && seq <= _afterSequence)
-					{
 						continue;
-					}
 
 					yield return item;
 				}
@@ -143,9 +133,7 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 		{
 			sequence = 0;
 			if (string.IsNullOrWhiteSpace(eventId))
-			{
 				return false;
-			}
 
 			var parts = eventId.Split(':');
 			return parts.Length == 3 && long.TryParse(parts[2], out sequence);
@@ -187,34 +175,24 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 	public void RemoveSession(string? sessionId)
 	{
 		if (string.IsNullOrWhiteSpace(sessionId))
-		{
 			return;
-		}
 
 		if (!_streamsBySession.TryRemove(sessionId, out var sessionStreams))
-		{
 			return;
-		}
 
 		foreach (var state in sessionStreams.Values)
-		{
 			RemoveState(state);
-		}
 	}
 
 	private static bool TryGetStreamId(string? eventId, out string streamId)
 	{
 		streamId = string.Empty;
 		if (string.IsNullOrWhiteSpace(eventId))
-		{
 			return false;
-		}
 
 		var parts = eventId.Split(':');
 		if (parts.Length != 3)
-		{
 			return false;
-		}
 
 		streamId = parts[1];
 		return !string.IsNullOrWhiteSpace(streamId);
@@ -228,9 +206,7 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 		{
 			sessionStreams.TryRemove(state.StreamId, out _);
 			if (sessionStreams.IsEmpty)
-			{
 				_streamsBySession.TryRemove(state.SessionId, out _);
-			}
 		}
 	}
 
