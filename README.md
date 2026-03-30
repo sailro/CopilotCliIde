@@ -74,6 +74,10 @@ Copilot CLI ──(Streamable HTTP over named pipe)──▶ CopilotCliIde.Serve
 
 For full protocol details — discovery, transport, MCP tools, push notifications, and schemas — see **[doc/protocol.md](doc/protocol.md)**.
 
+## Changelog
+
+See **[CHANGELOG.md](CHANGELOG.md)** for a detailed history of changes.
+
 ## License
 
 MIT
