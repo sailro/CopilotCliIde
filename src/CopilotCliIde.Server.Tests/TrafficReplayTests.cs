@@ -940,11 +940,74 @@ public partial class TrafficReplayTests
 
 		// Parse the SSE response body — extract the JSON-RPC from the event stream
 		var ourToolNames = ExtractToolNamesFromResponse(toolsResponse);
+		var toolsJson = ExtractJsonRpcFromResponse(toolsResponse);
+		Assert.True(toolsJson.HasValue, "tools/list response did not contain parseable JSON-RPC");
+		var tools = toolsJson.Value.GetProperty("result").GetProperty("tools");
+		foreach (var tool in tools.EnumerateArray())
+		{
+			var toolName = tool.GetProperty("name").GetString();
+			Assert.True(tool.TryGetProperty("execution", out var execution), $"Tool '{toolName}' is missing execution metadata");
+			Assert.Equal("forbidden", execution.GetProperty("taskSupport").GetString());
+		}
 
 		// Our server should have at least all 6 VS Code tools
 		foreach (var vsCodeTool in vsCodeToolNames)
 		{
 			Assert.Contains(vsCodeTool, ourToolNames);
+		}
+	}
+
+	[Fact]
+	public async Task ToolsList_TaskSupportIsForbidden()
+	{
+		var mockVsServices = Substitute.For<IVsServiceRpc>();
+		var rpcClient = new RpcClient(mockVsServices);
+
+		var pipeName = $"copilot-replay-test-{Guid.NewGuid():N}";
+		const string nonce = "test-nonce";
+
+		await using var server = new AspNetMcpPipeServer();
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		await server.StartAsync(rpcClient, pipeName, nonce, cts.Token);
+
+		var initRequest = JsonSerializer.Serialize(new
+		{
+			method = "initialize",
+			@params = new
+			{
+				protocolVersion = "2025-11-25",
+				capabilities = new { },
+				clientInfo = new { name = "replay-test", version = "1.0.0" }
+			},
+			jsonrpc = "2.0",
+			id = 0
+		});
+		var (_, sessionId) = await SendHttpPostOnNewPipeAsync(pipeName, initRequest, nonce, null, cts.Token);
+		Assert.False(string.IsNullOrWhiteSpace(sessionId));
+
+		var initializedNotification = JsonSerializer.Serialize(new
+		{
+			method = "notifications/initialized",
+			jsonrpc = "2.0"
+		});
+		await SendHttpPostOnNewPipeAsync(pipeName, initializedNotification, nonce, sessionId, cts.Token);
+
+		var toolsListRequest = JsonSerializer.Serialize(new
+		{
+			method = "tools/list",
+			jsonrpc = "2.0",
+			id = 1
+		});
+		var (toolsResponse, _) = await SendHttpPostOnNewPipeAsync(pipeName, toolsListRequest, nonce, sessionId, cts.Token);
+
+		var toolsJson = ExtractJsonRpcFromResponse(toolsResponse);
+		Assert.True(toolsJson.HasValue, "tools/list response did not contain parseable JSON-RPC");
+		var tools = toolsJson.Value.GetProperty("result").GetProperty("tools");
+		foreach (var tool in tools.EnumerateArray())
+		{
+			var toolName = tool.GetProperty("name").GetString();
+			Assert.True(tool.TryGetProperty("execution", out var execution), $"Tool '{toolName}' is missing execution metadata");
+			Assert.Equal("forbidden", execution.GetProperty("taskSupport").GetString());
 		}
 	}
 
