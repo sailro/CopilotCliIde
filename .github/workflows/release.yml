@@ -78,8 +78,10 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         run: |
-          gh release create ${{ steps.version.outputs.version }} src/CopilotCliIde/bin/Release/CopilotCliIde.vsix --title "${{ steps.version.outputs.version }} on the VS Marketplace" --notes "The extension is available [here](https://marketplace.visualstudio.com/items?itemName=SebastienLebretonPersonal.copilotcliide) or directly from VS (Extensions/Manage Extensions)" --latest
+          $notes = "The extension is available [here](https://marketplace.visualstudio.com/items?itemName=SebastienLebretonPersonal.copilotcliide) or directly from VS (Extensions/Manage Extensions).`n`nSee the [full changelog](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
+          gh release create ${{ steps.version.outputs.version }} src/CopilotCliIde/bin/Release/CopilotCliIde.vsix --title "${{ steps.version.outputs.version }} on the VS Marketplace" --notes $notes --latest
 
       - name: Delete previous releases
         env:
