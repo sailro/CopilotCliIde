@@ -1874,6 +1874,63 @@ None. All protocol compatibility confirmed — no server changes needed for VS C
 
 ---
 
+## Capture Analysis: vs-1.0.14.ndjson (2026-03-30)
+
+**Authors:** Bishop (Server Dev), Hudson (Tester)  
+**Date:** 2026-03-30  
+**Status:** Complete — Test Gaps Identified  
+
+### Executive Summary
+
+Analyzed vs-1.0.14.ndjson (121 lines, 7 MCP sessions) against 260 existing server tests. **Coverage excellent; baseline tests pass with new capture.** Identified 6 test gaps (1 HIGH risk, 1 MEDIUM risk, 4 LOW/nice-to-have).
+
+### Context
+
+This is the first capture exercising all 7 MCP tools, including the full open_diff/close_diff lifecycle and get_vscode_info, from both Copilot CLI v1.0.0 (standard) and mcp-call v1.0 (lightweight tool caller) across 7 sessions.
+
+### Covered Behaviors ✅
+
+- ✅ diagnostics_changed push notification format (code field: CS0116, IDE1007)
+- ✅ All three open_diff outcomes (SAVED/accepted, REJECTED/rejected, REJECTED/closed_via_tool)
+- ✅ selection_changed ↔ get_selection push/pull consistency
+- ✅ diagnostics_changed ↔ get_diagnostics push/pull consistency
+- ✅ All 7 MCP tools exercised across sessions
+
+### Uncovered Gaps — Prioritized Tests
+
+#### HIGH RISK (Protocol Correctness)
+
+**G1. Cross-Session Close-Diff Resolves Open-Diff**
+- **What:** Session 3 open_diff resolved REJECTED/closed_via_tool by session 4's close_diff
+- **Why Critical:** Tests protocol blocking semantics across session boundaries
+- **Proposed Test:** `SseNotificationIntegrationTests.cs` → `OpenDiff_ResolvedByCloseDiffFromDifferentSession`
+
+#### MEDIUM RISK (Compatibility)
+
+**G4. get_diagnostics URI Filter Returns Empty Array**
+- **What:** Capture calls get_diagnostics with specific URI, gets `[]`
+- **Why:** Filtered empty result is the common case; envelope validation missing
+- **Proposed Test:** `TrafficReplayTests.cs` → `GetDiagnostics_WithUriFilter_ReturnsEmptyWhenNoDiagnostics`
+
+#### LOW RISK / NICE-TO-HAVE
+
+**G2.** Dual DELETE idempotency (both return 200 OK) — idempotent behavior confirmed, no action needed  
+**G3.** get_selection current=false minimal shape ({text: "", current: false} with no filePath/fileUrl/selection) — already tested, no action  
+**G5.** Content-Length framing (mcp-call uses Content-Length; all integration tests match) — low risk, undocumented assumption  
+**G6.** Requests without X-Copilot-* headers (mcp-call omits them; server doesn't use them) — low risk, smoke test optional  
+
+### Action Items
+
+**Recommended:** Implement G1 (HIGH) and G4 (MEDIUM) tests. G2-G6 are covered or low-priority.
+
+**Effort:** G1 = Medium (cross-session setup), G4 = Small (URI filtering edge case)
+
+### Decision
+
+Test additions G1–G4 provide value. Hudson to implement; Bishop to review. G5–G6 are optional robustness tests for future sprints.
+
+---
+
 ## Decision: Protocol Diff — vscode-0.41.ndjson vs vscode-0.39.ndjson
 
 **Date:** 2026-03-28

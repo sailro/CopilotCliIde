@@ -438,3 +438,53 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 - **Impact:** Custom TrackingSseEventStreamStore is **required** for resume behavior (Last-Event-ID replay)
 - **Next steps:** Monitor production; if resume becomes obsolete, custom store can be removed
 - **Coordination:** Both Hudson and Bishop aligned on store necessity
+
+### ResetNotificationState Excess Firing Investigation
+
+**Date:** 2026-03-29
+**Trigger:** Multiple `ResetNotificationState` log entries observed in capture.log.txt during v1.0.14 testing.
+
+**Findings:**
+- **26 `ResetNotificationState` calls** logged during a single session recording.
+- **Root cause:** `TrackingSseEventStreamStore.onStreamCreatedAsync` fires for *every* SSE stream created by the ModelContextProtocol.AspNetCore SDK — including POST response streams, not just the GET notification channel.
+- From the ndjson capture: **26 SSE streams total** (1 GET, 25 POST response streams) across 4 MCP sessions. Exactly matches the 26 resets.
+- **Expected resets:** 4 (one per new MCP session, ideally scoped to the GET stream creation).
+- **Excess resets:** 22 (from POST response streams during tool calls).
+
+**Impact:**
+- Each excess reset triggers 3 unnecessary RPC round-trips to VS: `ResetNotificationStateAsync()` + `GetSelectionAsync()` + `GetDiagnosticsAsync()`.
+- Dedup keys cleared on every tool call, defeating the DebouncePusher's deduplication.
+- Functional harm is limited (operations are idempotent), but architecturally incorrect.
+
+**Verdict:** **Regression** introduced by the AspNetCore transport migration. The `onStreamCreatedAsync` callback is too broad — it fires on every SSE response stream, not just the long-lived GET notification channel.
+
+**Existing test gap:** No test asserts the *count* of `ResetNotificationStateAsync` calls. Tests verify initial state pushes on SSE connect but never verify that POST-based tool calls don't trigger additional resets.
+
+**Proposed guardrail test:** Assert `ResetNotificationStateAsync` call count via NSubstitute `Received(1)` after handshake + tool call. Would catch this regression. Not implemented — production fix needed first (scope `onStreamCreatedAsync` to GET streams only).
+
+### 2026-03-30 — vs-1.0.14 Capture Consistency Analysis
+
+**Capture profile:** 121 lines, 7 MCP sessions (1 copilot-cli + 6 mcp-call), 120 entries. First capture exercising **all 7 tools** including open_diff (3 outcomes), close_diff, and get_vscode_info.
+
+**Behaviors exercised vs current test coverage (260 tests baseline, all passing):**
+- initialize/tools_list/notifications — ✅ Well covered (Tests 1-3, 7, A1, E1, CrossCapture)
+- selection_changed notifications (25 pushes) — ✅ Covered (Test 5, SelectionConsistencyTests)
+- diagnostics_changed notifications (3 pushes, including real CS0116/IDE1007 errors) — ✅ Covered (Test 6, DiagnosticsConsistencyTests)
+- get_selection (5 calls, including current:false) — ✅ Covered (Test B1, E2)
+- get_diagnostics with results — ✅ Covered (Test 4)
+- update_session_name — ✅ Covered (Test B2)
+- open_diff (3 outcomes: SAVED/accepted, REJECTED/rejected, REJECTED/closed_via_tool) — ✅ Covered (Test B3)
+- close_diff — ✅ Covered (Test B4, D5)
+- get_vscode_info — ✅ Covered (Test B5)
+- DELETE /mcp (2 duplicates) — ⚠️ Partially covered (D1 validates each DELETE, but comment says "exactly one" while allowing many)
+- Cross-capture VS-vs-VSCode field matching — ✅ Covered (CrossCaptureConsistencyTests)
+
+**Concrete gaps identified:**
+1. **open_diff → close_diff temporal ordering**: seq 94 (close_diff response) arrives BEFORE seq 95 (open_diff resolves to REJECTED/closed_via_tool). No test validates this ordering invariant — that closing a diff via close_diff causes open_diff to resolve.
+2. **get_diagnostics empty result envelope**: seq 56/62 return `{"content":[{"type":"text","text":"[]"}]}`. Test 4 returns early on empty arrays. DiagnosticsConsistencyTests skips `"[]"`. No explicit validation that empty-result responses have correct MCP envelope.
+3. **get_vscode_info extended field coverage**: Capture shows `appRoot`, `language`, `machineId`, `sessionId`, `uriScheme`, `shell` beyond the `appName`+`version` tested in B5. CrossCaptureConsistencyTests catches cross-implementation drift but not per-field presence.
+
+**Top 3 test additions (ranked by value):**
+- #1: `OpenDiffClosedViaTool_ResolvesAfterCloseDiff` in `TrafficReplayTests.cs` — validates temporal invariant
+- #2: `GetDiagnostics_EmptyResult_HasValidMcpEnvelope` in `TrafficReplayTests.cs` — validates empty path
+- #3: `GetVsCodeInfoResponse_HasAllExpectedFields` in `TrafficReplayTests.cs` — validates extended field set

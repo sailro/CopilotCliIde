@@ -465,6 +465,16 @@ Completed comprehensive review of CopilotCliIde.Server and CopilotCliIde.Shared 
 **MEDIUM-priority resource & architecture findings:**
 - M1: SseClient.WaitAsync CancellationTokenRegistration leak (never disposed)
 - M2: MemoryStream.ToArray() unnecessary copy
+
+### 2026-03-29 — ResetNotificationState Repeated Firing (Streamable HTTP Regression)
+
+**Root cause:** `TrackingSseEventStreamStore.CreateStreamAsync` fires `onStreamCreatedAsync` on every SSE stream creation. In Streamable HTTP transport, every POST with `accept: text/event-stream` creates a new ephemeral SSE stream for the response. Result: `ResetNotificationStateAsync` fired on every request (N times per session instead of once). The ndjson capture confirmed: session `EnOg-` had 16+ streams (16 `200` responses), each triggering a full `PushInitialStateAsync` cycle.
+
+**Fix applied:** Added `_resetSessions` ConcurrentDictionary to `AspNetMcpPipeServer`. `PushInitialStateAsync` now accepts `sessionId` and gates `ResetNotificationStateAsync` behind `_resetSessions.TryAdd(sessionId, 0)` — fires once per session. Selection/diagnostics pushes remain on every stream (idempotent, and required for GET SSE stream delivery). `_resetSessions` cleaned up on DELETE alongside `_activeSessions`.
+
+**Key constraint:** Cannot move the push trigger to middleware (post-`next()`) because `next()` blocks indefinitely for GET SSE requests (long-lived streams). The store callback must remain the trigger point.
+
+**Test impact:** 257 passing (same as baseline). The 3 `InitialState_*` tests pass because selection/diagnostics pushes still fire on the GET SSE stream creation.
 - M3: Fire-and-forget event handlers in Program.cs (Hicks territory — cross-reference)
 - M4: New MCP transport per pipe connection (architecture question for Ripley)
 
@@ -692,3 +702,19 @@ ext() blocks for the lifetime of SSE GET streams)
 - **Documentation updated:** README.md, doc/protocol.md, .github/copilot-instructions.md all reference ModelContextProtocol.AspNetCore as the transport layer.
 - **MCP tools registered via** `WithToolsFromAssembly()` — same reflection-based `[McpServerToolType]`/`[McpServerTool]` discovery, but through the SDK's API.
 - **Session tracking:** `_activeSessions` ConcurrentDictionary maps session IDs to `McpServer` instances for notification broadcasting. Cleaned up on DELETE and on `ObjectDisposedException`/`InvalidOperationException` during pushes.
+
+### 2026-03-30 — vs-1.0.14 Capture Analysis & Test Gap Assessment
+
+Analyzed the vs-1.0.14.ndjson capture (120 entries, 7 MCP sessions). Key findings:
+
+**New client identity observed:** `mcp-call` v1.0 alongside `copilot-cli` v1.0.0 — uses Content-Length (not chunked), omits X-Copilot-* headers, omits mcp-protocol-version header, never opens GET /mcp SSE stream.
+
+**Protocol behaviors identified in capture:**
+1. Dual DELETE for same session (both get 200 OK — idempotent)
+2. Cross-session close_diff triggering pending open_diff to resolve REJECTED/closed_via_tool
+3. get_selection with current=false returns minimal shape (text + current only, no filePath/fileUrl/selection)
+4. get_diagnostics with URI filter returning empty `[]`
+5. diagnostics_changed and get_diagnostics both include `code` field (CS0116, IDE1007)
+6. Three open_diff outcomes: SAVED/accepted_via_button, REJECTED/rejected_via_button, REJECTED/closed_via_tool
+
+**Coverage result:** 260 tests pass (auto-picks up new capture). Covered: diagnostics code field, all three open_diff outcomes, auto-discovery. Uncovered gaps: dual DELETE idempotency, cross-session diff resolution, get_selection current=false exact shape, Content-Length vs chunked framing, missing X-Copilot headers, get_diagnostics URI filter empty result.
