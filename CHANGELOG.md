@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-03-30
+
+### Changed
+
+- Replace custom HTTP/MCP stack with `ModelContextProtocol.AspNetCore` (Kestrel named-pipe transport)
+- Declare `TaskSupport = Forbidden` per-tool via `[McpServerTool]` attributes (VSCode parity)
+
+### Fixed
+
+- Fix reset-notification session gating (initial state push)
+
+### Test
+
+- Add VS capture session (v1.0.14) with capture-driven replay tests
+- Add `execution.taskSupport` parity assertions for all tools
+- Refine SSE session handling and tooling in test infrastructure
+
 ### Build
 
 - Fix release workflow to prevent removing the related tag on delete release
@@ -215,7 +232,8 @@ _Version bump only for marketplace publishing tests — no functional changes._
 - Lock file discovery mechanism (`~/.copilot/ide/*.lock`) for Copilot CLI to find running VS instances
 - Comprehensive README with usage instructions, architecture diagram, and tool documentation
 
-[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.13...HEAD
+[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.14...HEAD
+[1.0.14]: https://github.com/sailro/CopilotCliIde/compare/1.0.13...1.0.14
 [1.0.13]: https://github.com/sailro/CopilotCliIde/compare/1.0.12...1.0.13
 [1.0.12]: https://github.com/sailro/CopilotCliIde/compare/1.0.11...1.0.12
 [1.0.11]: https://github.com/sailro/CopilotCliIde/compare/1.0.10...1.0.11
