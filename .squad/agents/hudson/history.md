@@ -596,3 +596,16 @@ Orchestration log written to `.squad/orchestration-log/2026-03-30T12:47-31Z-huds
 **Decisions merged:** Hicks' decision ("Push cleared selection when all editors close") and Hudson's decision ("All-Documents-Closed Regression Coverage") merged to `.squad/decisions.md` with deduplication.
 
 **Impact:** Copilot CLI will now correctly report "no file open" when all VS editor tabs close, even if the solution remains loaded. Both push (notifications) and pull (tool calls) paths are covered by regression tests.
+
+### Issue #4 — WorkingDirectory Regression Tests
+
+- **2 new integration tests** in `ServerWorkingDirectoryTests.cs`, bringing total from 282 to 284. All pass, 0 warnings.
+- **`Server_WithCorrectWorkingDirectory_StartsWithoutCrash`** — Launches the server DLL as a process with `WorkingDirectory = serverDir` (the fix). Creates a hostile temp dir with `appsettings.json` containing Kestrel HTTPS endpoint config. Verifies the server stays alive for 3 seconds after RPC connection — Kestrel starts cleanly because it reads config from its own directory, not the hostile one.
+- **`Server_WithHostileAppsettingsInWorkingDirectory_Crashes`** — Same setup but with `WorkingDirectory = tempDir` (the bug). Server process crashes during Kestrel startup because `CreateSlimBuilder()` reads `appsettings.json` from `Directory.GetCurrentDirectory()` and Kestrel tries to bind the HTTPS endpoint without a valid certificate.
+- **Test infrastructure:** Uses `NamedPipeServerStream` to accept the server's RPC connection (so the process doesn't timeout at `ConnectAsync`). GUIDs for pipe names prevent conflicts. `try/finally` cleanup kills process and deletes temp directory.
+- **Key finding:** `WebApplication.CreateSlimBuilder()` in .NET 10 does load `appsettings.json` from the content root (which defaults to `Directory.GetCurrentDirectory()`). Kestrel picks up endpoint config from this file and crashes if HTTPS is configured without a certificate. The crash test confirms this — server exits with non-zero code in ~200ms.
+- **Server DLL location strategy:** Test mirrors `AppContext.BaseDirectory` path, replacing `CopilotCliIde.Server.Tests` with `CopilotCliIde.Server` to locate the server output directory. Works for any build configuration.
+
+## Cross-Agent Context — Session 2026-03-31
+
+**From Hicks:** Fixed issue #4 by adding WorkingDirectory = serverDir to ProcessStartInfo in ServerProcessManager.StartAsync(). Commit cbd55f3. Build clean, 282 tests pass. Rule: Always set WorkingDirectory explicitly when launching child processes from VS extensions to avoid environment contamination from user project folders.

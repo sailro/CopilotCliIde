@@ -133,3 +133,15 @@ Diagnostic severities used by extension diagnostics mapping are now centralized 
 **From Hudson:** Approved the revised fix. Added 3 regression tests covering 3-file workflow, server transparency, and single-file edge case. All 288 tests passing.
 
 **From Ripley:** Identified the original regression commit `3d17a6f` (2026-03-05 09:49) which removed `PushEmptySelection()` under the incorrect assumption "copilot-cli ignores empty file paths." Your fix (with dual-emit guard in OnViewClosed removed) is the correct implementation.
+
+### 2026-07-20 — Fix ServerProcessManager WorkingDirectory (Issue #4)
+
+**Bug:** `ServerProcessManager.StartAsync` launched the MCP server via `dotnet` without setting `WorkingDirectory` in `ProcessStartInfo`. The child process inherited VS's working directory (the open solution/project folder). If that folder contained an `appsettings.json` with Kestrel HTTPS endpoint config, Kestrel threw `System.InvalidOperationException: Call UseKestrelHttpsConfiguration()...` and the process exited immediately — the named pipe was never created.
+
+**Fix:** Added `WorkingDirectory = serverDir` to the `ProcessStartInfo` block. The `serverDir` variable (`McpServer/` under the extension install directory) was already computed on line 13. That directory contains only the published server DLL and dependencies — no `appsettings.json` — so Kestrel starts with its default in-memory configuration.
+
+**Key takeaway:** Child processes launched from VS extensions inherit the solution's working directory, not the extension's install directory. Always set `WorkingDirectory` explicitly when launching helper processes to avoid environment contamination from user projects.
+
+## Cross-Agent Context — Session 2026-03-31
+
+**From Hudson:** Wrote 2 regression tests for issue #4 in ServerWorkingDirectoryTests.cs. All 284 tests passing (282 existing + 2 new). Tests cover: (1) Server starts cleanly with correct WorkingDirectory; (2) Server would have crashed with hostile appsettings.json in inherited directory (regression test).

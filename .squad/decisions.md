@@ -2853,3 +2853,50 @@ The fix (adding `PushClearedSelection` back) is already in progress as an uncomm
 
 - Hicks: If implementing the fix, the working-tree change is the right approach. Verify the notification shape matches what CLI expects.
 - Hudson: Add a regression test for the "all tabs closed → cleared selection push" path.
+
+## Decision: PushEmptySelection bypasses DebouncePusher
+
+**Date:** 2026-07-20
+**Author:** Hicks
+**Status:** Implemented
+
+### Context
+
+After a full revert, the PushEmptySelection behavior from commit 912f832 needed to be ported into the refactored SelectionTracker class. The original implementation sent empty selection events immediately via Task.Run, bypassing any debounce logic.
+
+### Decision
+
+PushEmptySelection bypasses DebouncePusher and sends immediately. It uses its own dedup field (_lastPushedKey with key ":empty:") rather than sharing DebouncePusher._lastKey.
+
+### Rationale
+
+1. **Immediacy**: Empty selection events are infrequent (editor close/switch to tool window) and signal a meaningful state change. Debouncing them would add 200ms latency with no spam-prevention benefit.
+2. **Dedup isolation**: Since PushEmptySelection doesn't go through Schedule() → OnDebounceElapsed(), it can't use DebouncePusher.IsDuplicate(). A separate volatile field provides the same protection without coupling the two paths.
+3. **Bidirectional reset**: When a real selection push goes through OnDebounceElapsed, it clears _lastPushedKey so subsequent empty pushes aren't suppressed. This ensures the state machine stays correct across open→close→open cycles.
+
+### Impact
+
+- SelectionTracker.cs only — no interface or contract changes
+- Wire format unchanged (empty strings, not nulls, matching 912f832)
+- All 288 existing tests pass; no new tests needed (server-side tests don't cover UI-thread push logic)
+
+## Decision: Set WorkingDirectory on MCP Server Process
+
+**Author:** Hicks  
+**Date:** 2026-07-20  
+**Issue:** #4  
+**Commit:** cbd55f3  
+
+### Context
+
+ServerProcessManager.StartAsync launches the MCP server as a child process via dotnet. Without an explicit WorkingDirectory, the child inherits VS's current working directory — which is the open solution/project folder.
+
+If that folder contains an ppsettings.json with Kestrel HTTPS endpoint configuration, Kestrel attempts to load it and throws InvalidOperationException because UseKestrelHttpsConfiguration() was never called. The process exits immediately; the named pipe is never created.
+
+### Decision
+
+Set WorkingDirectory = serverDir in ProcessStartInfo, where serverDir is the McpServer/ subdirectory under the extension install path. This directory contains only the published server binaries — no ppsettings.json — so Kestrel starts with default configuration.
+
+### Rule
+
+**Always set WorkingDirectory explicitly when launching child processes from VS extensions.** The inherited directory is the user's project folder, which can contain arbitrary configuration files that interfere with the child process.
