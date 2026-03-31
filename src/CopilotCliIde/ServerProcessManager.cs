@@ -22,6 +22,7 @@ public sealed class ServerProcessManager : IDisposable
 			{
 				FileName = "dotnet",
 				Arguments = $"\"{serverDll}\" --rpc-pipe {rpcPipeName} --mcp-pipe {mcpPipeName} --nonce {nonce}",
+				WorkingDirectory = serverDir,
 				UseShellExecute = false,
 				CreateNoWindow = true,
 				RedirectStandardInput = true,
