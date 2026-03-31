@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.15] - 2026-03-31
+
+### Fixed
+
+- Fix MCP server crash when VS solution folder contains `appsettings.json` with Kestrel HTTPS configuration ([#4](https://github.com/sailro/CopilotCliIde/issues/4))
+
+### Test
+
+- Add regression tests for server WorkingDirectory isolation (`ServerWorkingDirectoryTests`)
+
 ## [1.0.14] - 2026-03-30
 
 ### Changed
@@ -232,7 +242,8 @@ _Version bump only for marketplace publishing tests — no functional changes._
 - Lock file discovery mechanism (`~/.copilot/ide/*.lock`) for Copilot CLI to find running VS instances
 - Comprehensive README with usage instructions, architecture diagram, and tool documentation
 
-[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.14...HEAD
+[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.15...HEAD
+[1.0.15]: https://github.com/sailro/CopilotCliIde/compare/1.0.14...1.0.15
 [1.0.14]: https://github.com/sailro/CopilotCliIde/compare/1.0.13...1.0.14
 [1.0.13]: https://github.com/sailro/CopilotCliIde/compare/1.0.12...1.0.13
 [1.0.12]: https://github.com/sailro/CopilotCliIde/compare/1.0.11...1.0.12
