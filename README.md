@@ -21,7 +21,7 @@ The MCP server uses **[ModelContextProtocol.AspNetCore](https://github.com/model
 ```bash
 # Clone and build (requires MSBuild from VS — not dotnet build)
 git clone https://github.com/sailro/CopilotCliIde
-msbuild src/CopilotCliIde/CopilotCliIde.csproj /p:Configuration=Debug
+msbuild /restore src/CopilotCliIde/CopilotCliIde.csproj /p:Configuration=Debug
 
 # The .vsix is produced at:
 # src/CopilotCliIde/bin/Debug/CopilotCliIde.vsix
