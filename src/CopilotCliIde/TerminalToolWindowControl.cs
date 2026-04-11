@@ -41,17 +41,37 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 		Loaded += OnLoaded;
 		Unloaded += OnUnloaded;
+		PreviewMouseDown += OnPreviewMouseDown;
 		IsVisibleChanged += OnVisibleChanged;
+	}
+
+	private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+	{
+		// Clicking the tool window explicitly focuses WebView2 + xterm.js.
+		// This handles focus recovery after F5 debug cycles where Chromium's
+		// internal focus desyncs from the WPF focus state.
+		// PreviewMouseDown only fires on real user clicks — no infinite loops.
+		if (_webViewReady && _webView?.CoreWebView2 != null)
+		{
+			_webView.Focus();
+			try { _ = _webView.CoreWebView2.ExecuteScriptAsync("if(window.term)term.focus()"); }
+			catch { /* Ignore */ }
+		}
 	}
 
 	private void OnLoaded(object sender, RoutedEventArgs e)
 	{
-		// Defer initialization to avoid blocking VS during tool window restore.
 		if (!_webViewReady && !_initializing && !_disposed)
 		{
+			// First load — defer WebView2 init to avoid blocking VS during tool window restore.
 #pragma warning disable VSTHRD001, VSTHRD110 // BeginInvoke is intentional — need ApplicationIdle priority for safe deferred startup
 			Dispatcher.BeginInvoke(new Action(DeferredInitialize), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 #pragma warning restore VSTHRD001, VSTHRD110
+		}
+		else if (_webViewReady && _sessionService == null && !_disposed)
+		{
+			// Reloaded after being unloaded (e.g., VS debug layout switch) — re-attach
+			AttachToSession();
 		}
 	}
 
