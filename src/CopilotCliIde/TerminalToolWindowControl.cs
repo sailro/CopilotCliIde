@@ -15,6 +15,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 	private readonly WebView2 _webView;
 	private TerminalSessionService? _sessionService;
 	private bool _webViewReady;
+	private bool _sessionStartedByResize;
 	private readonly OutputLogger? _logger;
 
 	public TerminalToolWindowControl()
@@ -46,7 +47,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 			}
 			catch (Exception ex)
 			{
-				_logger?.Log($"Terminal control: load failed: {ex.Message}");
+				VsServices.Instance.Logger?.Log($"Terminal control: load failed: {ex}");
 			}
 		});
 	}
@@ -60,6 +61,9 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 	{
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
+		var logger = VsServices.Instance.Logger;
+		logger?.Log("Terminal control: initializing WebView2...");
+
 		var cachePath = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
 			"CopilotCliIde", "webview2");
@@ -68,21 +72,37 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		var env = await CoreWebView2Environment.CreateAsync(null, cachePath);
 		await _webView.EnsureCoreWebView2Async(env);
 
+		logger?.Log("Terminal control: WebView2 core initialized");
+
 		// Map the Terminal resources folder to a virtual hostname
 		var extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
 		var terminalDir = Path.Combine(extensionDir, "Resources", "Terminal");
+		logger?.Log($"Terminal control: mapping resources from {terminalDir}");
+
 		_webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
 			"copilot-cli.local", terminalDir, CoreWebView2HostResourceAccessKind.Allow);
 
 		_webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
 
-		_webView.CoreWebView2.Navigate("https://copilot-cli.local/terminal.html");
+		_webView.CoreWebView2.NavigationCompleted += (_, args) =>
+		{
+			if (args.IsSuccess)
+			{
+				logger?.Log("Terminal control: navigation succeeded");
+			}
+			else
+			{
+				logger?.Log($"Terminal control: navigation failed — status {args.WebErrorStatus}");
+			}
+		};
 
 		_webView.CoreWebView2.DOMContentLoaded += (_, _) =>
 		{
 			_webViewReady = true;
-			_logger?.Log("Terminal control: WebView2 ready");
+			logger?.Log("Terminal control: DOM ready, terminal active");
 		};
+
+		_webView.CoreWebView2.Navigate("https://copilot-cli.local/terminal.html");
 	}
 
 	private void AttachToSession()
@@ -94,14 +114,9 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		_sessionService.OutputReceived += OnOutputReceived;
 		_sessionService.ProcessExited += OnProcessExited;
 
-		// Start a session if not already running
-		ThreadHelper.ThrowIfNotOnUIThread();
-		if (!_sessionService.IsRunning)
-		{
-			var workspaceFolder = GetWorkspaceFolder();
-			if (workspaceFolder != null)
-				_sessionService.StartSession(workspaceFolder);
-		}
+		// Don't start the session here — wait for the first resize message
+		// from xterm.js so ConPTY is created with the correct dimensions.
+		_sessionStartedByResize = false;
 	}
 
 	private void DetachFromSession()
@@ -146,10 +161,15 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 	{
 		try
 		{
-			var json = e.WebMessageAsJson;
+			var json = e.TryGetWebMessageAsString();
+			if (json == null)
+				return;
+
 			using var doc = JsonDocument.Parse(json);
 			var root = doc.RootElement;
 			var type = root.GetProperty("type").GetString();
+
+			ThreadHelper.ThrowIfNotOnUIThread();
 
 			switch (type)
 			{
@@ -173,7 +193,18 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 				case "resize":
 					var cols = (short)root.GetProperty("cols").GetInt32();
 					var rows = (short)root.GetProperty("rows").GetInt32();
-					_sessionService?.Resize(cols, rows);
+					if (!_sessionStartedByResize && _sessionService != null && !_sessionService.IsRunning)
+					{
+						// First resize from xterm.js — start process with correct dimensions
+						_sessionStartedByResize = true;
+						var workspaceFolder = GetWorkspaceFolder();
+						if (workspaceFolder != null)
+							_sessionService.StartSession(workspaceFolder, cols, rows);
+					}
+					else
+					{
+						_sessionService?.Resize(cols, rows);
+					}
 					break;
 			}
 		}

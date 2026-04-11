@@ -29,7 +29,7 @@ internal sealed class TerminalProcess : IDisposable
 		}
 	}
 
-	public void Start(string workingDirectory)
+	public void Start(string workingDirectory, short cols = 120, short rows = 40)
 	{
 		lock (_lock)
 		{
@@ -39,7 +39,7 @@ internal sealed class TerminalProcess : IDisposable
 				throw new InvalidOperationException("Process is already running.");
 
 			_cts = new CancellationTokenSource();
-			_session = ConPty.Create("cmd.exe /c copilot", workingDirectory, 120, 40);
+			_session = ConPty.Create("cmd.exe /c copilot", workingDirectory, cols, rows);
 
 			_readThread = new Thread(ReadLoop)
 			{
