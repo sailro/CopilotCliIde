@@ -12,7 +12,12 @@ internal sealed class TerminalProcess : IDisposable
 	private readonly object _lock = new();
 	private bool _disposed;
 
-	// Fired when terminal output is available (UTF-8 string, may be batched).
+	// Output batching: accumulate reads, flush on timer (~16ms / 60fps)
+	private readonly StringBuilder _outputBuffer = new();
+	private readonly object _bufferLock = new();
+	private Timer? _flushTimer;
+
+	// Fired when terminal output is available (UTF-8 string, batched).
 	public event Action<string>? OutputReceived;
 
 	// Fired when the hosted process exits.
@@ -40,6 +45,7 @@ internal sealed class TerminalProcess : IDisposable
 
 			_cts = new CancellationTokenSource();
 			_session = ConPty.Create("cmd.exe /c copilot", workingDirectory, cols, rows);
+			_flushTimer = new Timer(FlushOutput, null, Timeout.Infinite, Timeout.Infinite);
 
 			_readThread = new Thread(ReadLoop)
 			{
@@ -95,7 +101,13 @@ internal sealed class TerminalProcess : IDisposable
 					break;
 
 				var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-				OutputReceived?.Invoke(text);
+
+				lock (_bufferLock)
+				{
+					_outputBuffer.Append(text);
+					// Schedule flush after 16ms if not already scheduled
+					_flushTimer?.Change(16, Timeout.Infinite);
+				}
 			}
 		}
 		catch (Exception) when (ct.IsCancellationRequested)
@@ -107,7 +119,23 @@ internal sealed class TerminalProcess : IDisposable
 			// Pipe broken or process exited
 		}
 
+		// Flush any remaining buffered output
+		FlushOutput(null);
 		ProcessExited?.Invoke();
+	}
+
+	private void FlushOutput(object? state)
+	{
+		string batch;
+		lock (_bufferLock)
+		{
+			if (_outputBuffer.Length == 0)
+				return;
+			batch = _outputBuffer.ToString();
+			_outputBuffer.Clear();
+		}
+
+		OutputReceived?.Invoke(batch);
 	}
 
 	public void Dispose()
@@ -119,6 +147,8 @@ internal sealed class TerminalProcess : IDisposable
 			_disposed = true;
 
 			_cts?.Cancel();
+			_flushTimer?.Dispose();
+			_flushTimer = null;
 
 			var session = _session;
 			_session = null;
