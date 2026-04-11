@@ -13,29 +13,54 @@ namespace CopilotCliIde;
 // Attaches to TerminalSessionService for process I/O.
 internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 {
-	private readonly WebView2 _webView;
+	private WebView2? _webView;
 	private TerminalSessionService? _sessionService;
 	private bool _webViewReady;
 	private bool _sessionStartedByResize;
 	private readonly OutputLogger? _logger;
+	private bool _disposed;
+	private bool _initializing;
 
 	public TerminalToolWindowControl()
 	{
 		_logger = VsServices.Instance.Logger;
 
-		_webView = new WebView2
+		// Lightweight placeholder — WebView2 is created lazily in DeferredInitialize
+		// to avoid blocking VS during tool window restoration at startup.
+		Content = new TextBlock
 		{
-			DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 30, 30, 30)
+			Text = "Loading Copilot CLI…",
+			Foreground = System.Windows.Media.Brushes.Gray,
+			HorizontalAlignment = HorizontalAlignment.Center,
+			VerticalAlignment = VerticalAlignment.Center,
+			FontSize = 14
 		};
 
-		Content = _webView;
+		Background = new System.Windows.Media.SolidColorBrush(
+			System.Windows.Media.Color.FromRgb(30, 30, 30));
 
 		Loaded += OnLoaded;
 		Unloaded += OnUnloaded;
+		IsVisibleChanged += OnVisibleChanged;
 	}
 
 	private void OnLoaded(object sender, RoutedEventArgs e)
 	{
+		// Defer initialization to avoid blocking VS during tool window restore.
+		if (!_webViewReady && !_initializing && !_disposed)
+		{
+#pragma warning disable VSTHRD001, VSTHRD110 // BeginInvoke is intentional — need ApplicationIdle priority for safe deferred startup
+			Dispatcher.BeginInvoke(new Action(DeferredInitialize), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+#pragma warning restore VSTHRD001, VSTHRD110
+		}
+	}
+
+	private void DeferredInitialize()
+	{
+		if (_webViewReady || _initializing || _disposed)
+			return;
+		_initializing = true;
+
 #pragma warning disable VSSDK007 // Fire-and-forget is intentional for UI event handler
 		_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
 #pragma warning restore VSSDK007
@@ -43,12 +68,18 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 			try
 			{
 				await InitializeWebViewAsync();
+				if (_disposed)
+					return;
 				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 				AttachToSession();
 			}
 			catch (Exception ex)
 			{
-				VsServices.Instance.Logger?.Log($"Terminal control: load failed: {ex}");
+				_logger?.Log($"Terminal control: load failed: {ex}");
+			}
+			finally
+			{
+				_initializing = false;
 			}
 		});
 	}
@@ -58,12 +89,18 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		DetachFromSession();
 	}
 
+	private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+	{
+		if (e.NewValue is true && _webViewReady && _webView != null)
+			_webView.Focus();
+	}
+
 	private async System.Threading.Tasks.Task InitializeWebViewAsync()
 	{
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-		var logger = VsServices.Instance.Logger;
-		logger?.Log("Terminal control: initializing WebView2...");
+		if (_disposed)
+			return;
 
 		var cachePath = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -71,14 +108,26 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		Directory.CreateDirectory(cachePath);
 
 		var env = await CoreWebView2Environment.CreateAsync(null, cachePath);
+
+		if (_disposed)
+			return;
+
+		// Create WebView2 lazily here (not in constructor) to keep startup lightweight
+		_webView = new WebView2
+		{
+			DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 30, 30, 30)
+		};
+		Content = _webView;
+
 		await _webView.EnsureCoreWebView2Async(env);
 
-		logger?.Log("Terminal control: WebView2 core initialized");
+		if (_disposed)
+			return;
 
 		// Map the Terminal resources folder to a virtual hostname
 		var extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
 		var terminalDir = Path.Combine(extensionDir, "Resources", "Terminal");
-		logger?.Log($"Terminal control: mapping resources from {terminalDir}");
+		_logger?.Log($"Terminal control: mapping resources from {terminalDir}");
 
 		_webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
 			"copilot-cli.local", terminalDir, CoreWebView2HostResourceAccessKind.Allow);
@@ -89,18 +138,18 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		{
 			if (args.IsSuccess)
 			{
-				logger?.Log("Terminal control: navigation succeeded");
+				_logger?.Log("Terminal control: navigation succeeded");
 			}
 			else
 			{
-				logger?.Log($"Terminal control: navigation failed — status {args.WebErrorStatus}");
+				_logger?.Log($"Terminal control: navigation failed — status {args.WebErrorStatus}");
 			}
 		};
 
 		_webView.CoreWebView2.DOMContentLoaded += (_, _) =>
 		{
 			_webViewReady = true;
-			logger?.Log("Terminal control: DOM ready, terminal active");
+			_logger?.Log("Terminal control: DOM ready, terminal active");
 		};
 
 		_webView.CoreWebView2.Navigate("https://copilot-cli.local/terminal.html");
@@ -132,24 +181,25 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void OnOutputReceived(string data)
 	{
-		if (!_webViewReady)
+		if (!_webViewReady || _disposed || _webView == null)
 			return;
 
-#pragma warning disable VSSDK007 // Fire-and-forget is intentional for event handler
-		_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
-#pragma warning restore VSSDK007
+		// Serialize on the calling thread to keep UI work minimal
+		var message = JsonSerializer.Serialize(new { type = "output", data });
+
+#pragma warning disable VSTHRD001 // BeginInvoke is intentional — lighter than JTF for fire-and-forget UI dispatch
+		_webView.Dispatcher.BeginInvoke(new Action(() =>
+#pragma warning restore VSTHRD001
 		{
 			try
 			{
-				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-				var message = JsonSerializer.Serialize(new { type = "output", data });
-				_webView.CoreWebView2?.PostWebMessageAsJson(message);
+				_webView?.CoreWebView2?.PostWebMessageAsJson(message);
 			}
 			catch (Exception)
 			{
 				// WebView may be disposed
 			}
-		});
+		}));
 	}
 
 	private void OnProcessExited()
@@ -235,8 +285,13 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	public void Dispose()
 	{
+		_disposed = true;
 		DetachFromSession();
-		_webView.CoreWebView2?.WebMessageReceived -= OnWebMessageReceived;
-		_webView.Dispose();
+		if (_webView != null)
+		{
+			_webView.CoreWebView2?.WebMessageReceived -= OnWebMessageReceived;
+			_webView.Dispose();
+			_webView = null;
+		}
 	}
 }

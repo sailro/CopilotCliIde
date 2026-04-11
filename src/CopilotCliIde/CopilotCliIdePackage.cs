@@ -17,7 +17,7 @@ namespace CopilotCliIde;
 [ProvideBindingPath]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExistsAndFullyLoaded_string, PackageAutoLoadFlags.BackgroundLoad)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
-[ProvideToolWindow(typeof(TerminalToolWindow), Style = VsDockStyle.Tabbed, Window = "34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3")]
+[ProvideToolWindow(typeof(TerminalToolWindow), Transient = true, Style = VsDockStyle.Tabbed, Window = "34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3")]
 [Guid("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")]
 public sealed class CopilotCliIdePackage : AsyncPackage
 {
