@@ -9,4 +9,5 @@ internal sealed class VsServices
 	public OutputLogger? Logger { get; set; }
 	public Action? OnResetNotificationState { get; set; }
 	public DiagnosticTracker? DiagnosticTracker { get; set; }
+	public TerminalSessionService? TerminalSession { get; set; }
 }
