@@ -120,11 +120,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void ScheduleFitScript()
 	{
-		DispatchToUI(() =>
-		{
-			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.fitTerminal)fitTerminal()"); }
-			catch { /* Ignore */ }
-		});
+		DispatchToUI(() => _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.fitTerminal)fitTerminal()"));
 	}
 
 	private void OnSessionRestarted()
@@ -132,11 +128,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		if (!_webViewReady || _disposed || _webView == null)
 			return;
 
-		DispatchToUI(() =>
-		{
-			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.resetTerminal)resetTerminal()"); }
-			catch { /* Ignore */ }
-		});
+		DispatchToUI(() => _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.resetTerminal)resetTerminal()"));
 	}
 
 	private async Task InitializeWebViewAsync()
@@ -245,17 +237,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		// Serialize on the calling thread to keep UI work minimal
 		var message = JsonSerializer.Serialize(new { type = "output", data });
 
-		DispatchToUI(() =>
-		{
-			try
-			{
-				_webView?.CoreWebView2?.PostWebMessageAsJson(message);
-			}
-			catch (Exception)
-			{
-				// WebView may be disposed
-			}
-		});
+		DispatchToUI(() => _webView?.CoreWebView2?.PostWebMessageAsJson(message));
 	}
 
 	private void OnProcessExited()
@@ -321,11 +303,11 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		}
 	}
 
-	// Fire-and-forget dispatch to UI thread. Uses BeginInvoke (lighter than JTF)
-	// for non-awaited UI work like posting messages to WebView2.
+	// Fire-and-forget dispatch to UI thread. Exceptions are caught and ignored
+	// (WebView may be disposed during shutdown). Uses BeginInvoke for lightweight dispatch.
 #pragma warning disable VSTHRD001, VSTHRD110
 	private void DispatchToUI(Action action, System.Windows.Threading.DispatcherPriority priority = System.Windows.Threading.DispatcherPriority.Background)
-		=> _ = Dispatcher.BeginInvoke(action, priority);
+		=> _ = Dispatcher.BeginInvoke(new Action(() => { try { action(); } catch { /* Ignore — WebView may be disposed */ } }), priority);
 #pragma warning restore VSTHRD001, VSTHRD110
 
 	public void Dispose()
