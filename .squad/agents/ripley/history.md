@@ -317,6 +317,39 @@ Researched proper VS API for real-time diagnostic change notifications (equivale
 
 Completed comprehensive research evaluating 7 VS API options for real-time diagnostic change notifications from Roslyn's data layer.
 
+### 2026-07-20 — Post-PR #7 Documentation Assessment
+
+Performed full documentation audit after PR #7 merged (embedded Copilot CLI terminal feature). Read all 6 new source files to understand the ConPTY + WebView2 + xterm.js terminal subsystem before documenting.
+
+**Files updated:**
+- **README.md** — Updated Usage section: added embedded terminal as primary option (Tools → Copilot CLI Window), kept external launch as alternative. Updated Architecture bullet for CopilotCliIde to mention WebView2/ConPTY.
+- **CHANGELOG.md** — Populated [Unreleased] section with Added (6 new files) and Changed (WebView2 dep, tool window registration, VsServices exposure).
+- **.github/copilot-instructions.md** — Added "Embedded Terminal Subsystem" section covering: architecture diagram, key files, lifecycle (init → open → solution switch → close → dispose), threading model, independence from MCP/connection system, and WebView2 dependency. Updated CopilotCliIde architecture bullet.
+- **.squad/team.md** — Added WebView2, xterm.js, ConPTY to Stack line.
+- **doc/protocol.md** — Reviewed, no changes needed (terminal is UI-only, no protocol impact).
+
+**Key architectural patterns documented:**
+- Terminal process is NOT started on tool window open — waits for first xterm.js resize message so ConPTY gets correct initial dimensions
+- Terminal subsystem is completely independent of MCP/RPC layer — uses VsServices.Instance but no named pipes or lock files
+- Solution lifecycle hooks start/stop terminal independently of MCP connection
+
+**Established expectation:** All future feature PRs must include documentation updates before merge (copilot-instructions.md, CHANGELOG.md, README.md).
+
+## Cross-Agent Context — Session 2026-04-12
+
+### Full Post-PR#7 Reassessment Completion
+
+**Summary:** Team completed comprehensive assessment of PR #7 (terminal subsystem) across three tracks:
+
+**Ripley (Docs):** All documentation updated. No gaps in architecture docs. Terminal subsystem boundaries clarified (independent of MCP).
+
+**Hicks (Code Review):** 2 critical bugs identified (UTF-8 decoder, window.term reference), 4 important, 4 minor, 8 good patterns. Terminal subsystem ownership assigned to Hicks; routing updated.
+
+**Hudson (Test Coverage):** ~500 LOC zero coverage. TerminalSessionService highest-priority test target (150+ LOC). Recommends: create CopilotCliIde.Tests project, extract factory dependency, write 8-10 unit tests for TerminalSessionService, 2-3 integration tests for TerminalProcess.
+- TerminalSessionService singleton survives window hide/show; only torn down on solution close or package dispose
+- WebView2 initialized lazily via Dispatcher.BeginInvoke(ApplicationIdle) to avoid blocking VS startup
+- Terminal subsystem is fully independent of MCP/RPC — shared only via VsServices singleton, package lifecycle hooks, and GetWorkspaceFolder()
+
 **Evaluated options:**
 1. IVsSolutionBuildManager / IVsUpdateSolutionEvents — fires for explicit builds only, no improvement
 2. IDiagnosticService (internal) — technically ideal but too fragile, actively being sunset by Roslyn team

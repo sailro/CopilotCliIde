@@ -23,6 +23,6 @@
 
 - **Owner:** Sebastien
 - **Project:** CopilotCliIde — Visual Studio extension (VSIX) bridging GitHub Copilot CLI's /ide command with Visual Studio via MCP over named pipes
-- **Stack:** C#, .NET (net472 / net10.0 / netstandard2.0), MSBuild, VSSDK, StreamJsonRpc, MCP, Windows named pipes
+- **Stack:** C#, .NET (net472 / net10.0 / netstandard2.0), MSBuild, VSSDK, StreamJsonRpc, MCP, Windows named pipes, WebView2, xterm.js, ConPTY
 - **Architecture:** Copilot CLI → MCP over named pipe → CopilotCliIde.Server → StreamJsonRpc over named pipe → CopilotCliIde (VS extension)
 - **Created:** 2026-03-05

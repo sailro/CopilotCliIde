@@ -468,6 +468,26 @@ Bishop extracted four magic literals (PipeStartupDelayMs, McpToolTimeoutSeconds,
 
 ---
 
+## Cross-Agent Context — Session 2026-04-12
+
+### From Hicks (Terminal Code Review, PR #7)
+
+Hicks completed comprehensive code review of the terminal subsystem and identified **2 critical bugs** blocking release:
+
+1. **UTF-8 multi-byte character corruption (TerminalProcess.cs:103):** The code uses `Encoding.UTF8.GetString()` which treats each `ReadFile()` buffer as a complete UTF-8 sequence. Multi-byte characters (emoji, CJK, accented) split across 4096-byte buffers produce replacement characters in xterm.js. Must use `Decoder` with persistent state across calls.
+
+2. **Focus recovery script broken (TerminalToolWindowControl.cs:58):** Script references `window.term` which doesn't exist — the IIFE creates local `terminal` but never exposes on `window`. F5 debug cycle focus recovery silently fails.
+
+**Important findings (4):**
+- `_webViewReady` not volatile — cross-thread read UB on ARM64
+- No user error when WebView2 runtime missing
+- `TerminalSessionService._process` unprotected multi-thread access
+- JS ResizeObserver missing — dock splitter resizes missed
+
+**Testing impact:** The 2 critical bugs require test coverage for post-fix verification. The ~500 LOC terminal codebase (ConPty, TerminalProcess, TerminalSessionService, TerminalToolWindowControl) has zero automated test coverage. Priority: extract factory patterns and establish test project for extension code.
+
+---
+
 ## Session Update: 2026-03-29 Changelog Audit Cycle
 
 **Merged decisions:**
@@ -609,3 +629,28 @@ Orchestration log written to `.squad/orchestration-log/2026-03-30T12:47-31Z-huds
 ## Cross-Agent Context — Session 2026-03-31
 
 **From Hicks:** Fixed issue #4 by adding WorkingDirectory = serverDir to ProcessStartInfo in ServerProcessManager.StartAsync(). Commit cbd55f3. Build clean, 282 tests pass. Rule: Always set WorkingDirectory explicitly when launching child processes from VS extensions to avoid environment contamination from user project folders.
+
+### 2026-07-25 — Terminal Feature Test Coverage Assessment (PR #7)
+
+**Trigger:** PR #7 merged "feat: Embedded Copilot CLI tool window" — 5 new files (~500 LOC) in the VS extension project with zero test coverage.
+
+**Build/test baseline verified:** Server builds clean, 284/284 tests pass. No terminal-related tests exist anywhere in the test suite.
+
+**Key structural finding:** All terminal code lives in `CopilotCliIde` (net472, VSSDK dependencies). The only test project (`CopilotCliIde.Server.Tests`, net10.0) cannot reference it. This is the same blocker identified on 2026-03-10 (Item 12: "Create CopilotCliIde.Tests project").
+
+**Testability by component:**
+- `ConPty.cs` — Static P/Invoke wrapper, no abstraction layer. Integration-testable only (requires Windows ConPTY). Disposal ordering and error cleanup correct by inspection.
+- `TerminalProcess.cs` — Tightly coupled to `ConPty.Create()` (hardcoded `"cmd.exe /c copilot"`). Background thread + timer-based batching with dual locks. State machine transitions (Start/Stop/Dispose) are the highest-value test targets. Needs ConPTY for integration tests OR interface extraction for unit tests.
+- `TerminalSessionService.cs` — Highest testability. Pure lifecycle orchestration (start/stop/restart, event forwarding, no-op guards). Only barrier: `new TerminalProcess()` hardcoded. Extract factory → fully unit-testable.
+- `TerminalToolWindow.cs` — 38-line shell. `PreProcessMessage` key filtering (VK codes 33-40, 8, 9, 13, 27, 46) extractable to static method for unit testing.
+- `TerminalToolWindowControl.cs` — 293-line WPF+WebView2 bridge. Requires VS shell, WebView2 runtime, WPF dispatcher. JSON message parsing (`OnWebMessageReceived` — "input"/"resize" dispatch, restart-on-Enter) extractable to static method.
+
+**Risk areas (no automated coverage):**
+1. ConPTY native handle disposal ordering (pseudo-console → pipes → process handles)
+2. TerminalProcess dual-lock coordination (`_lock` for session, `_bufferLock` for output)
+3. Timer-based output batching (16ms flush interval, concurrent access)
+4. Deferred WebView2 initialization with multiple disposed-check guards
+
+**Recommendation:** Create `CopilotCliIde.Tests` project (net8.0-windows), extract TerminalProcess factory, write 8-10 unit tests for TerminalSessionService lifecycle. Full report at `.squad/decisions/inbox/hudson-terminal-test-gaps.md`.
+
+**Learning:** Terminal feature follows a common VS extension pattern — complex native/COM/WPF code tightly coupled to VS services, making it structurally untestable without deliberate abstraction seams. The `TerminalSessionService` is the sweet spot: high value, low coupling, testable with minimal refactoring.

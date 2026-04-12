@@ -114,6 +114,40 @@ Diagnostic severities used by extension diagnostics mapping are now centralized 
 - `PushClearedSelection` checks `_getCallbacks() == null` first — safe at startup when RPC isn't connected yet.
 - The polled path (`VsServiceRpc.GetSelectionAsync`) was already correct — `dte.ActiveDocument` returns null when no editor is open.
 
+## Cross-Agent Context — Session 2026-04-12
+
+### Terminal Subsystem Code Review Delivery (PR #7)
+
+Completed comprehensive review of all new files in "feat: Embedded Copilot CLI tool window" PR. Found **2 critical bugs** requiring immediate fixes before release:
+
+1. **UTF-8 multi-byte character corruption (TerminalProcess.cs:103)** — Must replace `Encoding.UTF8.GetString()` with stateful `Decoder` to handle characters split across 4096-byte buffer boundaries.
+
+2. **Focus recovery broken (TerminalToolWindowControl.cs:58)** — Script references nonexistent `window.term`. IIFE creates local `terminal` but never exposes on `window`. Fix: add `window.term = terminal;` in terminal-app.js.
+
+**Important issues (4):** Volatile flag, WebView2 error UI, TerminalSessionService thread sync, ResizeObserver for dock panel resizes.
+
+**Ownership established:** Hicks team charter updated to include terminal subsystem. Terminal routing added to `.squad/routing.md`.
+
+### From Hudson (Test Coverage Assessment)
+
+Hudson assessed ~500 LOC new code with zero test coverage. Priorities:
+
+1. **Create CopilotCliIde.Tests project** — Prerequisite for any extension code testing (flagged since 2026-03-10).
+2. **TerminalSessionService is highest-value test target** — 90 LOC, testable with factory extraction, no WebView2/VS dependencies.
+3. **TerminalProcess needs integration tests** — Requires Windows CI with ConPTY support.
+
+Recommended minimum viable testing: 8-10 unit tests for TerminalSessionService + 2-3 integration tests for TerminalProcess state machine.
+
+### From Ripley (Documentation Standards)
+
+Ripley completed full documentation audit post-PR#7. Updated:
+- copilot-instructions.md with dedicated terminal subsystem section
+- CHANGELOG.md with PR #7 feature entry
+- README.md Usage section with both terminal options
+- team.md dependencies (WebView2, ConPTY, xterm.js)
+
+Established expectation: all future feature PRs include documentation updates to copilot-instructions.md, CHANGELOG.md, README.md before merge.
+
 **Cross-team approval (2026-03-30):** Hudson reviewed and approved the fix. Added 3 comprehensive regression tests covering: (1) pull path when no editor active, (2) push path receives cleared notification, (3) consistency between both paths. All 285 tests passing (282 existing + 3 new).
 
 ### 2026-07-20 — Fix cleared selection event timing (bad `OnViewClosed` push)
@@ -145,3 +179,31 @@ Diagnostic severities used by extension diagnostics mapping are now centralized 
 ## Cross-Agent Context — Session 2026-03-31
 
 **From Hudson:** Wrote 2 regression tests for issue #4 in ServerWorkingDirectoryTests.cs. All 284 tests passing (282 existing + 2 new). Tests cover: (1) Server starts cleanly with correct WorkingDirectory; (2) Server would have crashed with hostile appsettings.json in inherited directory (regression test).
+
+### 2026-07-20 — Terminal Subsystem Code Review (PR #7)
+
+Reviewed all new/modified files from "feat: Embedded Copilot CLI tool window" PR. Full review filed to `.squad/decisions/inbox/hicks-terminal-review.md`.
+
+**Architecture (new files):**
+- `ConPty.cs` — P/Invoke wrapper for Windows ConPTY APIs (CreatePseudoConsole, ResizePseudoConsole, etc.). Includes `Session` IDisposable class managing all native handles with correct teardown order.
+- `TerminalProcess.cs` — Manages CLI process via ConPTY. Background read thread + 16ms output batching timer. Clean Dispose with thread join outside lock.
+- `TerminalSessionService.cs` — Package-level singleton surviving tool window hide/show. Manages terminal process lifecycle. Registered on `VsServices.Instance.TerminalSession`.
+- `TerminalToolWindow.cs` — `ToolWindowPane` shell with `PreProcessMessage` override for keyboard passthrough. Docked tabbed with Output window.
+- `TerminalToolWindowControl.cs` — WPF `UserControl` + WebView2 + xterm.js bridge. Deferred init at `ApplicationIdle` priority. Attaches/detaches from session service.
+- `Resources/Terminal/` — HTML/JS/CSS for xterm.js frontend. IIFE-scoped JS, debounced resize, WebView2 messaging bridge.
+
+**Critical findings (2):**
+1. **UTF-8 multi-byte corruption** (`TerminalProcess.cs:103`): `Encoding.UTF8.GetString()` doesn't handle characters split across `ReadFile` boundaries. Must use `Decoder` with persistent state.
+2. **Focus script references nonexistent `window.term`** (`TerminalToolWindowControl.cs:58`): The JS IIFE creates local `terminal` variable, never exposed on `window`. Click-to-focus recovery after F5 is broken.
+
+**Important findings (4):**
+1. `_webViewReady` not volatile — read cross-thread without synchronization.
+2. No user-facing error when WebView2 runtime missing — stuck "Loading" message.
+3. `TerminalSessionService` has no thread synchronization on `_process`.
+4. JS uses `window.resize` only — misses VS dock panel splitter resizes (needs `ResizeObserver`).
+
+**Key patterns learned:**
+- ConPTY session start deferred until xterm.js sends first resize — avoids dimension mismatch.
+- Terminal lifecycle independent of MCP connection lifecycle — no shared state.
+- `ProvideToolWindow(Transient = true)` means tool window state not persisted across VS restarts.
+- WebView2 resources mapped via `SetVirtualHostNameToFolderMapping` with `https://copilot-cli.local/` virtual host.
