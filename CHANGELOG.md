@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Switch embedded terminal to WebGL GPU-accelerated rendering (`@xterm/addon-webgl`), fixing dotted box-drawing characters and improving scroll performance
+
 ## [1.0.17] - 2026-04-12
 
 ### Fixed

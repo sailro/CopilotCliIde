@@ -295,3 +295,25 @@ Parallel parenthetical naming so both group together and the distinction is obvi
 
 **Build:** Roslyn validation clean (0 errors, 0 warnings). All 284 server tests pass.
 
+### 2026-07-20 — Fix box-drawing character gaps in embedded terminal
+
+**Problem:** Horizontal box-drawing characters (─ U+2500) rendered with visible gaps between cells in the embedded xterm.js terminal (WebView2), while external terminals (Windows Terminal) showed smooth continuous lines.
+
+**Root cause:** xterm.js's default canvas renderer draws each character cell independently on a 2D canvas. Even with `customGlyphs: true` (which is the default in v5.5 and uses custom canvas paths instead of font glyphs), the canvas renderer produces sub-pixel gaps at cell boundaries — especially at non-integer DPI values (1.25x, 1.5x) common on modern displays. This is a known xterm.js limitation.
+
+**Investigation:** Confirmed `@xterm/xterm@^5.5.0` — `customGlyphs` already defaults to `true`, `letterSpacing` defaults to `0`. Toggling these options would have no effect. `rescaleOverlappingGlyphs` (defaults to `false`) handles glyph overflow, not cell gaps. The proper fix is the WebGL renderer addon.
+
+**Fix:** Added `@xterm/addon-webgl` (GPU-accelerated renderer):
+- **`package.json`**: Added `@xterm/addon-webgl` dependency
+- **`lib/addon-webgl.js`**: Bundled the WebGL addon (247KB, same pattern as addon-fit)
+- **`terminal.html`**: Added `<script>` tag for the addon
+- **`terminal-app.js`**: Load WebGL addon after `terminal.open()` with try/catch fallback to canvas. Includes `onContextLoss` handler for GPU context recovery.
+
+**Key files:** `src/CopilotCliIde/Resources/Terminal/terminal-app.js`, `terminal.html`, `lib/addon-webgl.js`
+
+**Why WebGL over canvas:** The WebGL renderer uses GPU texture atlas rendering. Each glyph is pre-rendered into a texture atlas, and the GPU draws quads for each cell. Box-drawing characters are rendered as continuous paths in the atlas, not per-cell canvas operations — eliminating the cell-boundary gap issue entirely. Also ~2x faster for scrolling-heavy output.
+
+**Fallback:** If WebGL initialization fails (unlikely in WebView2/Chromium, but possible with disabled GPU), the canvas renderer remains active. The fallback is silent — no error shown to the user.
+
+**Build:** VSIX build clean (MSBuild, 0 errors). `addon-webgl.js` auto-included via `Resources\Terminal\**\*.*` glob in CSPROJ.
+
