@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
     <Metadata>
-        <Identity Id="CopilotCliIde.a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d" Version="1.0.16" Language="en-US" Publisher="Sebastien Lebreton" />
+        <Identity Id="CopilotCliIde.a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d" Version="1.0.17" Language="en-US" Publisher="Sebastien Lebreton" />
         <DisplayName>Copilot CLI IDE Bridge</DisplayName>
         <Description xml:space="preserve">Enables GitHub Copilot CLI to interact with Visual Studio via the /ide command</Description>
         <MoreInfo>https://github.com/sailro/CopilotCliIde</MoreInfo>
