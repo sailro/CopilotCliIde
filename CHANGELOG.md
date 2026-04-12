@@ -6,15 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.16] - 2026-04-12
+
 ### Added
 
-- **Embedded Copilot CLI terminal** — dockable tool window (**Tools → Copilot CLI (Embedded Terminal)**) that hosts Copilot CLI directly inside Visual Studio with full ANSI color support, interactive prompts, and resize handling ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7) by @bommerts)
+- **Embedded Copilot CLI terminal** — dockable tool window (**Tools → Show Copilot CLI (Embedded Terminal)**) that hosts Copilot CLI directly inside Visual Studio with full ANSI color support, interactive prompts, and resize handling ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7) by @bommerts)
 
 ### Fixed
 
 - Fix multi-byte UTF-8 character corruption in terminal output (emoji, CJK)
 - Fix terminal focus recovery after F5 debug cycles
 - Fix terminal session thread safety for concurrent start/stop calls
+- Fix terminal redraw on tab visibility change and solution reload
+- Fix terminal corruption on `/restart` by removing resize dedup
+- Keep terminal alive on solution close (restart with current directory instead of killing)
 - Add graceful fallback when WebView2 runtime is unavailable
 - Add `ResizeObserver` for terminal resize on dock panel splitter drags
 
@@ -258,7 +263,8 @@ _Version bump only for marketplace publishing tests — no functional changes._
 - Lock file discovery mechanism (`~/.copilot/ide/*.lock`) for Copilot CLI to find running VS instances
 - Comprehensive README with usage instructions, architecture diagram, and tool documentation
 
-[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.15...HEAD
+[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.16...HEAD
+[1.0.16]: https://github.com/sailro/CopilotCliIde/compare/1.0.15...1.0.16
 [1.0.15]: https://github.com/sailro/CopilotCliIde/compare/1.0.14...1.0.15
 [1.0.14]: https://github.com/sailro/CopilotCliIde/compare/1.0.13...1.0.14
 [1.0.13]: https://github.com/sailro/CopilotCliIde/compare/1.0.12...1.0.13
