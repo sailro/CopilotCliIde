@@ -58,11 +58,12 @@ internal sealed class TerminalSessionService : IDisposable
 		_process.ProcessExited -= OnProcessExited;
 		_process.Dispose();
 		_process = null;
+		_workingDirectory = null;
 	}
 
-	public void RestartSession()
+	public void RestartSession(string? workingDirectory = null)
 	{
-		var dir = _workingDirectory;
+		var dir = workingDirectory ?? _workingDirectory;
 		if (dir != null)
 			StartSession(dir, _cols, _rows);
 	}

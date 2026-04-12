@@ -268,7 +268,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 					{
 						// First resize from xterm.js — start process with correct dimensions
 						_sessionStartedByResize = true;
-						var workspaceFolder = GetWorkspaceFolder();
+						var workspaceFolder = CopilotCliIdePackage.GetWorkspaceFolder();
 						if (workspaceFolder != null)
 							_sessionService.StartSession(workspaceFolder, cols, rows);
 					}
@@ -283,24 +283,6 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		{
 			_logger?.Log($"Terminal control: message error: {ex.Message}");
 		}
-	}
-
-	private static string? GetWorkspaceFolder()
-	{
-		try
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
-			var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
-			if (dte?.Solution != null && !string.IsNullOrEmpty(dte.Solution.FullName))
-			{
-				var dir = Path.GetDirectoryName(dte.Solution.FullName);
-				if (!string.IsNullOrEmpty(dir))
-					return dir;
-			}
-		}
-		catch { /* Ignore */ }
-
-		return Directory.GetCurrentDirectory();
 	}
 
 	public void Dispose()

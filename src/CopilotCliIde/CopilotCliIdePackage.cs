@@ -170,7 +170,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		catch (ObjectDisposedException) { }
 	}
 
-	private static string GetWorkspaceFolder()
+	internal static string GetWorkspaceFolder()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 		try
@@ -196,7 +196,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
 				await StartConnectionAsync();
-				_terminalSession?.RestartSession();
+				_terminalSession?.RestartSession(GetWorkspaceFolder());
 			}
 			catch (Exception ex)
 			{
