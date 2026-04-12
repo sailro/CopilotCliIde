@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Embedded Copilot CLI terminal** — dockable tool window (**Tools → Copilot CLI Window**) that hosts Copilot CLI inside Visual Studio using WebView2 + xterm.js + Windows ConPTY ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7))
+  - `ConPty.cs` — P/Invoke wrapper for Windows ConPTY pseudo-console APIs
+  - `TerminalProcess.cs` — Manages CLI process via ConPTY with async I/O and output batching (~16ms / 60fps)
+  - `TerminalSessionService.cs` — Package-level singleton managing terminal lifecycle (survives window hide/show, torn down on solution close)
+  - `TerminalToolWindow.cs` — VS `ToolWindowPane` shell with keyboard passthrough for arrow keys, Tab, Escape, etc.
+  - `TerminalToolWindowControl.cs` — WPF + WebView2 + xterm.js bridge with deferred initialization and focus management
+  - `Resources/Terminal/*` — HTML, JS, and bundled xterm.js assets
+
+### Changed
+
+- Add WebView2 NuGet dependency (`Microsoft.Web.WebView2`)
+- Register tool window and menu command in package and `.vsct`
+- Expose `TerminalSessionService` singleton via `VsServices`
+
 ## [1.0.15] - 2026-03-31
 
 ### Fixed
