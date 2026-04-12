@@ -8,7 +8,7 @@ public sealed class TerminalToolWindow : ToolWindowPane
 {
 	public TerminalToolWindow() : base(null)
 	{
-		Caption = "Copilot CLI (Embedded Terminal)";
+		Caption = "Copilot CLI";
 		Content = new TerminalToolWindowControl();
 	}
 
