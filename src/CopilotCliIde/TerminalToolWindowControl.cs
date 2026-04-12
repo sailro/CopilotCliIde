@@ -64,9 +64,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		if (!_webViewReady && !_initializing && !_disposed)
 		{
 			// First load — defer WebView2 init to avoid blocking VS during tool window restore.
-#pragma warning disable VSTHRD001, VSTHRD110 // BeginInvoke is intentional — need ApplicationIdle priority for safe deferred startup
-			_ = Dispatcher.BeginInvoke(new Action(DeferredInitialize), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-#pragma warning restore VSTHRD001, VSTHRD110
+			DispatchToUI(DeferredInitialize, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 		}
 		else if (_webViewReady && _sessionService == null && !_disposed)
 		{
@@ -122,13 +120,11 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void ScheduleFitScript()
 	{
-#pragma warning disable VSTHRD001 // BeginInvoke is intentional — deferred to let WPF complete layout pass
-		_ = Dispatcher.BeginInvoke(new Action(() =>
-#pragma warning restore VSTHRD001
+		DispatchToUI(() =>
 		{
 			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.fitTerminal)fitTerminal()"); }
 			catch { /* Ignore */ }
-		}), System.Windows.Threading.DispatcherPriority.Background);
+		});
 	}
 
 	private void OnSessionRestarted()
@@ -136,13 +132,11 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		if (!_webViewReady || _disposed || _webView == null)
 			return;
 
-#pragma warning disable VSTHRD001 // BeginInvoke is intentional — fire-and-forget UI dispatch
-		_ = _webView.Dispatcher.BeginInvoke(new Action(() =>
-#pragma warning restore VSTHRD001
+		DispatchToUI(() =>
 		{
 			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.resetTerminal)resetTerminal()"); }
 			catch { /* Ignore */ }
-		}), System.Windows.Threading.DispatcherPriority.Background);
+		});
 	}
 
 	private async Task InitializeWebViewAsync()
@@ -251,9 +245,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		// Serialize on the calling thread to keep UI work minimal
 		var message = JsonSerializer.Serialize(new { type = "output", data });
 
-#pragma warning disable VSTHRD001 // BeginInvoke is intentional — lighter than JTF for fire-and-forget UI dispatch
-		_ = _webView.Dispatcher.BeginInvoke(new Action(() =>
-#pragma warning restore VSTHRD001
+		DispatchToUI(() =>
 		{
 			try
 			{
@@ -263,7 +255,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 			{
 				// WebView may be disposed
 			}
-		}));
+		});
 	}
 
 	private void OnProcessExited()
@@ -328,6 +320,13 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 			_logger?.Log($"Terminal control: message error: {ex.Message}");
 		}
 	}
+
+	// Fire-and-forget dispatch to UI thread. Uses BeginInvoke (lighter than JTF)
+	// for non-awaited UI work like posting messages to WebView2.
+#pragma warning disable VSTHRD001, VSTHRD110
+	private void DispatchToUI(Action action, System.Windows.Threading.DispatcherPriority priority = System.Windows.Threading.DispatcherPriority.Background)
+		=> _ = Dispatcher.BeginInvoke(action, priority);
+#pragma warning restore VSTHRD001, VSTHRD110
 
 	public void Dispose()
 	{
