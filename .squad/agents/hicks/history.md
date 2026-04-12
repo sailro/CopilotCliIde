@@ -243,3 +243,55 @@ Fixed all four 🟡 Important issues from the terminal code review.
 - **Fix:** Added `ResizeObserver` on `#terminal` container element, sharing the existing debounced fit function. Feature-gated with `typeof ResizeObserver !== "undefined"` for safety. Refactored the anonymous resize handler into named `debouncedFit()` function shared by both `window.resize` and `ResizeObserver`.
 
 **Build:** Server 0 errors, 0 warnings. Roslyn validation clean on both C# files.
+
+### 2026-07-20 — Clarify Tools Menu Item Names (External vs Embedded Terminal)
+
+Renamed both Copilot CLI menu items in the Tools menu to eliminate user confusion:
+- "Launch Copilot CLI" → **"Copilot CLI (External Terminal)"**
+- "Copilot CLI Window" → **"Copilot CLI (Embedded Terminal)"**
+
+Parallel parenthetical naming so both group together and the distinction is obvious at a glance.
+
+**Files changed:**
+- `CopilotCliIdePackage.vsct` — ButtonText for both commands
+- `TerminalToolWindow.cs` — Caption property (tool window title bar)
+- `CopilotCliIdePackage.cs` — log messages and registration comment
+- `README.md` — Usage section and tip
+- `CHANGELOG.md` — historical menu references
+- `.github/copilot-instructions.md` — terminal subsystem docs
+
+**Key finding:** Menu item text lives in 3 layers: VSCT ButtonText (menu), ToolWindowPane Caption (title bar), and docs. All must stay in sync. The "Loading Copilot CLI…" placeholder text in TerminalToolWindowControl was left as-is — it's transient loading state, not a navigable menu item.
+
+**Build:** Roslyn validation clean on both C# files. Server builds 0 errors, 0 warnings.
+
+### 2026-07-20 — Terminal redraw/re-fit on tab visibility changes
+
+**Bug:** Two visual bugs where xterm.js didn't recalculate dimensions after the tool window tab regained visibility: (1) solution switch → tab switch → come back showed frozen/stale content; (2) close solution → reopen showed line wrapping artifacts from stale terminal state.
+
+**Root cause:** `OnVisibleChanged` only focused WebView2, never triggered `fitAddon.fit()`. Session restarts (from solution switch) didn't clear xterm.js state.
+
+**Fix — three layers:**
+1. **JS (`terminal-app.js`):** Exposed `window.fitTerminal()` (zero-dimension guard + fit + sendResize) and `window.resetTerminal()` (terminal.reset + fit). Added `document.visibilitychange` listener with 100ms delay — WebView2 maps WPF visibility to this API, making it the primary re-fit trigger for tab switches.
+2. **C# control (`TerminalToolWindowControl.cs`):** `OnVisibleChanged` now calls `ScheduleFitScript()` via `Dispatcher.BeginInvoke(Background)` as belt-and-suspenders. New `OnSessionRestarted` handler dispatches `resetTerminal()` to clear stale content on restart.
+3. **C# service (`TerminalSessionService.cs`):** Added `SessionRestarted` event, fired outside `_processLock` after successful restart to avoid deadlocks.
+
+**Key learnings:**
+- WebView2 maps WPF `IsVisible` → `document.visibilityState`. The `visibilitychange` event fires on VS tool window tab switches — reliable primary mechanism.
+- `fitAddon.fit()` silently no-ops when container has zero dimensions (returns undefined from `proposeDimensions`). The explicit guard in `fitTerminal()` prevents unnecessary `sendResize` calls.
+- `terminal.reset()` clears viewport + scrollback + cursor state — correct choice for session restart. `terminal.clear()` only clears scrollback.
+- Events from `TerminalSessionService` should fire outside `_processLock` to prevent deadlocks when handlers access the service.
+
+**Build:** Roslyn validation clean (0 errors, 0 warnings). Formatter clean. All 284 server tests pass.
+
+### 2026-07-20 — Reset terminal on solution close instead of killing it
+
+**Bug:** When a solution closed, `OnSolutionAfterClosing` called `_terminalSession?.StopSession()`, killing the ConPTY process. The tool window tab stayed visible but showed a frozen, uninteractable terminal. Users had to wait for a new solution to load before the terminal became usable again.
+
+**Fix in `CopilotCliIdePackage.cs`:** Replaced `StopSession()` with `RestartSession(fallbackDir)` where `fallbackDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)`. This stops the old ConPTY process and immediately starts a fresh one rooted at `%USERPROFILE%`. The `SessionRestarted` event fires, which the tool window control handles by calling `resetTerminal()` in xterm.js — clearing stale content and re-fitting.
+
+**Why user home dir:** When no solution is loaded, the terminal needs a sensible working directory. `UserProfile` (`C:\Users\<name>`) is the standard shell default on Windows and matches what `cmd.exe` and PowerShell use when launched without a specific path. `Directory.GetCurrentDirectory()` was considered but it inherits VS's process CWD which may be stale or unexpected.
+
+**Lifecycle note:** Terminal session lifecycle is independent from MCP connection lifecycle. `StopConnection()` still runs (tears down pipes, lock file, MCP server), but the terminal keeps running. On next solution open, `RestartSession(GetWorkspaceFolder())` resets it to the new solution directory — same as before.
+
+**Build:** Roslyn validation clean (0 errors, 0 warnings). All 284 server tests pass.
+
