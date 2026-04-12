@@ -47,16 +47,14 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
 	{
-		// Clicking the tool window explicitly focuses WebView2 + xterm.js.
-		// This handles focus recovery after F5 debug cycles where Chromium's
-		// internal focus desyncs from the WPF focus state.
-		// PreviewMouseDown only fires on real user clicks — no infinite loops.
-		if (!_webViewReady || _webView?.CoreWebView2 == null)
+		// Focus recovery after F5 debug cycles where Chromium's internal focus
+		// desyncs from WPF. Only runs when WebView2 doesn't already have focus
+		// to avoid interfering with xterm.js selection (drag) handling.
+		if (!_webViewReady || _webView?.CoreWebView2 == null || _webView.IsFocused)
 			return;
 
 		_webView.Focus();
-		try { _ = _webView.CoreWebView2.ExecuteScriptAsync("if(window.term)term.focus()"); }
-		catch { /* Ignore */ }
+		DispatchToUI(() => _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.term)term.focus()"));
 	}
 
 	private void OnLoaded(object sender, RoutedEventArgs e)
