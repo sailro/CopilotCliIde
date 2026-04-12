@@ -3111,3 +3111,44 @@ Set WorkingDirectory = serverDir in ProcessStartInfo, where serverDir is the Mcp
 ### Rule
 
 **Always set WorkingDirectory explicitly when launching child processes from VS extensions.** The inherited directory is the user's project folder, which can contain arbitrary configuration files that interfere with the child process.
+
+## Decision: Fix 2 Critical Terminal Bugs — 2026-07-20
+
+# Decision: Fix 2 Critical Terminal Bugs
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-07-20  
+**Status:** Implemented  
+**Files changed:** `src/CopilotCliIde/TerminalProcess.cs`, `src/CopilotCliIde/Resources/Terminal/terminal-app.js`
+
+## Context
+
+Both bugs were identified during Hicks's code review of PR #7 (embedded terminal subsystem) and logged in `.squad/agents/hicks/history.md` under "Terminal Subsystem Code Review Delivery (PR #7)" as critical findings #1 and #2.
+
+## Bug 1: UTF-8 Multi-Byte Character Corruption
+
+**Root cause:** `Encoding.UTF8.GetString(buffer, 0, bytesRead)` in `ReadLoop()` is stateless. Each call treats the byte array as a complete, independent UTF-8 stream. When a multi-byte character (2-4 bytes) is split across two `ReadFile` calls at the 4096-byte buffer boundary, both chunks decode the partial bytes as U+FFFD replacement characters.
+
+**Fix:** Replaced with a persistent `System.Text.Decoder` instance (`Encoding.UTF8.GetDecoder()`). The `Decoder` maintains internal state — incomplete trailing bytes from one `GetChars()` call are buffered and prepended to the next call's input, producing correct characters.
+
+**Impact:** Affects any terminal output containing non-ASCII characters (emoji, CJK, accented characters, box-drawing characters in TUI apps). Corruption is probabilistic — depends on whether a multi-byte sequence lands on a buffer boundary.
+
+## Bug 2: Broken Focus Recovery (window.term)
+
+**Root cause:** `TerminalToolWindowControl.cs:58` calls `ExecuteScriptAsync("window.term.focus()")` to recover keyboard focus after VS debug cycles (F5). The xterm.js `Terminal` instance is created as `var terminal` inside an IIFE in `terminal-app.js` — it's scoped to the function closure and invisible on `window`. The call fails silently (`undefined.focus()` is not called; `window.term` is just `undefined`).
+
+**Fix:** Added `window.term = terminal;` in `terminal-app.js` after full initialization, exposing the instance for C# interop.
+
+**Impact:** After any F5 debug cycle, clicking in the terminal did not restore keyboard focus. Users had to close and reopen the tool window.
+
+## Build Verification
+
+- Server project: `dotnet build` — 0 errors, 0 warnings.
+- Roslyn validation of `TerminalProcess.cs` — clean.
+- Extension project is net472/VSSDK (requires MSBuild, not validated here).
+
+## Patterns Established
+
+1. **Streamed UTF-8 decoding:** Always use `Decoder` (not `Encoding.GetString`) when reading byte streams in chunks. This applies to pipes, sockets, serial ports — any scenario where character boundaries don't align with read boundaries.
+2. **WebView2 JS interop:** Any JS object that C# needs to reach via `ExecuteScriptAsync` must be assigned to `window`. IIFE-local variables are unreachable.
+
