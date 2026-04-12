@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.17] - 2026-04-12
+
+### Fixed
+
+- Disable Chromium context menu in embedded terminal (right-click is for paste)
+- Hide xterm.js scrollbar to match external terminal appearance
+- Match Windows Terminal ANSI color brightness in embedded terminal
+
+### Changed
+
+- Skip JSON serialization on terminal output hot path (`PostWebMessageAsString`)
+- Skip focus recovery when WebView2 already has focus (selection perf)
+- Remove redundant click-to-focus handler that interfered with xterm.js selection
+- Extract `DispatchToUI` helper with internalized try-catch
+
 ## [1.0.16] - 2026-04-12
 
 ### Added
@@ -263,7 +278,8 @@ _Version bump only for marketplace publishing tests — no functional changes._
 - Lock file discovery mechanism (`~/.copilot/ide/*.lock`) for Copilot CLI to find running VS instances
 - Comprehensive README with usage instructions, architecture diagram, and tool documentation
 
-[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.16...HEAD
+[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.17...HEAD
+[1.0.17]: https://github.com/sailro/CopilotCliIde/compare/1.0.16...1.0.17
 [1.0.16]: https://github.com/sailro/CopilotCliIde/compare/1.0.15...1.0.16
 [1.0.15]: https://github.com/sailro/CopilotCliIde/compare/1.0.14...1.0.15
 [1.0.14]: https://github.com/sailro/CopilotCliIde/compare/1.0.13...1.0.14
