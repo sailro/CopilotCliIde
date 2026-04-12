@@ -7,6 +7,10 @@ The MCP server uses **[ModelContextProtocol.AspNetCore](https://github.com/model
 
 <img alt="copilot-cli with VS ide support" src="https://github.com/user-attachments/assets/d65ce04c-2158-4587-aea0-443f2b195141" />
 
+<img alt="copilot-cli embedded in VS" src="https://github.com/user-attachments/assets/a5bf4a42-7160-497a-815d-c0e670f170fe" />
+
+
+
 ## Getting Started
 
 ### Prerequisites
