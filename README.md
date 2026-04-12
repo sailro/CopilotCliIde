@@ -5,7 +5,7 @@ A Visual Studio extension that enables [GitHub Copilot CLI](https://docs.github.
 
 The MCP server uses **[ModelContextProtocol.AspNetCore](https://github.com/modelcontextprotocol/csharp-sdk)** with Kestrel hosting over a Windows named pipe — ASP.NET Core handles all HTTP and SSE transport.
 
-<img alt="copilot-cli with VS ide support" src="https://github.com/user-attachments/assets/8115c1a3-de87-44a8-b4e6-dbf79fad4626" />
+<img alt="copilot-cli with VS ide support" src="https://github.com/user-attachments/assets/d65ce04c-2158-4587-aea0-443f2b195141" />
 
 ## Getting Started
 
