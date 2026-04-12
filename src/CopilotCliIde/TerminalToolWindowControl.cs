@@ -232,10 +232,9 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		if (!_webViewReady || _disposed || _webView == null)
 			return;
 
-		// Serialize on the calling thread to keep UI work minimal
-		var message = JsonSerializer.Serialize(new { type = "output", data });
-
-		DispatchToUI(() => _webView?.CoreWebView2?.PostWebMessageAsJson(message));
+		// Hot path — skip JSON serialization, post raw string directly.
+		// JS side detects non-JSON messages as raw terminal output.
+		DispatchToUI(() => _webView?.CoreWebView2?.PostWebMessageAsString(data));
 	}
 
 	private void OnProcessExited()

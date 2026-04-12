@@ -84,18 +84,17 @@
 		);
 	});
 
-	// Receive messages from C# (terminal output, clear, etc.)
+	// Receive messages from C# — raw strings are terminal output (hot path),
+	// JSON objects are control messages (clear).
 	window.chrome.webview.addEventListener("message", function (event) {
-		var msg;
-		try {
-			msg = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-		} catch (e) {
+		var data = event.data;
+		// PostWebMessageAsString sends raw string — write directly (no JSON parse)
+		if (typeof data === "string") {
+			terminal.write(data);
 			return;
 		}
-
-		if (msg.type === "output") {
-			terminal.write(msg.data);
-		} else if (msg.type === "clear") {
+		// PostWebMessageAsJson sends parsed object
+		if (data && data.type === "clear") {
 			terminal.clear();
 		}
 	});
