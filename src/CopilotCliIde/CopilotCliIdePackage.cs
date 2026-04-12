@@ -212,7 +212,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			try
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
-				_terminalSession?.StopSession();
+				var fallbackDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+				_terminalSession?.RestartSession(fallbackDir);
 				StopConnection();
 			}
 			catch (Exception ex)
