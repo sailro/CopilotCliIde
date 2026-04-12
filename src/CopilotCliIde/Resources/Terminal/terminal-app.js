@@ -43,15 +43,23 @@
 		JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows })
 	);
 
-	// Handle container resize
+	// Handle container resize — debounced fit for both window resize and dock panel splitter drags
 	var resizeTimer = null;
-	window.addEventListener("resize", function () {
+	function debouncedFit() {
 		clearTimeout(resizeTimer);
 		resizeTimer = setTimeout(function () {
 			fitAddon.fit();
 			sendResize();
 		}, 50);
-	});
+	}
+
+	window.addEventListener("resize", debouncedFit);
+
+	// ResizeObserver catches dock panel splitter drags that don't fire window resize
+	var terminalContainer = document.getElementById("terminal");
+	if (typeof ResizeObserver !== "undefined" && terminalContainer) {
+		new ResizeObserver(debouncedFit).observe(terminalContainer);
+	}
 
 	// Forward user input to C#
 	terminal.onData(function (data) {

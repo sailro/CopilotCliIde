@@ -15,7 +15,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 {
 	private WebView2? _webView;
 	private TerminalSessionService? _sessionService;
-	private bool _webViewReady;
+	private volatile bool _webViewReady;
 	private bool _sessionStartedByResize;
 	private readonly OutputLogger? _logger;
 	private bool _disposed;
@@ -122,12 +122,21 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		if (_disposed)
 			return;
 
-		var cachePath = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-			"CopilotCliIde", "webview2");
-		Directory.CreateDirectory(cachePath);
+		CoreWebView2Environment env;
+		try
+		{
+			var cachePath = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+				"CopilotCliIde", "webview2");
+			Directory.CreateDirectory(cachePath);
 
-		var env = await CoreWebView2Environment.CreateAsync(null, cachePath);
+			env = await CoreWebView2Environment.CreateAsync(null, cachePath);
+		}
+		catch (Exception ex)
+		{
+			_logger?.Log($"Terminal control: WebView2 runtime not found — embedded terminal unavailable. Install from https://developer.microsoft.com/en-us/microsoft-edge/webview2/ ({ex.Message})");
+			return;
+		}
 
 		if (_disposed)
 			return;
@@ -139,7 +148,17 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		};
 		Content = _webView;
 
-		await _webView.EnsureCoreWebView2Async(env);
+		try
+		{
+			await _webView.EnsureCoreWebView2Async(env);
+		}
+		catch (Exception ex)
+		{
+			_logger?.Log($"Terminal control: WebView2 initialization failed — embedded terminal unavailable ({ex.Message})");
+			_webView.Dispose();
+			_webView = null;
+			return;
+		}
 
 		if (_disposed)
 			return;

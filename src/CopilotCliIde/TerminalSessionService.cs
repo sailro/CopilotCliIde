@@ -5,6 +5,7 @@ namespace CopilotCliIde;
 // window hide/show cycles and is only torn down on solution close or dispose.
 internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 {
+	private readonly object _processLock = new();
 	private TerminalProcess? _process;
 	private string? _workingDirectory;
 	private short _cols = 120;
@@ -20,29 +21,41 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public void StartSession(string workingDirectory, short cols = 120, short rows = 40)
 	{
-		StopSession();
-
-		_workingDirectory = workingDirectory;
-		_cols = cols;
-		_rows = rows;
-		logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows})");
-
-		try
+		lock (_processLock)
 		{
-			_process = new TerminalProcess();
-			_process.OutputReceived += OnOutputReceived;
-			_process.ProcessExited += OnProcessExited;
-			_process.Start(workingDirectory, cols, rows);
-		}
-		catch (Exception ex)
-		{
-			logger?.Log($"Terminal: failed to start session: {ex.Message}");
-			_process?.Dispose();
-			_process = null;
+			StopSessionCore();
+
+			_workingDirectory = workingDirectory;
+			_cols = cols;
+			_rows = rows;
+			logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows})");
+
+			try
+			{
+				_process = new TerminalProcess();
+				_process.OutputReceived += OnOutputReceived;
+				_process.ProcessExited += OnProcessExited;
+				_process.Start(workingDirectory, cols, rows);
+			}
+			catch (Exception ex)
+			{
+				logger?.Log($"Terminal: failed to start session: {ex.Message}");
+				_process?.Dispose();
+				_process = null;
+			}
 		}
 	}
 
 	public void StopSession()
+	{
+		lock (_processLock)
+		{
+			StopSessionCore();
+		}
+	}
+
+	// Must be called under _processLock
+	private void StopSessionCore()
 	{
 		if (_process == null)
 			return;
@@ -57,9 +70,31 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public void RestartSession(string? workingDirectory = null)
 	{
-		var dir = workingDirectory ?? _workingDirectory;
-		if (dir != null)
-			StartSession(dir, _cols, _rows);
+		lock (_processLock)
+		{
+			var dir = workingDirectory ?? _workingDirectory;
+			if (dir != null)
+			{
+				StopSessionCore();
+
+				_workingDirectory = dir;
+				logger?.Log($"Terminal: restarting session in {dir} ({_cols}x{_rows})");
+
+				try
+				{
+					_process = new TerminalProcess();
+					_process.OutputReceived += OnOutputReceived;
+					_process.ProcessExited += OnProcessExited;
+					_process.Start(dir, _cols, _rows);
+				}
+				catch (Exception ex)
+				{
+					logger?.Log($"Terminal: failed to restart session: {ex.Message}");
+					_process?.Dispose();
+					_process = null;
+				}
+			}
+		}
 	}
 
 	public void WriteInput(string data)
