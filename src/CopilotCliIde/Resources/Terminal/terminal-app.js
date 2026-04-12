@@ -87,6 +87,29 @@
 	// Expose terminal instance for C# focus recovery (ExecuteScriptAsync)
 	window.term = terminal;
 
+	// C# callable: re-fit terminal to container dimensions after visibility changes.
+	// Returns early if container has zero dimensions (tab still hidden).
+	window.fitTerminal = function () {
+		var container = document.getElementById("terminal");
+		if (!container || container.offsetWidth === 0 || container.offsetHeight === 0)
+			return;
+		fitAddon.fit();
+		sendResize();
+	};
+
+	// C# callable: reset terminal state and re-fit (used on session restart)
+	window.resetTerminal = function () {
+		terminal.reset();
+		window.fitTerminal();
+	};
+
+	// Re-fit when page visibility changes — WebView2 maps WPF visibility to this API
+	document.addEventListener("visibilitychange", function () {
+		if (!document.hidden) {
+			setTimeout(function () { window.fitTerminal(); }, 100);
+		}
+	});
+
 	// Focus terminal on click
 	document.addEventListener("click", function () {
 		terminal.focus();

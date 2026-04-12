@@ -111,8 +111,38 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
 	{
-		if (e.NewValue is true && _webViewReady && _webView != null)
+		if (e.NewValue is true && _webViewReady && _webView?.CoreWebView2 != null)
+		{
 			_webView.Focus();
+			// Re-fit xterm.js after tab becomes visible — container may have resized while hidden.
+			// JS visibilitychange is the primary mechanism; this is belt-and-suspenders.
+			ScheduleFitScript();
+		}
+	}
+
+	private void ScheduleFitScript()
+	{
+#pragma warning disable VSTHRD001 // BeginInvoke is intentional — deferred to let WPF complete layout pass
+		Dispatcher.BeginInvoke(new Action(() =>
+#pragma warning restore VSTHRD001
+		{
+			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.fitTerminal)fitTerminal()"); }
+			catch { /* Ignore */ }
+		}), System.Windows.Threading.DispatcherPriority.Background);
+	}
+
+	private void OnSessionRestarted()
+	{
+		if (!_webViewReady || _disposed || _webView == null)
+			return;
+
+#pragma warning disable VSTHRD001 // BeginInvoke is intentional — fire-and-forget UI dispatch
+		_ = _webView.Dispatcher.BeginInvoke(new Action(() =>
+#pragma warning restore VSTHRD001
+		{
+			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.resetTerminal)resetTerminal()"); }
+			catch { /* Ignore */ }
+		}));
 	}
 
 	private async Task InitializeWebViewAsync()
@@ -195,6 +225,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 		_sessionService.OutputReceived += OnOutputReceived;
 		_sessionService.ProcessExited += OnProcessExited;
+		_sessionService.SessionRestarted += OnSessionRestarted;
 
 		// Don't start the session here — wait for the first resize message
 		// from xterm.js so ConPTY is created with the correct dimensions.
@@ -208,6 +239,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 		_sessionService.OutputReceived -= OnOutputReceived;
 		_sessionService.ProcessExited -= OnProcessExited;
+		_sessionService.SessionRestarted -= OnSessionRestarted;
 		_sessionService = null;
 	}
 

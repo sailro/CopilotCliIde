@@ -17,6 +17,9 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 	// Fired when the terminal process exits.
 	public event Action? ProcessExited;
 
+	// Fired after a session restart completes — signals the UI to clear and re-fit.
+	public event Action? SessionRestarted;
+
 	public bool IsRunning => _process?.IsRunning ?? false;
 
 	public void StartSession(string workingDirectory, short cols = 120, short rows = 40)
@@ -70,6 +73,7 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public void RestartSession(string? workingDirectory = null)
 	{
+		var restarted = false;
 		lock (_processLock)
 		{
 			var dir = workingDirectory ?? _workingDirectory;
@@ -86,6 +90,7 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 					_process.OutputReceived += OnOutputReceived;
 					_process.ProcessExited += OnProcessExited;
 					_process.Start(dir, _cols, _rows);
+					restarted = true;
 				}
 				catch (Exception ex)
 				{
@@ -95,6 +100,10 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 				}
 			}
 		}
+
+		// Fire outside the lock — handler dispatches to UI thread for xterm.js clear + re-fit
+		if (restarted)
+			SessionRestarted?.Invoke();
 	}
 
 	public void WriteInput(string data)
