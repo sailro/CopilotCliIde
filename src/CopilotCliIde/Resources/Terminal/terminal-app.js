@@ -22,20 +22,13 @@
 	terminal.open(document.getElementById("terminal"));
 	fitAddon.fit();
 
-	var lastCols = terminal.cols;
-	var lastRows = terminal.rows;
-
 	// Notify C# of terminal dimensions after fit
 	function sendResize() {
 		var cols = terminal.cols;
 		var rows = terminal.rows;
-		if (cols !== lastCols || rows !== lastRows) {
-			lastCols = cols;
-			lastRows = rows;
-			window.chrome.webview.postMessage(
-				JSON.stringify({ type: "resize", cols: cols, rows: rows })
-			);
-		}
+		window.chrome.webview.postMessage(
+			JSON.stringify({ type: "resize", cols: cols, rows: rows })
+		);
 	}
 
 	// Send initial size
