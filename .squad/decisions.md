@@ -2062,6 +2062,46 @@ PR #7 added 5 new files to the VS extension project (`CopilotCliIde`, net472):
 - Main barrier is `new TerminalProcess()` hardcoded in `StartSession()`.
 - **What SHOULD be tested:** P1: StartSession() stops existing session before starting new. P1: StopSession() unsubscribes and disposes. P1: RestartSession() uses previous directory/dimensions. P1: WriteInput()/Resize() on no session is no-op.
 
+---
+
+## Fix: 4 Important Terminal Issues — 2026-04-12
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-04-12  
+**Status:** Implemented  
+**Commit:** 3b86fbc  
+
+### Summary
+
+Resolved 4 important thread-safety, error handling, and layout correctness issues from PR #7 terminal subsystem review.
+
+### Changes
+
+**1. Volatile `_webViewReady` (TerminalToolWindowControl.cs)**
+- Added `volatile` keyword to ensure cross-thread visibility between DOMContentLoaded writer (UI thread) and OnOutputReceived reader (thread pool).
+
+**2. WebView2 graceful fallback (TerminalToolWindowControl.cs)**
+- Wrapped `CoreWebView2Environment.CreateAsync` and `EnsureCoreWebView2Async` in separate try-catch blocks.
+- On failure: logs descriptive message with WebView2 install URL to Output pane, cleans up partial state, returns early.
+- Tool window remains at placeholder text — non-functional but non-crashing.
+
+**3. Thread sync in TerminalSessionService.cs**
+- Added `_processLock` object field for synchronization.
+- `StartSession`, `StopSession`, `RestartSession` acquire lock before touching `_process`.
+- Extracted `StopSessionCore()` (no-lock inner) to avoid double-locking from `StartSession` → `StopSession` path.
+- `WriteInput` and `Resize` remain lock-free — delegate to TerminalProcess (self-synchronized).
+
+**4. ResizeObserver for dock panel (terminal-app.js)**
+- Added `ResizeObserver` on `#terminal` container, complementing existing `window.resize` listener.
+- Both share named `debouncedFit()` function with 50ms debounce.
+- Feature-gated: `typeof ResizeObserver !== "undefined"` for safety.
+- Handles VS dock panel splitter drags that don't fire `window.resize`.
+
+### Verification
+
+- `dotnet build src/CopilotCliIde.Server/` — 0 errors, 0 warnings.
+- Roslyn validation on both C# files — clean.
+
 **4. TerminalToolWindow.cs** — VS ToolWindowPane (LOW testability)
 - 38-line shell, inherits VSSDK `ToolWindowPane`, requires VS shell.
 - Key filtering in PreProcessMessage could be extracted to pure static method and unit tested.

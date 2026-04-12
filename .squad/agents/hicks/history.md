@@ -219,3 +219,27 @@ Reviewed all new/modified files from "feat: Embedded Copilot CLI tool window" PR
 - `TerminalToolWindowControl.cs` calls `ExecuteScriptAsync("window.term.focus()")` to recover keyboard focus after F5 debug cycles. But the xterm.js `Terminal` instance was created as local `var terminal` inside an IIFE — `window.term` was `undefined`, so the call silently failed.
 - **Fix:** Added `window.term = terminal;` inside the IIFE, just before the click handler registration. Placement is after all addon loading and initial setup, so the exposed instance is fully initialized.
 - **Pattern:** When C# needs to call into WebView2 JS via `ExecuteScriptAsync`, the target must be on `window`. IIFE-scoped variables are unreachable from external scripts.
+
+### 2026-07-20 — Fix 4 Important Terminal Issues (Code Review Follow-up)
+
+Fixed all four 🟡 Important issues from the terminal code review.
+
+**Issue 1: `volatile` on `_webViewReady` (TerminalToolWindowControl.cs)**
+- Field written on UI thread (DOMContentLoaded callback) and read on thread pool (OnOutputReceived). Without `volatile`, CPU cache coherence not guaranteed under .NET memory model.
+- **Fix:** Added `volatile` keyword to field declaration.
+
+**Issue 2: WebView2 graceful fallback (TerminalToolWindowControl.cs)**
+- If WebView2 runtime missing, `CreateAsync` or `EnsureCoreWebView2Async` throws. Previously uncaught — would crash via the outer `DeferredInitialize` handler but with a generic message.
+- **Fix:** Wrapped both calls in targeted try-catch blocks. On failure: logs clear message with install URL to Output pane, cleans up partial WebView2 state, returns early. Tool window stays at "Loading Copilot CLI…" placeholder — non-functional but non-crashing.
+- **Pattern:** Two separate try-catch blocks because `CreateAsync` failure (no runtime) and `EnsureCoreWebView2Async` failure (runtime found but init fails) need different cleanup — the latter must dispose the already-created WebView2 control.
+
+**Issue 3: Thread sync in TerminalSessionService (TerminalSessionService.cs)**
+- `StartSession`/`StopSession`/`RestartSession` race when called from UI thread (tool window resize) vs solution events thread (solution close).
+- **Fix:** Added `_processLock` object. Extracted `StopSessionCore()` (lock-free inner method) called from `StopSession` and `StartSession` under lock. `RestartSession` locks then delegates to `StartSession` (safe: C# `Monitor` is reentrant for same thread).
+- `WriteInput` and `Resize` left lock-free — they delegate to `TerminalProcess` which handles its own thread safety, and brief stale reference is harmless.
+
+**Issue 4: ResizeObserver (terminal-app.js)**
+- `window.resize` event doesn't fire when VS dock panel splitter is dragged — only when the outer Chromium window changes size. Terminal could be clipped.
+- **Fix:** Added `ResizeObserver` on `#terminal` container element, sharing the existing debounced fit function. Feature-gated with `typeof ResizeObserver !== "undefined"` for safety. Refactored the anonymous resize handler into named `debouncedFit()` function shared by both `window.resize` and `ResizeObserver`.
+
+**Build:** Server 0 errors, 0 warnings. Roslyn validation clean on both C# files.
