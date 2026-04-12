@@ -1,103 +1,114 @@
-using System.Reflection;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
+using Microsoft.Terminal.Wpf;
+using Microsoft.VisualStudio.PlatformUI;
 using Microsoft.VisualStudio.Shell;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 
 namespace CopilotCliIde;
 
-// WPF control hosting a WebView2 instance with xterm.js for terminal rendering.
-// Attaches to TerminalSessionService for process I/O.
-internal sealed class TerminalToolWindowControl : UserControl, IDisposable
+// WPF control hosting a native Microsoft.Terminal.Wpf.TerminalControl for terminal rendering.
+// Implements ITerminalConnection as the bridge between the native control and TerminalSessionService.
+internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnection, IDisposable
 {
-	private WebView2? _webView;
+	private TerminalControl? _termControl;
 	private TerminalSessionService? _sessionService;
-	private volatile bool _webViewReady;
 	private bool _sessionStartedByResize;
 	private readonly OutputLogger? _logger;
 	private bool _disposed;
-	private bool _initializing;
+
+	public event EventHandler<TerminalOutputEventArgs>? TerminalOutput;
 
 	public TerminalToolWindowControl()
 	{
 		_logger = VsServices.Instance.Logger;
 
-		// Lightweight placeholder — WebView2 is created lazily in DeferredInitialize
-		// to avoid blocking VS during tool window restoration at startup.
-		Content = new TextBlock
-		{
-			Text = "Loading Copilot CLI…",
-			Foreground = System.Windows.Media.Brushes.Gray,
-			HorizontalAlignment = HorizontalAlignment.Center,
-			VerticalAlignment = VerticalAlignment.Center,
-			FontSize = 14
-		};
+		_termControl = new TerminalControl { Focusable = true };
+		_termControl.Connection = this;
+		_termControl.AutoResize = true;
+		Content = _termControl;
 
-		Background = new System.Windows.Media.SolidColorBrush(
-			System.Windows.Media.Color.FromRgb(30, 30, 30));
+		// Attach to session early — Resize may fire before OnLoaded
+		AttachToSession();
 
 		Loaded += OnLoaded;
 		Unloaded += OnUnloaded;
-		PreviewMouseDown += OnPreviewMouseDown;
+		GotFocus += OnGotFocus;
 		IsVisibleChanged += OnVisibleChanged;
+
+		VSColorTheme.ThemeChanged += OnThemeChanged;
 	}
 
-	private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+	// --- ITerminalConnection ---
+
+	void ITerminalConnection.Start()
 	{
-		// Focus recovery after F5 debug cycles where Chromium's internal focus
-		// desyncs from WPF. Only runs when WebView2 doesn't already have focus
-		// to avoid interfering with xterm.js selection (drag) handling.
-		if (!_webViewReady || _webView?.CoreWebView2 == null || _webView.IsFocused)
+		_logger?.Log("Terminal control: ITerminalConnection.Start called");
+	}
+
+	void ITerminalConnection.WriteInput(string data)
+	{
+		if (_sessionService?.IsRunning == true)
+		{
+			_sessionService.WriteInput(data);
+		}
+		else if (data is "\r" or "\n")
+		{
+			_sessionService?.RestartSession();
+		}
+	}
+
+	void ITerminalConnection.Resize(uint rows, uint columns)
+	{
+		if (rows == 0 || columns == 0)
 			return;
 
-		_webView.Focus();
-		DispatchToUI(() => _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.term)term.focus()"));
+		_logger?.Log($"Terminal control: Resize({columns}x{rows}), session={_sessionService != null}, started={_sessionStartedByResize}");
+
+		var cols = (short)columns;
+		var r = (short)rows;
+
+		if (!_sessionStartedByResize && _sessionService is { IsRunning: false })
+		{
+			_sessionStartedByResize = true;
+#pragma warning disable VSTHRD001 // Switch to UI thread via JTF for DTE access in callback from native control
+			_ = Dispatcher.BeginInvoke(new Action(() =>
+			{
+				try
+				{
+					ThreadHelper.ThrowIfNotOnUIThread();
+					var workspaceFolder = CopilotCliIdePackage.GetWorkspaceFolder();
+					_logger?.Log($"Terminal control: starting session, workspaceFolder={workspaceFolder ?? "(null)"}");
+					if (workspaceFolder != null)
+						_sessionService?.StartSession(workspaceFolder, cols, r);
+				}
+				catch (Exception ex)
+				{
+					_logger?.Log($"Terminal control: failed to start session: {ex.Message}");
+				}
+			}));
+#pragma warning restore VSTHRD001
+		}
+		else
+		{
+			_sessionService?.Resize(cols, r);
+		}
 	}
+
+	void ITerminalConnection.Close()
+	{
+		// Session lifecycle is managed by TerminalSessionService — nothing to do here.
+	}
+
+	// --- Lifecycle ---
 
 	private void OnLoaded(object sender, RoutedEventArgs e)
 	{
-		if (!_webViewReady && !_initializing && !_disposed)
-		{
-			// First load — defer WebView2 init to avoid blocking VS during tool window restore.
-			DispatchToUI(DeferredInitialize, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-		}
-		else if (_webViewReady && _sessionService == null && !_disposed)
-		{
-			// Reloaded after being unloaded (e.g., VS debug layout switch) — re-attach
-			AttachToSession();
-		}
-	}
-
-	private void DeferredInitialize()
-	{
-		if (_webViewReady || _initializing || _disposed)
+		if (_disposed)
 			return;
-		_initializing = true;
 
-#pragma warning disable VSSDK007 // Fire-and-forget is intentional for UI event handler
-		_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
-#pragma warning restore VSSDK007
-		{
-			try
-			{
-				await InitializeWebViewAsync();
-				if (_disposed)
-					return;
-				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-				AttachToSession();
-			}
-			catch (Exception ex)
-			{
-				_logger?.Log($"Terminal control: load failed: {ex}");
-			}
-			finally
-			{
-				_initializing = false;
-			}
-		});
+		ThreadHelper.ThrowIfNotOnUIThread();
+		SetTheme();
+		AttachToSession();
 	}
 
 	private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -105,104 +116,31 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		DetachFromSession();
 	}
 
+	private void OnGotFocus(object sender, RoutedEventArgs e)
+	{
+		e.Handled = true;
+		_termControl?.Focus();
+	}
+
 	private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
 	{
-		if (e.NewValue is true && _webViewReady && _webView?.CoreWebView2 != null)
-		{
-			_webView.Focus();
-			// Re-fit xterm.js after tab becomes visible — container may have resized while hidden.
-			// JS visibilitychange is the primary mechanism; this is belt-and-suspenders.
-			ScheduleFitScript();
-		}
+		if (e.NewValue is true)
+			_termControl?.Focus();
 	}
 
-	private void ScheduleFitScript()
+	private void OnThemeChanged(ThemeChangedEventArgs e)
 	{
-		DispatchToUI(() => _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.fitTerminal)fitTerminal()"));
+		ThreadHelper.ThrowIfNotOnUIThread();
+		SetTheme();
 	}
 
-	private void OnSessionRestarted()
+	private void SetTheme()
 	{
-		if (!_webViewReady || _disposed || _webView == null)
-			return;
-
-		DispatchToUI(() => _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.resetTerminal)resetTerminal()"));
+		ThreadHelper.ThrowIfNotOnUIThread();
+		_termControl?.SetTheme(TerminalThemer.GetTheme(), "Cascadia Code", 14);
 	}
 
-	private async Task InitializeWebViewAsync()
-	{
-		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-		if (_disposed)
-			return;
-
-		CoreWebView2Environment env;
-		try
-		{
-			var cachePath = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-				"CopilotCliIde", "webview2");
-			Directory.CreateDirectory(cachePath);
-
-			env = await CoreWebView2Environment.CreateAsync(null, cachePath);
-		}
-		catch (Exception ex)
-		{
-			_logger?.Log($"Terminal control: WebView2 runtime not found — embedded terminal unavailable. Install from https://developer.microsoft.com/en-us/microsoft-edge/webview2/ ({ex.Message})");
-			return;
-		}
-
-		if (_disposed)
-			return;
-
-		// Create WebView2 lazily here (not in constructor) to keep startup lightweight
-		_webView = new WebView2
-		{
-			DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 30, 30, 30)
-		};
-		Content = _webView;
-
-		try
-		{
-			await _webView.EnsureCoreWebView2Async(env);
-		}
-		catch (Exception ex)
-		{
-			_logger?.Log($"Terminal control: WebView2 initialization failed — embedded terminal unavailable ({ex.Message})");
-			_webView.Dispose();
-			_webView = null;
-			return;
-		}
-
-		if (_disposed)
-			return;
-
-		// Map the Terminal resources folder to a virtual hostname
-		var extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
-		var terminalDir = Path.Combine(extensionDir, "Resources", "Terminal");
-		_logger?.Log($"Terminal control: mapping resources from {terminalDir}");
-
-		_webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-			"copilot-cli.local", terminalDir, CoreWebView2HostResourceAccessKind.Allow);
-
-		_webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
-
-		// Disable default Chromium context menu — right-click is used for paste in terminals
-		_webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-
-		_webView.CoreWebView2.NavigationCompleted += (_, args) =>
-		{
-			_logger?.Log(args.IsSuccess ? "Terminal control: navigation succeeded" : $"Terminal control: navigation failed — status {args.WebErrorStatus}");
-		};
-
-		_webView.CoreWebView2.DOMContentLoaded += (_, _) =>
-		{
-			_webViewReady = true;
-			_logger?.Log("Terminal control: DOM ready, terminal active");
-		};
-
-		_webView.CoreWebView2.Navigate("https://copilot-cli.local/terminal.html");
-	}
+	// --- Session wiring ---
 
 	private void AttachToSession()
 	{
@@ -213,9 +151,6 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		_sessionService.OutputReceived += OnOutputReceived;
 		_sessionService.ProcessExited += OnProcessExited;
 		_sessionService.SessionRestarted += OnSessionRestarted;
-
-		// Don't start the session here — wait for the first resize message
-		// from xterm.js so ConPTY is created with the correct dimensions.
 		_sessionStartedByResize = false;
 	}
 
@@ -232,12 +167,11 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void OnOutputReceived(string data)
 	{
-		if (!_webViewReady || _disposed || _webView == null)
+		if (_disposed)
 			return;
 
-		// Hot path — skip JSON serialization, post raw string directly.
-		// JS side detects non-JSON messages as raw terminal output.
-		DispatchToUI(() => _webView?.CoreWebView2?.PostWebMessageAsString(data));
+		_logger?.Log($"Terminal control: received {data.Length} chars");
+		TerminalOutput?.Invoke(this, new TerminalOutputEventArgs(data));
 	}
 
 	private void OnProcessExited()
@@ -246,80 +180,21 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		OnOutputReceived(exitMessage);
 	}
 
-	private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+	private void OnSessionRestarted()
 	{
-		try
-		{
-			var json = e.TryGetWebMessageAsString();
-			if (json == null)
-				return;
-
-			using var doc = JsonDocument.Parse(json);
-			var root = doc.RootElement;
-			var type = root.GetProperty("type").GetString();
-
-			ThreadHelper.ThrowIfNotOnUIThread();
-
-			switch (type)
-			{
-				case "input":
-					var inputData = root.GetProperty("data").GetString();
-					if (inputData != null)
-					{
-						if (_sessionService?.IsRunning == true)
-						{
-							_sessionService.WriteInput(inputData);
-						}
-						else
-						{
-							// Process exited — restart on Enter
-							if (inputData is "\r" or "\n")
-								_sessionService?.RestartSession();
-						}
-					}
-					break;
-
-				case "resize":
-					var cols = (short)root.GetProperty("cols").GetInt32();
-					var rows = (short)root.GetProperty("rows").GetInt32();
-					if (!_sessionStartedByResize && _sessionService is { IsRunning: false })
-					{
-						// First resize from xterm.js — start process with correct dimensions
-						_sessionStartedByResize = true;
-						var workspaceFolder = CopilotCliIdePackage.GetWorkspaceFolder();
-						if (workspaceFolder != null)
-							_sessionService.StartSession(workspaceFolder, cols, rows);
-					}
-					else
-					{
-						_sessionService?.Resize(cols, rows);
-					}
-					break;
-			}
-		}
-		catch (Exception ex)
-		{
-			_logger?.Log($"Terminal control: message error: {ex.Message}");
-		}
+		// Native control handles VT reset sequences from the new shell — nothing extra needed.
 	}
 
-	// Fire-and-forget dispatch to UI thread. Exceptions are caught and ignored
-	// (WebView may be disposed during shutdown). Uses BeginInvoke for lightweight dispatch.
-#pragma warning disable VSTHRD001, VSTHRD110
-	private void DispatchToUI(Action action, System.Windows.Threading.DispatcherPriority priority = System.Windows.Threading.DispatcherPriority.Background)
-		=> _ = Dispatcher.BeginInvoke(new Action(() => { try { action(); } catch { /* Ignore — WebView may be disposed */ } }), priority);
-#pragma warning restore VSTHRD001, VSTHRD110
+	// --- Dispose ---
 
 	public void Dispose()
 	{
-		_disposed = true;
-		DetachFromSession();
-
-		if (_webView == null)
+		if (_disposed)
 			return;
+		_disposed = true;
 
-		_webView.CoreWebView2?.WebMessageReceived -= OnWebMessageReceived;
-		_webView.Dispose();
-		_webView = null;
+		VSColorTheme.ThemeChanged -= OnThemeChanged;
+		DetachFromSession();
+		_termControl = null;
 	}
 }

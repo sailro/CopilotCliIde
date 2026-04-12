@@ -510,3 +510,25 @@ The commit message states: *"Remove PushEmptySelection (copilot-cli ignores empt
 **From Hicks:** Implemented the fix by removing `PushClearedSelection()` from `OnViewClosed()`. Cleared selection now emits exclusively from `TrackActiveView` when `SEID_WindowFrame` fires with `wpfView == null`. This eliminates spurious cleared events.
 
 **From Hudson:** Approved Hicks' fix and added 3 regression tests. All 288 tests passing. The dual-emit pattern (both OnViewClosed and TrackActiveView) was the earlier attempt to cover timing gaps — your regression archaeology explains why that approach was necessary (the broken state from `3d17a6f`) but no longer needed with correct event ordering.
+
+### 2026-07-20 — Terminal Migration Architecture Proposal (WebView2 → Microsoft.Terminal.Wpf)
+
+Wrote comprehensive architecture proposal for migrating the embedded terminal from WebView2+xterm.js to `CI.Microsoft.Terminal.Wpf` — the same native Win32 terminal control Visual Studio itself uses.
+
+**Key findings from VS source exploration (`C:\Dev\VS\src\env\Terminal\`):**
+- VS's `TerminalControl.xaml.cs` implements `ITerminalConnection` (from `Microsoft.Terminal.Wpf`) — the bridge between native control and PTY backend. Our new `TerminalToolWindowControl` follows this exact pattern.
+- `ITerminalConnection` has 5 members: `Start()`, `WriteInput(string)`, `Resize(uint, uint)`, `Close()`, and `TerminalOutput` event. This replaces all WebView2 messaging.
+- `TerminalThemer.cs` creates `TerminalTheme` from VS colors via `VSColorTheme.GetThemedColor()` with dark/light presets. 16-color ANSI table + background/foreground/selection from VS theme keys.
+- Native DLL bundling pattern: managed `Microsoft.Terminal.Wpf.dll` in `lib/net472/`, native `Microsoft.Terminal.Control.dll` per architecture in `runtimes/win-{x64,arm64,x86}/native/`.
+- VS uses `ProvideCodeBase` attribute + VSIX layout for DLL resolution.
+
+**Critical risk identified:** `CI.Microsoft.Terminal.Wpf` is a CI-feed repackage (2,354 downloads, `CI2NugetRepackageTeam` owner). Not an official public NuGet. Pin exact version and vendor DLLs as fallback.
+
+**Impact assessment:**
+- `TerminalProcess.cs` and `TerminalSessionService.cs` are UNCHANGED — same I/O interface
+- `TerminalToolWindowControl.cs` is a full rewrite (simpler: ~120 LOC vs ~325 LOC)
+- New `TerminalThemer.cs` file for VS theme integration
+- Delete entire `Resources/Terminal/` directory (6 files)
+- Remove `Microsoft.Web.WebView2` NuGet, xterm.js npm packages
+
+**Proposal:** `.squad/decisions/inbox/ripley-terminal-wpf-migration.md`

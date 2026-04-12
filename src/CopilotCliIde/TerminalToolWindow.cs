@@ -12,8 +12,8 @@ public sealed class TerminalToolWindow : ToolWindowPane
 		Content = new TerminalToolWindowControl();
 	}
 
-	// Prevent VS from intercepting arrow keys, Tab, Escape, etc.
-	// so they reach the WebView2 control and xterm.js.
+	// Prevent VS command routing from intercepting keys meant for the terminal.
+	// Arrow keys, Tab, Escape, etc. must reach the native TerminalControl.
 	protected override bool PreProcessMessage(ref System.Windows.Forms.Message m)
 	{
 		const int WM_KEYDOWN = 0x0100;
@@ -23,7 +23,7 @@ public sealed class TerminalToolWindow : ToolWindowPane
 			// Arrow keys (37-40), Tab (9), Escape (27), Enter (13),
 			// Backspace (8), Delete (46), Home (36), End (35), PgUp (33), PgDn (34)
 			if (key is >= 33 and <= 40 or 8 or 9 or 13 or 27 or 46)
-				return false; // Let WebView2 handle it
+				return false;
 		}
 		return base.PreProcessMessage(ref m);
 	}

@@ -17,7 +17,15 @@
     <PackageReference Include="Microsoft.VSSDK.BuildTools" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Bcl.HashCode" />
     <PackageReference Include="StreamJsonRpc" />
-    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+  <!-- Reference VS's built-in Terminal.Wpf assembly (ships with VS in CommonExtensions\Microsoft\Terminal).
+       Private=false: don't copy to output — it's already loaded in the VS AppDomain at runtime. -->
+  <ItemGroup>
+    <Reference Include="Microsoft.Terminal.Wpf">
+      <HintPath>$(DevEnvDir)CommonExtensions\Microsoft\Terminal\Microsoft.Terminal.Wpf.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
@@ -35,15 +43,11 @@
   <ItemGroup>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
+    <Reference Include="System.Xaml" />
     <Reference Include="WindowsBase" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="Resources\Terminal\**\*.*">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug'">
     <StartAction>Program</StartAction>

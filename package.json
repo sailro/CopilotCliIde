@@ -7,10 +7,5 @@
     "prepare": "husky",
     "format": "dotnet format ./CopilotCliIde.slnx whitespace --verbosity quiet",
     "format:check": "dotnet format ./CopilotCliIde.slnx whitespace --verify-no-changes --verbosity quiet"
-  },
-  "dependencies": {
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/addon-webgl": "^0.19.0",
-    "@xterm/xterm": "^5.5.0"
   }
 }

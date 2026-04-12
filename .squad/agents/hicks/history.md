@@ -317,3 +317,35 @@ Parallel parenthetical naming so both group together and the distinction is obvi
 
 **Build:** VSIX build clean (MSBuild, 0 errors). `addon-webgl.js` auto-included via `Resources\Terminal\**\*.*` glob in CSPROJ.
 
+### 2026-07-21 — Replace WebView2+xterm.js with native Microsoft.Terminal.Wpf
+
+Completed full migration from WebView2/Chromium/xterm.js terminal rendering to VS's built-in `Microsoft.Terminal.Wpf.TerminalControl` — the same native control used by Windows Terminal and VS's own embedded terminal.
+
+**Key implementation decisions:**
+
+1. **VS-deployed assembly reference (not NuGet):** `Microsoft.Terminal.Wpf.dll` and `Microsoft.Terminal.Control.dll` ship with VS at `CommonExtensions\Microsoft\Terminal\`. Used `<Reference Include="Microsoft.Terminal.Wpf">` with `<HintPath>$(DevEnvDir)CommonExtensions\Microsoft\Terminal\...</HintPath>` and `<Private>false</Private>`. This skips NuGet entirely — no CI package stability risk, no native DLL bundling in VSIX, no assembly resolution gymnastics. The DLL resolves from VS's AppDomain at runtime.
+
+2. **ITerminalConnection bridge:** `TerminalToolWindowControl` implements `ITerminalConnection` directly (matching VS's own `TerminalControl.xaml.cs` pattern). Interface surface: `Start()` (no-op, deferred to Resize), `WriteInput(string)` → `TerminalSessionService.WriteInput()`, `Resize(uint, uint)` → session start or resize, `Close()` (no-op), `TerminalOutput` event ← `OnOutputReceived`. Zero marshaling overhead — direct method calls replace JSON-over-WebView2-messaging.
+
+3. **Theme detection without internal APIs:** VS's `TerminalThemer.cs` uses `IVsColorThemeService` (internal PIA). We can't access that from a third-party extension. Instead, detect dark/light theme by checking luminance of `EnvironmentColors.ToolWindowBackgroundColorKey` using ITU-R BT.601 luma formula. Color tables copied exactly from VS's own `TerminalThemer.cs`.
+
+4. **What was deleted:**
+   - `Resources/Terminal/` — terminal.html, terminal-app.js, lib/{xterm.js, xterm.css, addon-fit.js, addon-webgl.js}
+   - `Microsoft.Web.WebView2` NuGet from both `Directory.Packages.props` and `CopilotCliIde.csproj`
+   - xterm.js npm dependencies from `package.json`
+   - All WebView2 init code, JSON messaging, deferred loading, focus recovery hacks
+
+5. **What was preserved:**
+   - `TerminalProcess.cs`, `TerminalSessionService.cs`, `ConPty.cs` — unchanged
+   - `PreProcessMessage` in `TerminalToolWindow` — still needed for key routing
+   - Deferred session start on first Resize — same pattern, simpler path
+
+**API surface (Microsoft.Terminal.Wpf v1.22.0.0):**
+- `TerminalControl` — WPF UserControl wrapping native `TerminalContainer` (HwndHost)
+- `ITerminalConnection` — Start, WriteInput, Resize, Close, TerminalOutput event
+- `TerminalTheme` — ColorTable[16], DefaultBackground/Foreground/SelectionBackground, CursorStyle
+- `SetTheme(TerminalTheme, string fontFamily, short fontSize)` — 4th param `Color externalBackground` is optional
+- Assembly: `PublicKeyToken=f300afd708cefcd3`, requires `System.Xaml` reference in consuming project
+
+**Build:** MSBuild 0 errors, 0 warnings. All 284 server tests pass. Formatter clean.
+

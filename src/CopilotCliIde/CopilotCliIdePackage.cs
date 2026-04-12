@@ -21,6 +21,26 @@ namespace CopilotCliIde;
 [Guid("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")]
 public sealed class CopilotCliIdePackage : AsyncPackage
 {
+	static CopilotCliIdePackage()
+	{
+		// Resolve Microsoft.Terminal.Wpf from VS's Terminal extension folder.
+		// VS registers it via ProvideCodeBase on its own package, but that doesn't
+		// help third-party extensions. We resolve it from the known VS install path.
+		AppDomain.CurrentDomain.AssemblyResolve += (_, args) =>
+		{
+			var name = new System.Reflection.AssemblyName(args.Name);
+			if (!string.Equals(name.Name, "Microsoft.Terminal.Wpf", StringComparison.OrdinalIgnoreCase))
+				return null;
+
+			var devEnvDir = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule?.FileName);
+			if (devEnvDir == null)
+				return null;
+
+			var dllPath = Path.Combine(devEnvDir, "CommonExtensions", "Microsoft", "Terminal", "Microsoft.Terminal.Wpf.dll");
+			return File.Exists(dllPath) ? System.Reflection.Assembly.LoadFrom(dllPath) : null;
+		};
+	}
+
 	private IdeDiscovery? _discovery;
 	private ServerProcessManager? _processManager;
 	private NamedPipeServerStream? _rpcPipe;
