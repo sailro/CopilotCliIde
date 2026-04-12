@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Rename menu items for clarity: **Launch Copilot CLI (External Terminal)** and **Show Copilot CLI (Embedded Terminal in VS)**
+- Rename menu items for clarity: **Launch Copilot CLI (External Terminal)** and **Show Copilot CLI (Embedded Terminal)**
 
 ## [1.0.15] - 2026-03-31
 

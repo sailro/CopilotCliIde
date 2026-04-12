@@ -23,7 +23,7 @@
         <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" />
         <Icon guid="guidImages" id="copilotIcon" />
         <Strings>
-          <ButtonText>Show Copilot CLI (Embedded Terminal in VS)</ButtonText>
+          <ButtonText>Show Copilot CLI (Embedded Terminal)</ButtonText>
         </Strings>
       </Button>
     </Buttons>
