@@ -17,6 +17,9 @@ internal sealed class TerminalProcess : IDisposable
 	private readonly object _bufferLock = new();
 	private Timer? _flushTimer;
 
+	// Stateful decoder preserves incomplete multi-byte UTF-8 sequences across reads
+	private Decoder? _utf8Decoder;
+
 	// Fired when terminal output is available (UTF-8 string, batched).
 	public event Action<string>? OutputReceived;
 
@@ -45,6 +48,7 @@ internal sealed class TerminalProcess : IDisposable
 
 			_cts = new CancellationTokenSource();
 			_session = ConPty.Create("cmd.exe /c copilot", workingDirectory, cols, rows);
+			_utf8Decoder = Encoding.UTF8.GetDecoder();
 			_flushTimer = new Timer(FlushOutput, null, Timeout.Infinite, Timeout.Infinite);
 
 			_readThread = new Thread(ReadLoop)
@@ -100,7 +104,10 @@ internal sealed class TerminalProcess : IDisposable
 				if (bytesRead <= 0)
 					break;
 
-				var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+				var charCount = _utf8Decoder!.GetCharCount(buffer, 0, bytesRead);
+				var chars = new char[charCount];
+				_utf8Decoder.GetChars(buffer, 0, bytesRead, chars, 0);
+				var text = new string(chars);
 
 				lock (_bufferLock)
 				{

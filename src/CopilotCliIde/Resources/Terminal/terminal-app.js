@@ -76,6 +76,9 @@
 		}
 	});
 
+	// Expose terminal instance for C# focus recovery (ExecuteScriptAsync)
+	window.term = terminal;
+
 	// Focus terminal on click
 	document.addEventListener("click", function () {
 		terminal.focus();
