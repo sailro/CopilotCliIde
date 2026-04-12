@@ -37,6 +37,22 @@
 	var fitAddon = new FitAddon();
 	terminal.loadAddon(fitAddon);
 	terminal.open(document.getElementById("terminal"));
+
+	// WebGL renderer draws box-drawing characters with GPU paths, eliminating
+	// the cell-gap artifacts that the default canvas renderer produces.
+	var WebglAddon = window.WebglAddon && window.WebglAddon.WebglAddon;
+	if (WebglAddon) {
+		try {
+			var webglAddon = new WebglAddon();
+			webglAddon.onContextLoss(function () {
+				webglAddon.dispose();
+			});
+			terminal.loadAddon(webglAddon);
+		} catch (e) {
+			// WebGL unavailable — canvas renderer is the fallback
+		}
+	}
+
 	fitAddon.fit();
 
 	// Notify C# of terminal dimensions after fit — dedup to avoid redundant P/Invoke calls
