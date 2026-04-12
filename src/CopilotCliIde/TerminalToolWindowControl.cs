@@ -65,7 +65,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		{
 			// First load — defer WebView2 init to avoid blocking VS during tool window restore.
 #pragma warning disable VSTHRD001, VSTHRD110 // BeginInvoke is intentional — need ApplicationIdle priority for safe deferred startup
-			Dispatcher.BeginInvoke(new Action(DeferredInitialize), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+			_ = Dispatcher.BeginInvoke(new Action(DeferredInitialize), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 #pragma warning restore VSTHRD001, VSTHRD110
 		}
 		else if (_webViewReady && _sessionService == null && !_disposed)
@@ -123,7 +123,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 	private void ScheduleFitScript()
 	{
 #pragma warning disable VSTHRD001 // BeginInvoke is intentional — deferred to let WPF complete layout pass
-		Dispatcher.BeginInvoke(new Action(() =>
+		_ = Dispatcher.BeginInvoke(new Action(() =>
 #pragma warning restore VSTHRD001
 		{
 			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.fitTerminal)fitTerminal()"); }
@@ -142,7 +142,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		{
 			try { _ = _webView?.CoreWebView2?.ExecuteScriptAsync("if(window.resetTerminal)resetTerminal()"); }
 			catch { /* Ignore */ }
-		}));
+		}), System.Windows.Threading.DispatcherPriority.Background);
 	}
 
 	private async Task InitializeWebViewAsync()

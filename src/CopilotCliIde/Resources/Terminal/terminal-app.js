@@ -100,7 +100,9 @@
 	// C# callable: reset terminal state and re-fit (used on session restart)
 	window.resetTerminal = function () {
 		terminal.reset();
-		window.fitTerminal();
+		terminal.clear();
+		// Defer fit to let xterm.js complete internal reflow after reset
+		setTimeout(function () { window.fitTerminal(); }, 150);
 	};
 
 	// Re-fit when page visibility changes — WebView2 maps WPF visibility to this API
