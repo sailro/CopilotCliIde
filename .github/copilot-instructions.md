@@ -14,7 +14,7 @@ Copilot CLI ──(Streamable HTTP over named pipe)──▶ CopilotCliIde.Serve
                                                  CopilotCliIde (VS extension, net472)
 ```
 
-- **CopilotCliIde** (`net472`) — The VS extension package. Loads when a solution opens, manages the connection lifecycle (pipes, server process, lock file), subscribes to DTE events, exposes VS services via `VsServiceRpc`, and hosts an embedded terminal (WebView2 + ConPTY) for running Copilot CLI inside VS.
+- **CopilotCliIde** (`net472`) — The VS extension package. Loads when a solution opens, manages the connection lifecycle (pipes, server process, lock file), subscribes to DTE events, exposes VS services via `VsServiceRpc`, and hosts an embedded terminal (Microsoft.Terminal.Wpf + ConPTY) for running Copilot CLI inside VS.
 - **CopilotCliIde.Server** (`net10.0`) — ASP.NET Core (Kestrel) process hosting the MCP server on a Windows named pipe. Uses `ModelContextProtocol.AspNetCore` for the Streamable HTTP transport — Kestrel handles HTTP/1.1 framing, SSE streaming, and session management. `AspNetMcpPipeServer` is the server entry point; `TrackingSseEventStreamStore` manages SSE stream lifecycle. Contains 7 MCP tools in the `Tools/` folder.
 - **CopilotCliIde.Shared** (`netstandard2.0`) — Shared RPC contracts (`IVsServiceRpc`, `IMcpServerCallbacks`) and DTOs used by both the extension and the server.
 
@@ -103,16 +103,16 @@ Tool names and schemas must match VS Code's Copilot Chat extension exactly (`get
 
 ## Embedded Terminal Subsystem
 
-The extension hosts Copilot CLI in a dockable tool window (**Tools → Copilot CLI (Embedded Terminal)**) using Windows ConPTY + WebView2 + xterm.js. This is a UI-only feature — it does not interact with the MCP server or RPC layer.
+The extension hosts Copilot CLI in a dockable tool window (**Tools → Copilot CLI (Embedded Terminal)**) using Windows ConPTY + `Microsoft.Terminal.Wpf.TerminalControl` — the same native terminal control used by Windows Terminal and VS's own embedded terminal. This is a UI-only feature — it does not interact with the MCP server or RPC layer.
 
 ### Architecture
 
 ```
-TerminalToolWindowControl (WPF) ──(WebView2 postMessage)──▶ xterm.js (terminal.html)
-         │                                                         │
-         │ attach/detach                                    resize / input events
-         ▼                                                         │
-TerminalSessionService (singleton) ◄───────────────────────────────┘
+TerminalToolWindowControl (WPF, implements ITerminalConnection)
+         │                         ▲
+         │ attach/detach           │ TerminalOutput event (string)
+         ▼                         │
+TerminalSessionService (singleton) ─── OutputReceived ──▶ TerminalControl
          │
          ▼
 TerminalProcess ──(pipes)──▶ ConPTY pseudo-console ──▶ cmd.exe /c copilot
@@ -123,14 +123,14 @@ TerminalProcess ──(pipes)──▶ ConPTY pseudo-console ──▶ cmd.exe /
 - **`ConPty.cs`** — P/Invoke wrapper for `CreatePseudoConsole`, `ResizePseudoConsole`, `ClosePseudoConsole` and related Win32 APIs. Requires Windows 10 1809+. The `ConPty.Session` class holds all native handles and disposes them in the correct order (close pseudo-console first to signal EOF, then pipes, then process/thread handles).
 - **`TerminalProcess.cs`** — Manages the `ConPty.Session` lifecycle. Spawns `cmd.exe /c copilot` in the solution directory. Reads output on a dedicated background thread with 16ms batching (60fps) via `Timer` + `StringBuilder`. Fires `OutputReceived` and `ProcessExited` events.
 - **`TerminalSessionService.cs`** — Package-level singleton (created in `InitializeAsync`, stored in `VsServices.Instance`). The tool window control attaches/detaches from this service — the process survives window hide/show cycles. Supports `StartSession`, `StopSession`, `RestartSession`, `WriteInput`, `Resize`.
-- **`TerminalToolWindow.cs`** — `ToolWindowPane` shell. Overrides `PreProcessMessage` to prevent VS from intercepting arrow keys, Tab, Escape, Enter, etc. — lets them reach WebView2/xterm.js.
-- **`TerminalToolWindowControl.cs`** — WPF `UserControl` hosting WebView2. Initializes lazily via `Dispatcher.BeginInvoke(ApplicationIdle)` to avoid blocking VS startup. Maps `Resources/Terminal/` to a virtual hostname (`copilot-cli.local`) for WebView2 content. Communicates with xterm.js via JSON `postMessage`/`WebMessageReceived`.
-- **`Resources/Terminal/`** — `terminal.html`, `terminal-app.js`, and bundled xterm.js/FitAddon libraries. The JS sends `{ type: "input", data }` and `{ type: "resize", cols, rows }` messages to C#; C# posts `{ type: "output", data }` back.
+- **`TerminalToolWindow.cs`** — `ToolWindowPane` shell. Overrides `PreProcessMessage` to prevent VS from intercepting arrow keys, Tab, Escape, Enter, etc. — lets them reach the native `TerminalControl`.
+- **`TerminalToolWindowControl.cs`** — WPF `UserControl` implementing `ITerminalConnection`. Hosts `Microsoft.Terminal.Wpf.TerminalControl` directly — zero marshaling overhead. `WriteInput` → session service, `Resize` → session start or resize, `TerminalOutput` event ← output received.
+- **`TerminalThemer.cs`** — Reads VS color theme and maps it to a `TerminalTheme` struct for the native control.
 
 ### Lifecycle
 
 - **Package init** → `TerminalSessionService` created and stored in `VsServices.Instance.TerminalSession`.
-- **Tool window opened** → `TerminalToolWindowControl` creates WebView2 lazily, attaches to session service. Process is **not** started until xterm.js sends the first `resize` message (so ConPTY gets correct initial dimensions).
+- **Tool window opened** → `TerminalToolWindowControl` creates `TerminalControl`, sets `Connection = this`. Process is **not** started until the control fires `Resize` (so ConPTY gets correct initial dimensions).
 - **Solution opens** → `_terminalSession.RestartSession(workspaceFolder)` re-launches the CLI in the new solution directory.
 - **Solution closes** → `_terminalSession.StopSession()` kills the CLI process.
 - **Process exits** → User sees `[Process exited. Press Enter to restart.]`; pressing Enter calls `RestartSession()`.
@@ -138,18 +138,17 @@ TerminalProcess ──(pipes)──▶ ConPTY pseudo-console ──▶ cmd.exe /
 
 ### Threading
 
-- WebView2 init and DOM interaction happen on the UI thread (via `JoinableTaskFactory`).
 - `TerminalProcess.ReadLoop` runs on a dedicated `IsBackground = true` thread.
-- Output is dispatched to WebView2 via `Dispatcher.BeginInvoke` (lighter than JTF for fire-and-forget).
-- `OnWebMessageReceived` runs on UI thread — accesses `_sessionService` directly.
+- Output is delivered to `TerminalControl` via the `TerminalOutput` event (native control handles its own threading).
+- Session start is dispatched via `Dispatcher.BeginInvoke` from the `Resize` callback to access DTE on the UI thread.
 
 ### Independence from MCP/Connection System
 
-The terminal subsystem is **completely independent** of the MCP server, RPC pipes, and lock file discovery. It is a direct ConPTY → WebView2 bridge. The only shared touchpoints are:
+The terminal subsystem is **completely independent** of the MCP server, RPC pipes, and lock file discovery. It is a direct ConPTY → native terminal bridge. The only shared touchpoints are:
 - `VsServices.Instance` (service locator for the singleton)
 - `CopilotCliIdePackage` (lifecycle management — solution open/close hooks)
 - `GetWorkspaceFolder()` (shared utility for solution directory)
 
-### WebView2 Dependency
+### Terminal.Wpf Dependency
 
-The extension depends on `Microsoft.Web.WebView2` NuGet package. WebView2 runtime is pre-installed on Windows 10 1809+ and all Windows 11 machines. The user data folder is stored at `%LOCALAPPDATA%\CopilotCliIde\webview2`.
+The extension references `Microsoft.Terminal.Wpf.dll` from VS's `CommonExtensions\Microsoft\Terminal\` directory. This assembly ships with Visual Studio — no additional runtime dependency is needed. The reference uses `Private=false` so the DLL is not copied to output (it's already loaded in the VS AppDomain).

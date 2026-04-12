@@ -532,3 +532,39 @@ Wrote comprehensive architecture proposal for migrating the embedded terminal fr
 - Remove `Microsoft.Web.WebView2` NuGet, xterm.js npm packages
 
 **Proposal:** `.squad/decisions/inbox/ripley-terminal-wpf-migration.md`
+
+### 2026-07-21 — Post-Migration Legacy Cleanup Review
+
+Performed full project sweep for WebView2/xterm.js artifacts after the Microsoft.Terminal.Wpf migration. Found and fixed:
+
+**Source code (1 fix):**
+- `TerminalSessionService.cs:104` — Comment still referenced "xterm.js clear + re-fit". Updated.
+
+**npm artifacts (cleaned):**
+- `package-lock.json` had ghost entries for `@xterm/addon-fit`, `@xterm/addon-webgl`, `@xterm/xterm` — regenerated lock file.
+- `node_modules/@xterm/` directory still on disk (addon-fit, addon-webgl, xterm) — deleted.
+
+**Documentation (7 files updated):**
+- `.github/copilot-instructions.md` — Rewrote entire "Embedded Terminal Subsystem" section (architecture, key files, lifecycle, threading, dependency) for Terminal.Wpf. Updated CopilotCliIde architecture bullet.
+- `README.md` — Updated 2 references (usage line, architecture bullet) from WebView2 to Microsoft.Terminal.Wpf.
+- `CHANGELOG.md` — Replaced [Unreleased] "WebGL addon" entry with Terminal.Wpf migration description + Removed section.
+- `.squad/team.md` — Updated stack from "WebView2, xterm.js" to "Microsoft.Terminal.Wpf".
+- `.squad/routing.md` — Updated terminal routing entry.
+- `.squad/agents/hicks/charter.md` — Updated expertise, ownership, and boundaries (3 edits).
+
+**Confirmed clean (no action needed):**
+- `CopilotCliIde.csproj` — No WebView2 references. Terminal.Wpf reference correct.
+- `Directory.Packages.props` — No WebView2 package.
+- `source.extension.vsixmanifest` — No WebView2 prerequisites.
+- `package.json` — Already clean (only husky/squad-cli).
+- `.gitignore` — No WebView2 entries.
+- `.editorconfig` — No terminal-specific rules.
+- No `Resources/Terminal/` directory or files.
+- No `%LOCALAPPDATA%/CopilotCliIde/webview2` references in active code.
+
+**Kept (with rationale):**
+- `TerminalToolWindowControl.cs` diagnostic logging (`_logger?.Log` in Resize, OnOutputReceived, Start) — useful for ongoing terminal subsystem debugging. Writes to Output pane only, no perf impact.
+- `OutputReceived` (string event) on `TerminalProcess` and `TerminalSessionService` — still actively used. `ITerminalConnection.TerminalOutput` consumes string data. No `RawOutputReceived` needed.
+- WebView2/xterm.js mentions in `.squad/decisions.md` and agent history files — historical records, not active references.
+
+**Verified:** Server builds clean. 284 tests pass.

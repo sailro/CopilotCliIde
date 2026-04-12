@@ -349,3 +349,11 @@ Completed full migration from WebView2/Chromium/xterm.js terminal rendering to V
 
 **Build:** MSBuild 0 errors, 0 warnings. All 284 server tests pass. Formatter clean.
 
+### 2026-07-24 — VsInstallRoot for Terminal.Wpf HintPath
+
+Replaced `$(DevEnvDir)` with `$(VsInstallRoot)\Common7\IDE\` in the Microsoft.Terminal.Wpf assembly HintPath. `$(VsInstallRoot)` is set by the VSSDK NuGet targets (Microsoft.VSSDK.BuildTools) which use vswhere internally — works both inside VS IDE and from command-line MSBuild without manual overrides.
+
+This eliminated the `Find VS install path` CI step and `/p:DevEnvDir=...` override from both ci.yml and release.yml. Simpler, less fragile.
+
+**Key insight:** `$(DevEnvDir)` includes the trailing `Common7\IDE\` path segment (e.g., `C:\VS\Common7\IDE\`), while `$(VsInstallRoot)` is just the root (e.g., `C:\VS`). So the HintPath needed `\Common7\IDE\` inserted.
+

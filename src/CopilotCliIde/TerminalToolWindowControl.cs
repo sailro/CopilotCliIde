@@ -137,7 +137,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 	private void SetTheme()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
-		_termControl?.SetTheme(TerminalThemer.GetTheme(), "Cascadia Code", 14);
+		_termControl?.SetTheme(TerminalThemer.GetTheme(), "Cascadia Code", 12);
 	}
 
 	// --- Session wiring ---

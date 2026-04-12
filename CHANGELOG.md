@@ -8,7 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Switch embedded terminal to WebGL GPU-accelerated rendering (`@xterm/addon-webgl`), fixing dotted box-drawing characters and improving scroll performance
+- Replace WebView2+xterm.js terminal with native `Microsoft.Terminal.Wpf` — the same terminal control used by Windows Terminal and Visual Studio itself. Eliminates Chromium dependency, fixes box-drawing character gaps, and reduces terminal code from ~600 LOC to ~200 LOC.
+
+### Removed
+
+- `Microsoft.Web.WebView2` NuGet dependency
+- `Resources/Terminal/` directory (terminal.html, terminal-app.js, xterm.js, addon-fit, addon-webgl)
+- `@xterm/*` npm dependencies
 
 ## [1.0.17] - 2026-04-12
 

@@ -101,7 +101,7 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 			}
 		}
 
-		// Fire outside the lock — handler dispatches to UI thread for xterm.js clear + re-fit
+		// Fire outside the lock — handler signals the UI to clear and re-fit
 		if (restarted)
 			SessionRestarted?.Invoke();
 	}

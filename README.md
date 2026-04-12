@@ -40,7 +40,7 @@ Double-click the `.vsix` to install, or use F5 in Visual Studio to debug in the 
 
 1. **Open a solution** in Visual Studio — the extension activates automatically
 2. **Launch Copilot CLI** using one of:
-   - **Tools → Copilot CLI (Embedded Terminal)** — opens a dockable terminal inside VS with Copilot CLI running (embedded via WebView2 + xterm.js)
+   - **Tools → Copilot CLI (Embedded Terminal)** — opens a dockable terminal inside VS with Copilot CLI running (native Microsoft.Terminal.Wpf control)
    - **Tools → Copilot CLI (External Terminal)** — opens Copilot CLI in an external terminal window
    - Open a terminal manually in the solution folder
 3. **Run `/ide`** in Copilot CLI — it discovers Visual Studio and connects
@@ -77,7 +77,7 @@ Copilot CLI ──(Streamable HTTP over named pipe)──▶ CopilotCliIde.Serve
 ```
 
 - **CopilotCliIde.Server** (`net10.0`) — ASP.NET Core (Kestrel) process hosting the MCP server on a Windows named pipe via `ModelContextProtocol.AspNetCore`. Handles Streamable HTTP transport (POST/GET/DELETE), SSE push notifications, and session tracking. Contains 7 MCP tools in the `Tools/` folder.
-- **CopilotCliIde** (`net472`) — The VS extension package. Manages the connection lifecycle, subscribes to editor events, exposes VS services over StreamJsonRpc, and hosts an embedded terminal (WebView2 + ConPTY) for running Copilot CLI inside VS.
+- **CopilotCliIde** (`net472`) — The VS extension package. Manages the connection lifecycle, subscribes to editor events, exposes VS services over StreamJsonRpc, and hosts an embedded terminal (Microsoft.Terminal.Wpf + ConPTY) for running Copilot CLI inside VS.
 - **CopilotCliIde.Shared** (`netstandard2.0`) — Shared RPC contracts and DTOs.
 
 ## Protocol

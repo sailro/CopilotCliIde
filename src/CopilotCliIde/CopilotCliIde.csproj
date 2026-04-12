@@ -23,7 +23,7 @@
        Private=false: don't copy to output — it's already loaded in the VS AppDomain at runtime. -->
   <ItemGroup>
     <Reference Include="Microsoft.Terminal.Wpf">
-      <HintPath>$(DevEnvDir)CommonExtensions\Microsoft\Terminal\Microsoft.Terminal.Wpf.dll</HintPath>
+      <HintPath>$(VsInstallRoot)\Common7\IDE\CommonExtensions\Microsoft\Terminal\Microsoft.Terminal.Wpf.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
