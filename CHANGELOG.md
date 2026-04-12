@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Embedded Copilot CLI terminal** — dockable tool window (**Tools → Copilot CLI Window**) that hosts Copilot CLI directly inside Visual Studio with full ANSI color support, interactive prompts, and resize handling ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7) by @bommerts)
+- **Embedded Copilot CLI terminal** — dockable tool window (**Tools → Copilot CLI (Embedded Terminal)**) that hosts Copilot CLI directly inside Visual Studio with full ANSI color support, interactive prompts, and resize handling ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7) by @bommerts)
 
 ### Fixed
 
@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fix terminal session thread safety for concurrent start/stop calls
 - Add graceful fallback when WebView2 runtime is unavailable
 - Add `ResizeObserver` for terminal resize on dock panel splitter drags
+
+### Changed
+
+- Rename menu items for clarity: **Launch Copilot CLI (External Terminal)** and **Show Copilot CLI (Embedded Terminal in VS)**
 
 ## [1.0.15] - 2026-03-31
 

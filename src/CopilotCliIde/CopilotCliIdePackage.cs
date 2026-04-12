@@ -74,7 +74,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_monitorSelection.AdviseSelectionEvents(new SelectionTracker.SelectionEventSink(_selectionTracker), out _selectionMonitorCookie);
 			_selectionTracker.TrackActiveView();
 
-			// Register "Launch Copilot CLI" command in the Tools menu
+			// Register Copilot CLI commands in the Tools menu
 			if (await GetServiceAsync(typeof(IMenuCommandService)) is OleMenuCommandService commandService)
 			{
 				var cmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0100);
@@ -245,7 +245,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 		catch (Exception ex)
 		{
-			_logger?.Log($"Failed to launch Copilot CLI: {ex.Message}");
+			_logger?.Log($"Failed to launch Copilot CLI (External Terminal): {ex.Message}");
 		}
 	}
 
@@ -262,7 +262,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			}
 			catch (Exception ex)
 			{
-				_logger?.Log($"Failed to show Copilot CLI Window: {ex.Message}");
+				_logger?.Log($"Failed to show Copilot CLI (Embedded Terminal): {ex.Message}");
 			}
 		});
 	}

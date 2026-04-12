@@ -103,7 +103,7 @@ Tool names and schemas must match VS Code's Copilot Chat extension exactly (`get
 
 ## Embedded Terminal Subsystem
 
-The extension hosts Copilot CLI in a dockable tool window (**Tools → Copilot CLI Window**) using Windows ConPTY + WebView2 + xterm.js. This is a UI-only feature — it does not interact with the MCP server or RPC layer.
+The extension hosts Copilot CLI in a dockable tool window (**Tools → Copilot CLI (Embedded Terminal)**) using Windows ConPTY + WebView2 + xterm.js. This is a UI-only feature — it does not interact with the MCP server or RPC layer.
 
 ### Architecture
 

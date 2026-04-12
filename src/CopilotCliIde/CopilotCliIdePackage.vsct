@@ -16,14 +16,14 @@
         <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" />
         <Icon guid="guidImages" id="copilotIcon" />
         <Strings>
-          <ButtonText>Launch Copilot CLI</ButtonText>
+          <ButtonText>Launch Copilot CLI (External Terminal)</ButtonText>
         </Strings>
       </Button>
       <Button guid="guidCopilotCliIdeCmdSet" id="CopilotCliWindowCommandId" priority="0x0200" type="Button">
         <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" />
         <Icon guid="guidImages" id="copilotIcon" />
         <Strings>
-          <ButtonText>Copilot CLI Window</ButtonText>
+          <ButtonText>Show Copilot CLI (Embedded Terminal in VS)</ButtonText>
         </Strings>
       </Button>
     </Buttons>
