@@ -19,6 +19,13 @@
           <ButtonText>Launch Copilot CLI</ButtonText>
         </Strings>
       </Button>
+      <Button guid="guidCopilotCliIdeCmdSet" id="CopilotCliWindowCommandId" priority="0x0200" type="Button">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" />
+        <Icon guid="guidImages" id="copilotIcon" />
+        <Strings>
+          <ButtonText>Copilot CLI Window</ButtonText>
+        </Strings>
+      </Button>
     </Buttons>
 
     <Bitmaps>
@@ -31,6 +38,7 @@
     <GuidSymbol name="guidCopilotCliIdeCmdSet" value="{e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c}">
       <IDSymbol name="CopilotCliMenuGroup" value="0x1020" />
       <IDSymbol name="LaunchCopilotCliCommandId" value="0x0100" />
+      <IDSymbol name="CopilotCliWindowCommandId" value="0x0200" />
     </GuidSymbol>
     <GuidSymbol name="guidImages" value="{063cfd9a-783a-4907-801f-30eccf98c5f0}">
       <IDSymbol name="copilotIcon" value="1" />

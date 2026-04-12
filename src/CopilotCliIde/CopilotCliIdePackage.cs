@@ -17,6 +17,7 @@ namespace CopilotCliIde;
 [ProvideBindingPath]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExistsAndFullyLoaded_string, PackageAutoLoadFlags.BackgroundLoad)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
+[ProvideToolWindow(typeof(TerminalToolWindow), Transient = true, Style = VsDockStyle.Tabbed, Window = "34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3")]
 [Guid("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")]
 public sealed class CopilotCliIdePackage : AsyncPackage
 {
@@ -34,6 +35,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private CancellationTokenSource? _connectionCts;
 	private DiagnosticTracker? _diagnosticTracker;
 	private OutputLogger? _logger;
+	private TerminalSessionService? _terminalSession;
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
@@ -77,7 +79,14 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				var cmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0100);
 				commandService.AddCommand(new MenuCommand(OnLaunchCopilotCli, cmdId));
+
+				var windowCmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0200);
+				commandService.AddCommand(new MenuCommand(OnShowCopilotCliWindow, windowCmdId));
 			}
+
+			// Create terminal session service (survives tool window hide/show)
+			_terminalSession = new TerminalSessionService(_logger);
+			VsServices.Instance.TerminalSession = _terminalSession;
 		}
 		catch (Exception ex)
 		{
@@ -161,7 +170,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		catch (ObjectDisposedException) { }
 	}
 
-	private static string GetWorkspaceFolder()
+	internal static string GetWorkspaceFolder()
 	{
 		ThreadHelper.ThrowIfNotOnUIThread();
 		try
@@ -187,6 +196,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
 				await StartConnectionAsync();
+				_terminalSession?.RestartSession(GetWorkspaceFolder());
 			}
 			catch (Exception ex)
 			{
@@ -202,6 +212,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			try
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
+				_terminalSession?.StopSession();
 				StopConnection();
 			}
 			catch (Exception ex)
@@ -238,6 +249,24 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		}
 	}
 
+	private void OnShowCopilotCliWindow(object sender, EventArgs e)
+	{
+		_ = JoinableTaskFactory.RunAsync(async () =>
+		{
+			try
+			{
+				await JoinableTaskFactory.SwitchToMainThreadAsync();
+				var window = await ShowToolWindowAsync(typeof(TerminalToolWindow), 0, true, DisposalToken);
+				if (window?.Frame is IVsWindowFrame frame)
+					frame.Show();
+			}
+			catch (Exception ex)
+			{
+				_logger?.Log($"Failed to show Copilot CLI Window: {ex.Message}");
+			}
+		});
+	}
+
 	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => _diagnosticTracker?.SchedulePush();
 
 	private void OnDocumentSaved(EnvDTE.Document document) => _diagnosticTracker?.SchedulePush();
@@ -258,6 +287,10 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_documentEvents = null;
 
 			StopConnection();
+
+			_terminalSession?.Dispose();
+			_terminalSession = null;
+			VsServices.Instance.TerminalSession = null;
 
 			_discovery?.Dispose();
 
