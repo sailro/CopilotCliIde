@@ -8,6 +8,7 @@
     <CustomAfterMicrosoftCSharpTargets Condition="$(VsSDKInstall) != ''">$(VsSDKInstall)\Microsoft.VsSDK.targets</CustomAfterMicrosoftCSharpTargets>
     <RootNamespace>CopilotCliIde</RootNamespace>
     <AssemblyName>CopilotCliIde</AssemblyName>
+    <NoWarn>VSSDK003</NoWarn>
   </PropertyGroup>
   
   <ItemGroup>

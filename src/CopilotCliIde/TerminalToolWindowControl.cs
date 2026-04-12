@@ -51,12 +51,12 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		// This handles focus recovery after F5 debug cycles where Chromium's
 		// internal focus desyncs from the WPF focus state.
 		// PreviewMouseDown only fires on real user clicks — no infinite loops.
-		if (_webViewReady && _webView?.CoreWebView2 != null)
-		{
-			_webView.Focus();
-			try { _ = _webView.CoreWebView2.ExecuteScriptAsync("if(window.term)term.focus()"); }
-			catch { /* Ignore */ }
-		}
+		if (!_webViewReady || _webView?.CoreWebView2 == null)
+			return;
+
+		_webView.Focus();
+		try { _ = _webView.CoreWebView2.ExecuteScriptAsync("if(window.term)term.focus()"); }
+		catch { /* Ignore */ }
 	}
 
 	private void OnLoaded(object sender, RoutedEventArgs e)
@@ -115,7 +115,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 			_webView.Focus();
 	}
 
-	private async System.Threading.Tasks.Task InitializeWebViewAsync()
+	private async Task InitializeWebViewAsync()
 	{
 		await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -156,14 +156,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 		_webView.CoreWebView2.NavigationCompleted += (_, args) =>
 		{
-			if (args.IsSuccess)
-			{
-				_logger?.Log("Terminal control: navigation succeeded");
-			}
-			else
-			{
-				_logger?.Log($"Terminal control: navigation failed — status {args.WebErrorStatus}");
-			}
+			_logger?.Log(args.IsSuccess ? "Terminal control: navigation succeeded" : $"Terminal control: navigation failed — status {args.WebErrorStatus}");
 		};
 
 		_webView.CoreWebView2.DOMContentLoaded += (_, _) =>
@@ -208,7 +201,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 		var message = JsonSerializer.Serialize(new { type = "output", data });
 
 #pragma warning disable VSTHRD001 // BeginInvoke is intentional — lighter than JTF for fire-and-forget UI dispatch
-		_webView.Dispatcher.BeginInvoke(new Action(() =>
+		_ = _webView.Dispatcher.BeginInvoke(new Action(() =>
 #pragma warning restore VSTHRD001
 		{
 			try
@@ -224,7 +217,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 	private void OnProcessExited()
 	{
-		var exitMessage = "\r\n\x1b[90m[Process exited. Press Enter to restart.]\x1b[0m\r\n";
+		const string exitMessage = "\r\n\x1b[90m[Process exited. Press Enter to restart.]\x1b[0m\r\n";
 		OnOutputReceived(exitMessage);
 	}
 
@@ -255,7 +248,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 						else
 						{
 							// Process exited — restart on Enter
-							if (inputData == "\r" || inputData == "\n")
+							if (inputData is "\r" or "\n")
 								_sessionService?.RestartSession();
 						}
 					}
@@ -264,7 +257,7 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 				case "resize":
 					var cols = (short)root.GetProperty("cols").GetInt32();
 					var rows = (short)root.GetProperty("rows").GetInt32();
-					if (!_sessionStartedByResize && _sessionService != null && !_sessionService.IsRunning)
+					if (!_sessionStartedByResize && _sessionService is { IsRunning: false })
 					{
 						// First resize from xterm.js — start process with correct dimensions
 						_sessionStartedByResize = true;
@@ -289,11 +282,12 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 	{
 		_disposed = true;
 		DetachFromSession();
-		if (_webView != null)
-		{
-			_webView.CoreWebView2?.WebMessageReceived -= OnWebMessageReceived;
-			_webView.Dispose();
-			_webView = null;
-		}
+
+		if (_webView == null)
+			return;
+
+		_webView.CoreWebView2?.WebMessageReceived -= OnWebMessageReceived;
+		_webView.Dispose();
+		_webView = null;
 	}
 }

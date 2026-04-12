@@ -3,13 +3,12 @@ namespace CopilotCliIde;
 // Package-level singleton that manages the terminal process lifecycle.
 // The tool window attaches/detaches from this service — the process survives
 // window hide/show cycles and is only torn down on solution close or dispose.
-internal sealed class TerminalSessionService : IDisposable
+internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 {
 	private TerminalProcess? _process;
 	private string? _workingDirectory;
 	private short _cols = 120;
 	private short _rows = 40;
-	private readonly OutputLogger? _logger;
 
 	// Fired when the terminal produces output (UTF-8 string).
 	public event Action<string>? OutputReceived;
@@ -19,11 +18,6 @@ internal sealed class TerminalSessionService : IDisposable
 
 	public bool IsRunning => _process?.IsRunning ?? false;
 
-	public TerminalSessionService(OutputLogger? logger)
-	{
-		_logger = logger;
-	}
-
 	public void StartSession(string workingDirectory, short cols = 120, short rows = 40)
 	{
 		StopSession();
@@ -31,7 +25,7 @@ internal sealed class TerminalSessionService : IDisposable
 		_workingDirectory = workingDirectory;
 		_cols = cols;
 		_rows = rows;
-		_logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows})");
+		logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows})");
 
 		try
 		{
@@ -42,7 +36,7 @@ internal sealed class TerminalSessionService : IDisposable
 		}
 		catch (Exception ex)
 		{
-			_logger?.Log($"Terminal: failed to start session: {ex.Message}");
+			logger?.Log($"Terminal: failed to start session: {ex.Message}");
 			_process?.Dispose();
 			_process = null;
 		}
@@ -53,7 +47,7 @@ internal sealed class TerminalSessionService : IDisposable
 		if (_process == null)
 			return;
 
-		_logger?.Log("Terminal: stopping session");
+		logger?.Log("Terminal: stopping session");
 		_process.OutputReceived -= OnOutputReceived;
 		_process.ProcessExited -= OnProcessExited;
 		_process.Dispose();
@@ -85,7 +79,7 @@ internal sealed class TerminalSessionService : IDisposable
 
 	private void OnProcessExited()
 	{
-		_logger?.Log("Terminal: process exited");
+		logger?.Log("Terminal: process exited");
 		ProcessExited?.Invoke();
 	}
 
