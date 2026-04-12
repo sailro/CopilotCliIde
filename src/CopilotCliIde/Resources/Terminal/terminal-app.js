@@ -39,10 +39,16 @@
 	terminal.open(document.getElementById("terminal"));
 	fitAddon.fit();
 
-	// Notify C# of terminal dimensions after fit
+	// Notify C# of terminal dimensions after fit — dedup to avoid redundant P/Invoke calls
+	var lastSentCols = 0;
+	var lastSentRows = 0;
 	function sendResize() {
 		var cols = terminal.cols;
 		var rows = terminal.rows;
+		if (cols === lastSentCols && rows === lastSentRows)
+			return;
+		lastSentCols = cols;
+		lastSentRows = rows;
 		window.chrome.webview.postMessage(
 			JSON.stringify({ type: "resize", cols: cols, rows: rows })
 		);
@@ -111,6 +117,9 @@
 	window.resetTerminal = function () {
 		terminal.reset();
 		terminal.clear();
+		// Reset dedup so the next fit forces a ConPTY resize
+		lastSentCols = 0;
+		lastSentRows = 0;
 		// Defer fit to let xterm.js complete internal reflow after reset
 		setTimeout(function () { window.fitTerminal(); }, 150);
 	};
@@ -120,11 +129,6 @@
 		if (!document.hidden) {
 			setTimeout(function () { window.fitTerminal(); }, 100);
 		}
-	});
-
-	// Focus terminal on click
-	document.addEventListener("click", function () {
-		terminal.focus();
 	});
 
 	// Auto-focus on load
