@@ -187,6 +187,9 @@ internal sealed class TerminalToolWindowControl : UserControl, IDisposable
 
 		_webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
 
+		// Disable default Chromium context menu — right-click is used for paste in terminals
+		_webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+
 		_webView.CoreWebView2.NavigationCompleted += (_, args) =>
 		{
 			_logger?.Log(args.IsSuccess ? "Terminal control: navigation succeeded" : $"Terminal control: navigation failed — status {args.WebErrorStatus}");
