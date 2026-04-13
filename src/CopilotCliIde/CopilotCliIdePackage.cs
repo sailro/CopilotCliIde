@@ -172,6 +172,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	// Tears down connection: cleans up diffs, removes lock file, kills server, disposes pipe.
 	private void StopConnection()
 	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+
 		_mcpCallbacks = null;
 
 		_vsServiceRpc?.CleanupAllDiffs();
@@ -340,7 +342,9 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_documentEvents?.DocumentSaved -= OnDocumentSaved;
 			_documentEvents = null;
 
+#pragma warning disable VSTHRD010 // Accessing ... should only be done on the main thread — Dispose runs on UI thread
 			StopConnection();
+#pragma warning restore VSTHRD010
 
 			_terminalSession?.Dispose();
 			_terminalSession = null;
