@@ -9,7 +9,7 @@ The MCP server uses **[ModelContextProtocol.AspNetCore](https://github.com/model
 
 *Copilot CLI running in an external terminal, connected to Visual Studio via `/ide`*
 
-<img alt="copilot-cli embedded in VS" rc="https://github.com/user-attachments/assets/ecb2f839-079e-47ca-af5d-462c8a11cb9d" />
+<img alt="copilot-cli embedded in VS" src="https://github.com/user-attachments/assets/ecb2f839-079e-47ca-af5d-462c8a11cb9d" />
 
 *Copilot CLI embedded directly inside Visual Studio as a dockable tool window*
 
