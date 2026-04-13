@@ -35,15 +35,13 @@ public class McpPipeServerTests
 	}
 
 	[Fact]
-	public void PushNotificationAsync_SerializesJsonRpcFormat()
+	public async Task PushNotificationAsync_CompletesWithVariousPayloads()
 	{
-		// Verify the notification format indirectly — if PushNotificationAsync
-		// doesn't throw with valid JSON-serializable objects, the serialization works
 		var server = new AspNetMcpPipeServer();
 
-		// Various payload shapes that must serialize without error
-		Assert.NotNull(server.PushNotificationAsync("test", null));
-		Assert.NotNull(server.PushNotificationAsync("test", new { }));
-		Assert.NotNull(server.PushNotificationAsync("test", new { key = "value", nested = new { a = 1 } }));
+		// Various payload shapes that must serialize and complete without error
+		await server.PushNotificationAsync("test", null);
+		await server.PushNotificationAsync("test", new { });
+		await server.PushNotificationAsync("test", new { key = "value", nested = new { a = 1 } });
 	}
 }

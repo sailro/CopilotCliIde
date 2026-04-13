@@ -150,8 +150,8 @@ public class DiagnosticsConsistencyTests
 			}
 		}
 
-		Assert.True(comparisons >= 0,
-			$"Capture file processed: {Path.GetFileName(captureFile)}, URI comparisons made: {comparisons}");
+		// comparisons == 0 is valid — some captures may not have matching push/pull pairs.
+		// The real assertions fire inside the loop when data exists.
 	}
 
 	private static string? TryGetString(JsonElement el, string prop)

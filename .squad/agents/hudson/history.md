@@ -742,3 +742,20 @@ Orchestration log written to `.squad/orchestration-log/2026-03-30T12:47-31Z-huds
 **Recommendation:** Create `CopilotCliIde.Tests` project (net8.0-windows), extract TerminalProcess factory, write 8-10 unit tests for TerminalSessionService lifecycle. Full report at `.squad/decisions/inbox/hudson-terminal-test-gaps.md`.
 
 **Learning:** Terminal feature follows a common VS extension pattern — complex native/COM/WPF code tightly coupled to VS services, making it structurally untestable without deliberate abstraction seams. The `TerminalSessionService` is the sweet spot: high value, low coupling, testable with minimal refactoring.
+
+### Test Quality Fix — No-Op Assertions and Duplicates (284→282)
+
+**Date:** 2026-03-31
+
+Fixed 5 test quality issues across 5 files. Before: 284 tests. After: 282 tests (all passing).
+
+**No-op assertions fixed (3):**
+1. `McpPipeServerTests.PushNotificationAsync_SerializesJsonRpcFormat` → renamed to `PushNotificationAsync_CompletesWithVariousPayloads`, made async, awaits all calls. Old test asserted `NotNull` on Task (never null — tautology).
+2. `DiagnosticsConsistencyTests.GetDiagnostics_MatchesAccumulatedDiagnosticsChanged` → removed `Assert.True(comparisons >= 0)` tautology (int starts at 0, only increments — always true). Real assertions fire inside the loop.
+3. `SelectionConsistencyTests.GetSelection_MatchesPrecedingSelectionChanged` → same fix as #2.
+
+**Duplicates removed (2):**
+4. `ToolOutputSchemaTests.OpenDiff_Output_ClosedViaTool_Rejection` — deleted. Was strict subset of `OpenDiff_Output_ClosedViaTool` (identical setup, fewer assertions).
+5. `TrafficReplayTests.ToolsList_TaskSupportIsForbidden` — deleted. `OurToolsList_MatchesVsCodeToolNames` already asserts `taskSupport == "forbidden"` for every tool (lines 948-952).
+
+**Pattern:** No-op assertions tend to appear in "data-driven consistency tests" where some captures legitimately have zero matching pairs. The temptation is `Assert.True(count >= 0)` as a "log" — but that's a tautology. Either remove the assertion or require `count > 0` and filter captures that lack the data.
