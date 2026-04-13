@@ -35,12 +35,10 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 		_store = store;
 		if (!_store.CollectionExists(CollectionPath))
 			_store.CreateCollection(CollectionPath);
-		VsServices.Instance.Logger?.Log("Settings: provider created");
 	}
 
 	public Task<ExternalSettingOperationResult<T>> GetValueAsync<T>(string moniker, CancellationToken cancellationToken) where T : notnull
 	{
-		VsServices.Instance.Logger?.Log($"Settings: GetValueAsync moniker={moniker}, T={typeof(T).Name}");
 		object? value = null;
 
 		if (moniker.EndsWith(FontFamilyMoniker, StringComparison.OrdinalIgnoreCase))
@@ -56,7 +54,6 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 				: (int)TerminalSettings.DefaultFontSize;
 		}
 
-		VsServices.Instance.Logger?.Log($"Settings: GetValueAsync result={value ?? "(null)"}");
 		return value is not null
 			? ExternalSettingOperationResult.SuccessResultTask((T)value)
 			: ExternalSettingOperationResult.FailureResultTask<T>("Unknown setting", ExternalSettingsErrorScope.SingleSettingOnly, false);
@@ -83,13 +80,8 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 
 	public async Task<ExternalSettingOperationResult<IReadOnlyList<EnumChoice>>> GetEnumChoicesAsync(string enumSettingMoniker, CancellationToken cancellationToken)
 	{
-		VsServices.Instance.Logger?.Log($"Settings: GetEnumChoicesAsync moniker={enumSettingMoniker}");
-
 		if (!enumSettingMoniker.EndsWith(FontFamilyMoniker, StringComparison.OrdinalIgnoreCase))
-		{
-			VsServices.Instance.Logger?.Log("Settings: GetEnumChoicesAsync moniker mismatch, returning empty");
 			return ExternalSettingOperationResult.SuccessResult<IReadOnlyList<EnumChoice>>(Array.Empty<EnumChoice>());
-		}
 
 		await Task.Yield();
 
@@ -109,7 +101,6 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 
 		choices.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
 
-		VsServices.Instance.Logger?.Log($"Settings: GetEnumChoicesAsync returning {choices.Count} fonts");
 		return ExternalSettingOperationResult.SuccessResult<IReadOnlyList<EnumChoice>>(choices);
 	}
 

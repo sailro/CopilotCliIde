@@ -111,7 +111,6 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public void Resize(short cols, short rows)
 	{
-		logger?.Log($"Terminal: Resize({cols}x{rows}), process={_process?.IsRunning}");
 		_process?.Resize(cols, rows);
 	}
 

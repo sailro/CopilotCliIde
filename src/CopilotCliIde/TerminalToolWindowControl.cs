@@ -42,7 +42,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 
 	void ITerminalConnection.Start()
 	{
-		_logger?.Log("Terminal control: ITerminalConnection.Start called");
 	}
 
 	void ITerminalConnection.WriteInput(string data)
@@ -65,8 +64,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		var cols = (short)columns;
 		var r = (short)rows;
 
-		_logger?.Log($"Terminal control: Resize({columns}x{rows}), session={_sessionService != null}, started={_sessionStartedByResize}");
-
 		if (!_sessionStartedByResize && _sessionService is { IsRunning: false })
 		{
 			_sessionStartedByResize = true;
@@ -77,13 +74,12 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 				{
 					ThreadHelper.ThrowIfNotOnUIThread();
 					var workspaceFolder = CopilotCliIdePackage.GetWorkspaceFolder();
-					_logger?.Log($"Terminal control: starting session, workspaceFolder={workspaceFolder ?? "(null)"}");
 					if (workspaceFolder != null)
 						_sessionService?.StartSession(workspaceFolder, cols, r);
 				}
 				catch (Exception ex)
 				{
-					_logger?.Log($"Terminal control: failed to start session: {ex.Message}");
+					_logger?.Log($"Terminal: failed to start session: {ex.Message}");
 				}
 			}));
 #pragma warning restore VSTHRD001
@@ -185,14 +181,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		// from the control's already-computed character grid.
 		if (_termControl is { Rows: > 0, Columns: > 0 })
 		{
-			var cols = (short)_termControl.Columns;
-			var rows = (short)_termControl.Rows;
-			_logger?.Log($"Terminal control: OnSessionRestarted, re-syncing size to {cols}x{rows}");
-			_sessionService?.Resize(cols, rows);
-		}
-		else
-		{
-			_logger?.Log("Terminal control: OnSessionRestarted, no valid dimensions yet");
+			_sessionService?.Resize((short)_termControl.Columns, (short)_termControl.Rows);
 		}
 	}
 
