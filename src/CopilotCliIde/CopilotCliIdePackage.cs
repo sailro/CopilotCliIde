@@ -6,8 +6,10 @@ using CopilotCliIde.Shared;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
+using Microsoft.VisualStudio.Settings;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Shell.Settings;
 using StreamJsonRpc;
 using Task = System.Threading.Tasks.Task;
 
@@ -18,6 +20,8 @@ namespace CopilotCliIde;
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExistsAndFullyLoaded_string, PackageAutoLoadFlags.BackgroundLoad)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
 [ProvideToolWindow(typeof(TerminalToolWindow), Transient = true, Style = VsDockStyle.Tabbed, Window = "34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3")]
+[ProvideSettingsManifest]
+[ProvideService(typeof(TerminalSettingsProvider), IsAsyncQueryable = true)]
 [Guid("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")]
 public sealed class CopilotCliIdePackage : AsyncPackage
 {
@@ -59,6 +63,13 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
+		AddService(typeof(TerminalSettingsProvider), async (container, token, type) =>
+		{
+			var settingsManager = new ShellSettingsManager(this);
+			var store = settingsManager.GetWritableSettingsStore(SettingsScope.UserSettings);
+			return new TerminalSettingsProvider(store);
+		}, true);
+
 		await base.InitializeAsync(cancellationToken, progress);
 		await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
 

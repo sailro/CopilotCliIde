@@ -37,6 +37,7 @@
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Core" />
     <Reference Include="System.Design" />
+    <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 
@@ -75,6 +76,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="registration.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
     <Content Include="../../LICENSE">
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
