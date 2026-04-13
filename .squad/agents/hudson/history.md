@@ -759,3 +759,12 @@ Fixed 5 test quality issues across 5 files. Before: 284 tests. After: 282 tests 
 5. `TrafficReplayTests.ToolsList_TaskSupportIsForbidden` — deleted. `OurToolsList_MatchesVsCodeToolNames` already asserts `taskSupport == "forbidden"` for every tool (lines 948-952).
 
 **Pattern:** No-op assertions tend to appear in "data-driven consistency tests" where some captures legitimately have zero matching pairs. The temptation is `Assert.True(count >= 0)` as a "log" — but that's a tautology. Either remove the assertion or require `count > 0` and filter captures that lack the data.
+
+## 2026-04-13 — Test Quality Audit Session
+
+- Fixed 3 no-op assertions in server tests
+- Removed 2 duplicate test cases
+- Tests: 284 → 282 (all passing)
+- Commit: 616a5e6
+
+**Merged to decisions.md:** 2026-04-13
