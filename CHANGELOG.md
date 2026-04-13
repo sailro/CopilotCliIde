@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.18] - 2026-04-13
+
 ### Added
 
 - **Terminal font settings** via VS Unified Settings (**Settings → Copilot CLI IDE Bridge → Terminal**) — font family dropdown with monospace font detection (GDI+) and font size control, backed by `WritableSettingsStore`
@@ -16,8 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Auto-focus terminal when opening tool window from menu — no click needed to start typing
+- Fix Escape key stealing focus from embedded terminal (uses Kitty keyboard protocol sequence, matching VS's own terminal implementation)
 - Resolve `Microsoft.Terminal.Wpf` from both VS channel layouts (Community/Insiders vs Canary)
 - Reset terminal buffer and re-sync ConPTY dimensions on session restart
+- Log warning when `Microsoft.Terminal.Wpf.dll` cannot be found in AssemblyResolve handler
 
 ### Removed
 
@@ -297,7 +302,8 @@ _Version bump only for marketplace publishing tests — no functional changes._
 - Lock file discovery mechanism (`~/.copilot/ide/*.lock`) for Copilot CLI to find running VS instances
 - Comprehensive README with usage instructions, architecture diagram, and tool documentation
 
-[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.17...HEAD
+[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.18...HEAD
+[1.0.18]: https://github.com/sailro/CopilotCliIde/compare/1.0.17...1.0.18
 [1.0.17]: https://github.com/sailro/CopilotCliIde/compare/1.0.16...1.0.17
 [1.0.16]: https://github.com/sailro/CopilotCliIde/compare/1.0.15...1.0.16
 [1.0.15]: https://github.com/sailro/CopilotCliIde/compare/1.0.14...1.0.15
