@@ -169,7 +169,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		if (_disposed)
 			return;
 
-		_logger?.Log($"Terminal control: received {data.Length} chars");
 		TerminalOutput?.Invoke(this, new TerminalOutputEventArgs(data));
 	}
 
@@ -181,7 +180,20 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 
 	private void OnSessionRestarted()
 	{
-		_logger?.Log("Terminal control: OnSessionRestarted fired");
+		// The TerminalControl doesn't re-fire Resize when only the underlying
+		// process changes (WPF size hasn't changed). Re-sync ConPTY dimensions
+		// from the control's already-computed character grid.
+		if (_termControl is { Rows: > 0, Columns: > 0 })
+		{
+			var cols = (short)_termControl.Columns;
+			var rows = (short)_termControl.Rows;
+			_logger?.Log($"Terminal control: OnSessionRestarted, re-syncing size to {cols}x{rows}");
+			_sessionService?.Resize(cols, rows);
+		}
+		else
+		{
+			_logger?.Log("Terminal control: OnSessionRestarted, no valid dimensions yet");
+		}
 	}
 
 	// --- Dispose ---
