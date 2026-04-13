@@ -19,11 +19,19 @@
     <PackageReference Include="StreamJsonRpc" />
   </ItemGroup>
 
-  <!-- Reference VS's built-in Terminal.Wpf assembly (ships with VS in CommonExtensions\Microsoft\Terminal).
+  <!-- Reference VS's built-in Terminal.Wpf assembly.
+       Location varies by VS channel:
+         Community/Insiders: CommonExtensions\Microsoft\Terminal\Microsoft.Terminal.Wpf.dll
+         Canary:             CommonExtensions\Microsoft\Terminal\Terminal.Wpf\Microsoft.Terminal.Wpf.dll
        Private=false: don't copy to output — it's already loaded in the VS AppDomain at runtime. -->
+  <PropertyGroup>
+    <_TerminalWpfBase>$(VsInstallRoot)\Common7\IDE\CommonExtensions\Microsoft\Terminal</_TerminalWpfBase>
+    <_TerminalWpfDll Condition="Exists('$(_TerminalWpfBase)\Microsoft.Terminal.Wpf.dll')">$(_TerminalWpfBase)\Microsoft.Terminal.Wpf.dll</_TerminalWpfDll>
+    <_TerminalWpfDll Condition="'$(_TerminalWpfDll)' == '' And Exists('$(_TerminalWpfBase)\Terminal.Wpf\Microsoft.Terminal.Wpf.dll')">$(_TerminalWpfBase)\Terminal.Wpf\Microsoft.Terminal.Wpf.dll</_TerminalWpfDll>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.Terminal.Wpf">
-      <HintPath>$(VsInstallRoot)\Common7\IDE\CommonExtensions\Microsoft\Terminal\Microsoft.Terminal.Wpf.dll</HintPath>
+      <HintPath>$(_TerminalWpfDll)</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

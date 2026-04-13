@@ -151,4 +151,4 @@ The terminal subsystem is **completely independent** of the MCP server, RPC pipe
 
 ### Terminal.Wpf Dependency
 
-The extension references `Microsoft.Terminal.Wpf.dll` from VS's `CommonExtensions\Microsoft\Terminal\` directory. This assembly ships with Visual Studio — no additional runtime dependency is needed. The reference uses `Private=false` so the DLL is not copied to output (it's already loaded in the VS AppDomain).
+The extension references `Microsoft.Terminal.Wpf.dll` which ships with Visual Studio — no additional runtime dependency is needed. The DLL location varies by VS channel: `CommonExtensions\Microsoft\Terminal\` (Community/Insiders) or `CommonExtensions\Microsoft\Terminal\Terminal.Wpf\` (Canary). The csproj probes both paths at build time, and the `AssemblyResolve` handler in `CopilotCliIdePackage` does the same at runtime. The reference uses `Private=false` so the DLL is not copied to output (it's already loaded in the VS AppDomain).

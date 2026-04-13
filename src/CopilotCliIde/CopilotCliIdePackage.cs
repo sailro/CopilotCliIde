@@ -40,7 +40,10 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			if (devEnvDir == null)
 				return null;
 
-			var dllPath = Path.Combine(devEnvDir, "CommonExtensions", "Microsoft", "Terminal", "Microsoft.Terminal.Wpf.dll");
+			var basePath = Path.Combine(devEnvDir, "CommonExtensions", "Microsoft", "Terminal");
+			var dllPath = Path.Combine(basePath, "Microsoft.Terminal.Wpf.dll");
+			if (!File.Exists(dllPath))
+				dllPath = Path.Combine(basePath, "Terminal.Wpf", "Microsoft.Terminal.Wpf.dll");
 			return File.Exists(dllPath) ? System.Reflection.Assembly.LoadFrom(dllPath) : null;
 		};
 	}
