@@ -9,10 +9,10 @@ namespace CopilotCliIde;
 // Color table values are in COLORREF (BGR) format — Windows Terminal convention.
 internal static class TerminalThemer
 {
-	private static readonly TerminalTheme DarkTheme = new()
+	private static readonly TerminalTheme _darkTheme = new()
 	{
-		ColorTable = new uint[]
-		{
+		ColorTable =
+		[
 			0x0,        // Black
 			0x3131cd,   // Red
 			0x79bc0d,   // Green
@@ -29,13 +29,13 @@ internal static class TerminalThemer
 			0xd670d6,   // Bright Magenta
 			0xdbb829,   // Bright Cyan
 			0xe5e5e5,   // Bright White
-		},
+		],
 	};
 
-	private static readonly TerminalTheme LightTheme = new()
+	private static readonly TerminalTheme _lightTheme = new()
 	{
-		ColorTable = new uint[]
-		{
+		ColorTable =
+		[
 			0x0,        // Black
 			0x3131cd,   // Red
 			0x008000,   // Green
@@ -52,7 +52,7 @@ internal static class TerminalThemer
 			0xbc05bc,   // Bright Magenta
 			0x977900,   // Bright Cyan
 			0x555555,   // Bright White
-		},
+		],
 	};
 
 	public static TerminalTheme GetTheme()
@@ -61,7 +61,7 @@ internal static class TerminalThemer
 
 		var bgColor = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowBackgroundColorKey);
 		var isDark = IsDarkColor(bgColor);
-		var theme = isDark ? DarkTheme : LightTheme;
+		var theme = isDark ? _darkTheme : _lightTheme;
 
 		theme.DefaultBackground = (uint)ColorTranslator.ToWin32(bgColor);
 		theme.DefaultForeground = (uint)ColorTranslator.ToWin32(

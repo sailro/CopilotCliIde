@@ -81,7 +81,7 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 	public async Task<ExternalSettingOperationResult<IReadOnlyList<EnumChoice>>> GetEnumChoicesAsync(string enumSettingMoniker, CancellationToken cancellationToken)
 	{
 		if (!enumSettingMoniker.EndsWith(FontFamilyMoniker, StringComparison.OrdinalIgnoreCase))
-			return ExternalSettingOperationResult.SuccessResult<IReadOnlyList<EnumChoice>>(Array.Empty<EnumChoice>());
+			return ExternalSettingOperationResult.SuccessResult<IReadOnlyList<EnumChoice>>([]);
 
 		await Task.Yield();
 

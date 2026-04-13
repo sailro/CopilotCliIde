@@ -22,9 +22,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 	{
 		_logger = VsServices.Instance.Logger;
 
-		_termControl = new TerminalControl { Focusable = true };
-		_termControl.Connection = this;
-		_termControl.AutoResize = true;
+		_termControl = new TerminalControl { Focusable = true, Connection = this, AutoResize = true };
 		Content = _termControl;
 
 		// Attach to session early — Resize may fire before OnLoaded
