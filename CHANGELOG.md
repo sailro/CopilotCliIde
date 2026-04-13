@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Replace `Task.Delay(200)` server startup wait with stdout `READY` handshake — deterministic server readiness detection with 10s timeout
+
+### Fixed
+
+- Fix TOCTOU race condition in `DebouncePusher` — timer and key fields now properly synchronized
+- Clean up orphaned diff views on solution switch — `CleanupAllDiffs()` runs before RPC teardown in `StopConnection()`
+- Trim SSE event historyto last-per-notification-type — prevents unbounded growth from rapid selection/diagnostics changes while preserving initial state for new SSE clients
+- Remove no-op assertions and duplicate tests in server test suite
+
 ## [1.0.18] - 2026-04-13
 
 ### Added
