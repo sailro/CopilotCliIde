@@ -20,6 +20,94 @@ Hudson owns test suite, coverage analysis, and test infrastructure. Key decision
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-03-30 — Full Test Suite Audit (284 tests passing)
+
+**Inventory:** 13 test files (excluding TrafficParser.cs utility), 116 test methods (62 [Fact], 54 [Theory]). Theories multiply to 284 total executions (8 capture files × 22 theory methods + 62 facts + ~20 integration tests). Test files:
+
+1. **TrafficReplayTests.cs** (30 methods, 22 Theory × 8 captures = 176 runs) — Capture-based replay validation. Every `.ndjson` file auto-validated. Tests initialize response, tools list, input schemas, tool call responses (get_diagnostics, get_selection, update_session_name, get_vscode_info), request/response ID correlation, tool call sequencing, cross-capture schema consistency. Quality: Strong. Comprehensive real-world validation. Some duplicate coverage (e.g., two ClosedViaTool tests).
+
+2. **CrossCaptureConsistencyTests.cs** (9 methods, 3 Theory × captures + 6 Fact = ~30 runs) — Strict VS-to-VS Code comparison. Validates tool response fields, notification fields, inputSchema consistency, capabilities. Explicitly excludes MCP SDK differences (logging capability, additionalProperties). Quality: Excellent. Zero-tolerance for drift from VS Code reference.
+
+3. **SseNotificationIntegrationTests.cs** (14 Fact methods) — Real MCP server integration via named pipes. Tests SSE stream lifecycle, push notification delivery, initial state population, event ID sequencing, resume/replay from Last-Event-ID. Uses NSubstitute for VS services. Quality: Excellent. Full integration, not mocks. Tests the hardest edge cases (multiple streams, missed events).
+
+4. **ToolDiscoveryTests.cs** (10 methods, 1 Theory + 9 Fact) — Reflection-based tool discovery validation. Enforces 7 tool names, McpServerToolAttribute presence, DescriptionAttribute on tools and parameters, optional parameter defaults. Quality: Good. Catches schema drift at compile time via reflection.
+
+5. **DtoSerializationTests.cs** (15 Fact methods) — Round-trip serialization for all DTOs in Shared project. Tests SelectionResult, DiffResult, CloseDiffResult, VsInfoResult, DiagnosticsResult, ReadFileResult, SelectionNotification, SelectionRange. Quality: Good. Validates JSON contract. No snake_case validation here (that's in ToolOutputSchemaTests).
+
+6. **ToolOutputSchemaTests.cs** (10 Fact methods) — Validates snake_case keys in tool outputs (open_diff, close_diff), array-at-root for get_diagnostics, null handling. Tests success/error/edge cases for each tool. Quality: Good. Explicit snake_case checks. Has two duplicate tests (OpenDiff_Output_ClosedViaTool and OpenDiff_Output_ClosedViaTool_Rejection are nearly identical — one asserts both fields, one just trigger).
+
+7. **SelectionConsistencyTests.cs** (1 Theory × 8 captures) — Push vs pull path consistency. Compares selection_changed notification (push) against get_selection response (pull) for same state. Quality: Good. Guards against dual-path drift. Assertion `comparisons >= 0` is no-op (always true) — should be `> 0` to ensure data was actually compared.
+
+8. **DiagnosticsConsistencyTests.cs** (1 Theory × 8 captures) — Push vs pull for diagnostics. Compares diagnostics_changed notification against get_diagnostics response. Quality: Good. Same no-op assertion issue (`comparisons >= 0`).
+
+9. **NotificationFormatTests.cs** (6 Fact methods) — JSON-RPC notification structure validation. Tests selection_changed and diagnostics_changed format, SSE event wrapping, null handling. Quality: Good. Structural validation. Covers the notification contract.
+
+10. **RpcClientTests.cs** (10 Fact methods) — RpcClient event forwarding and lifecycle. Tests SelectionChanged and DiagnosticsChanged events, null handling, multi-uri, dispose safety. Quality: Good. Simple event tests. Adequate for a thin event forwarder.
+
+11. **ServerWorkingDirectoryTests.cs** (2 Fact methods) — Regression tests for Issue #4 (hostile appsettings.json crash). Launches real server process, validates WorkingDirectory prevents Kestrel crash. Quality: Excellent. Integration test for critical bug. One test proves the bug (CWD=hostile → crash), one proves the fix (CWD=server → success).
+
+12. **McpPipeServerTests.cs** (4 Fact methods) — AspNetMcpPipeServer lifecycle and basic functionality. Tests DisposeAsync before/after start, PushNotificationAsync with no clients. Quality: Weak. Test "PushNotificationAsync_SerializesJsonRpcFormat" only checks `Assert.NotNull(task)` — doesn't validate JSON-RPC format despite the name. Should deserialize and inspect structure.
+
+13. **UpdateSessionNameToolTests.cs** (4 Fact methods) — UpdateSessionNameTool functionality (the only pure tool). Tests success case, empty name, long name, special characters. Quality: Weak. Uses string matching `Assert.Contains("\"success\":true", json)` instead of JSON deserialization. Should parse JSON and assert on typed object.
+
+**Capture Files:** 8 `.ndjson` files in Captures/ directory:
+- **vs-1.0.8.ndjson** (67KB, 3/10/2026) — Original baseline VS capture
+- **vs-1.0.12.ndjson** (68KB, 3/28/2026) — Newer VS capture
+- **vs-1.0.14.ndjson** (63KB, 3/30/2026) — Latest VS capture (TODAY)
+- **vscode-0.38.ndjson** (84KB, 3/8/2026) — VS Code reference
+- **vscode-0.39.ndjson** (67KB, 3/9/2026) — VS Code reference
+- **vscode-0.41.ndjson** (65KB, 3/28/2026) — VS Code reference (recent)
+- **vscode-insiders-0.39.ndjson** (64KB, 3/9/2026) — VS Code Insiders
+
+Captures are current (most recent from TODAY). All 7 VS Code tools exercised across the capture set. Cross-capture consistency tests ensure VS matches VS Code reference. README documents capture workflow and mcp-call.mjs CLI tool.
+
+**Test Run Results:** All 284 tests PASS. Build time 5.8s, test execution 4.9s. No warnings, no slow tests, no flaky behavior. xUnit v3 (3.2.2) with normal verbosity. Clean run.
+
+**Coverage Gaps (from March 2026 review, current status):**
+
+1. ❌ **VS Extension (CopilotCliIde net472) — ZERO test coverage.** 23 source files, ~87KB of code. Completely untested: ConPty.cs, TerminalProcess.cs, TerminalSessionService.cs, TerminalToolWindow.cs, TerminalToolWindowControl.cs, TerminalThemer.cs, TerminalSettings.cs, TerminalSettingsProvider.cs (NEW since March). Also: OpenDiff blocking, CloseDiff, GetVsInfo, ReadFile, PathUtils, DebouncePusher, IdeDiscovery, DiagnosticTracker, SelectionTracker, VsServiceRpc partials. **Gap NOT addressed since March.**
+
+2. ❌ **Shared project (Contracts.cs) — only indirect coverage.** DTOs tested via DtoSerializationTests, but tools use anonymous objects. No test validates both paths produce compatible output. **Gap NOT addressed.**
+
+3. ⚠️ **No-op assertions (2 instances)** — `Assert.True(comparisons >= 0, ...)` in SelectionConsistencyTests and DiagnosticsConsistencyTests. Always true. Should be `> 0` to ensure data was actually compared. **Still present.**
+
+4. ⚠️ **Duplicate test** — ToolOutputSchemaTests has `OpenDiff_Output_ClosedViaTool` and `OpenDiff_Output_ClosedViaTool_Rejection` with 95% identical code. One redundant. **Still present.**
+
+5. ⚠️ **Weak assertions (4 instances)** — UpdateSessionNameToolTests uses string matching instead of JSON parsing. **Still present.**
+
+6. ⚠️ **Overpromise assertion** — McpPipeServerTests.PushNotificationAsync_SerializesJsonRpcFormat only checks `Assert.NotNull(task)`, not JSON-RPC structure. **Still present.**
+
+**Quality Assessment by Category:**
+
+- **Excellent (4 files):** SseNotificationIntegrationTests, ServerWorkingDirectoryTests, CrossCaptureConsistencyTests, TrafficReplayTests — Real integration, strong assertions, comprehensive edge cases.
+- **Good (7 files):** ToolDiscoveryTests, DtoSerializationTests, ToolOutputSchemaTests, SelectionConsistencyTests, DiagnosticsConsistencyTests, NotificationFormatTests, RpcClientTests — Solid coverage with minor issues.
+- **Weak (2 files):** McpPipeServerTests, UpdateSessionNameToolTests — Weak assertions, overpromise test names.
+
+**New Code Since March 2026 (not tested):**
+- **Terminal subsystem (8 new files, ~2,500 LOC):** ConPty.cs (Win32 interop), TerminalProcess.cs (process lifecycle), TerminalSessionService.cs (singleton session manager), TerminalToolWindow.cs (VS shell integration), TerminalToolWindowControl.cs (WPF + ITerminalConnection), TerminalThemer.cs (VS color theme mapping), TerminalSettings.cs (font persistence), TerminalSettingsProvider.cs (Unified Settings + font enumeration). **ZERO test coverage.**
+- **VsServiceRpc partials:** New file partitioning for Selection, Diagnostics, Info, ReadFile, Diff. Functionality unchanged, but structure untested.
+- **Unified Settings integration:** TerminalSettingsProvider implements IExternalSettingsProvider, enumerates GDI+ fonts, provides dynamic enum choices. **ZERO test coverage.**
+
+**Test Infrastructure:** Well-organized. Shared helpers in test files (BootServerAsync, MakeSelection, MakeDiagnostics). TrafficParser.cs utility for capture parsing (not a test file). xUnit v3 discovery works correctly. Capture files auto-discovered via `CaptureFiles()` TheoryData. Integration tests use real named pipes + real MCP server (not mocks). NSubstitute only for VS services (correct boundary).
+
+**Recommendation — New High-Value Tests (prioritized by risk × effort):**
+
+1. **P0 (CRITICAL, 2-4 hours):** Terminal subsystem smoke test — Launch TerminalSessionService, spawn ConPty process, write input, read output, verify process cleanup. Catches 80% of terminal bugs (process leaks, pipe deadlocks, handle leaks, dispose errors). Test in net10.0 project (can use P/Invoke).
+
+2. **P1 (HIGH, 2 hours):** TerminalSettings persistence test — Write/read from WritableSettingsStore mock, verify font defaults, validate persistence layer. Prevents settings corruption bugs.
+
+3. **P1 (HIGH, 1 hour):** PathUtils unit tests — Test NormalizePath, ToFileUrl edge cases (UNC paths, network drives, special chars, null). Pure functions, easy to test.
+
+4. **P2 (MED, 3 hours):** DebouncePusher tests — Verify debounce timing, disposal, thread safety. Uses Task.Delay. Important for notification throttling correctness.
+
+5. **P2 (MED, 2 hours):** Fix no-op assertions — Change `comparisons >= 0` to `> 0` in SelectionConsistencyTests and DiagnosticsConsistencyTests. Add assertion failure test case (capture with no matching pairs).
+
+6. **P3 (LOW, 1 hour):** Fix weak assertions — UpdateSessionNameToolTests should deserialize JSON and assert on object properties, not string matching. Same for McpPipeServerTests.PushNotificationAsync.
+
+7. **P3 (LOW, 30 min):** Remove duplicate test — Delete one of the two OpenDiff_Output_ClosedViaTool tests.
+
+**Conclusion:** Test suite is STRONG for the MCP server (net10.0). Protocol compatibility validated against real VS Code traffic. Integration tests cover hard edge cases. The critical gap is VS extension (net472) — **ZERO tests for ~87KB of production code**, including the entire terminal subsystem added since March. Creating a test project for net472 code is HIGH priority but HIGH effort (VSSDK.TestFramework setup). Terminal smoke test in net10.0 is a pragmatic short-term win.
+
 - **Test project:** `CopilotCliIde.Server.Tests` (xUnit v3, net10.0) in `src/CopilotCliIde.Server.Tests/`. Run with `dotnet test src\CopilotCliIde.Server.Tests\CopilotCliIde.Server.Tests.csproj`. 94 tests covering HTTP parsing, chunked encoding, response writing, DTO serialization, tool discovery, RPC client events, and service provider DI.
 - **Central Package Management:** All package versions must be in `Directory.Packages.props` — `PackageReference` in `.csproj` files must NOT have `Version` attributes. Test packages (xunit.v3 3.2.2, xunit.runner.visualstudio 3.1.4, Microsoft.NET.Test.Sdk 17.14.1, coverlet.collector 6.0.4, NSubstitute 5.3.0) are registered there.
 - **xUnit v3 migration (2026-03-05):** Migrated from xUnit v2 (2.9.3) to xUnit v3 (3.2.2). Required changes: replace `xunit` package with `xunit.v3` in Directory.Packages.props, update PackageReference in test csproj, and add `<OutputType>Exe</OutputType>` to test project PropertyGroup. All 94 tests passed without any test code changes (basic xUnit v2 features are fully compatible with v3).

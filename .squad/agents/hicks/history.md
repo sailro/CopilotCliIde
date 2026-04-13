@@ -98,6 +98,26 @@ Completed comprehensive review of all 11 source files in `src/CopilotCliIde/`. P
 
 Diagnostic severities used by extension diagnostics mapping are now centralized in `CopilotCliIde.Shared.Contracts` via `DiagnosticSeverity` (`Error`, `Warning`, `Information`). `DiagnosticTracker` maps `__VSERRORCATEGORY` to these constants with the same fallback behavior (`Information`) so wire values and protocol behavior stay unchanged while removing local string literals.
 
+### 2026-03-30 — Complete Extension Codebase Audit
+
+Conducted comprehensive file-by-file audit of all 24 source files in `src/CopilotCliIde/` (~2,125 LOC total). Reviewed threading model, terminal subsystem, connection lifecycle, VsServiceRpc partials, DebouncePusher, and code quality.
+
+**Key findings:**
+
+**Threading model:** Excellent. All DTE/VS service calls properly switch to UI thread. SelectionTracker captures on UI, pushes via Task.Run. DiagnosticTracker uses JTF. OutputLogger correctly uses OutputStringThreadSafe. Only minor issue: TerminalSessionService fires SessionRestarted event off-thread (subscribers must handle).
+
+**Terminal subsystem:** Robust. ConPTY handle lifecycle follows correct disposal order (pseudo-console → pipes → process handles). TerminalProcess uses dedicated read thread with 16ms batching. Thread safety via locks. Edge cases handled (resize before start, process exit, restart, Escape key routing). Settings integration correct (Task.Yield for enum choices, GDI+ monospace detection). One minor gap: startup fallback if GetWorkspaceFolder throws (logs but no retry/fallback).
+
+**Connection lifecycle:** Mostly solid but has **critical leak**: VsServiceRpc._activeDiffs survives RPC disposal (HIGH-1 from 2026-03-10 review). When StopConnection disposes RPC, VsServiceRpc instance is not explicitly disposed — orphaned TCS, InfoBars, temp files. Mitigation: Add IDisposable to VsServiceRpc, cancel all diffs in StopConnection. Secondary issue: ServerProcessManager uses fixed 200ms delay + infinite WaitForConnectionAsync (fragile on slow machines).
+
+**VsServiceRpc partials:** Clean split across 6 files (375 LOC total). State sharing minimal (static _machineId, instance _sessionId, _activeDiffs ConcurrentDictionary). No cross-partial dependencies. GetSelectionAsync (DTE-based) vs SelectionTracker (native APIs) duplication is intentional but creates maintenance burden.
+
+**DebouncePusher:** **Critical race condition** (HIGH-2 from 2026-03-10 review). Lines 11-14 have check-then-act race: concurrent Schedule() calls can both see _timer==null, both create timers, one leaks. Affects DiagnosticTracker where SchedulePush called from arbitrary threads (ITableDataSink callbacks). Fix: Add lock around _timer checks in Schedule/Reset/Dispose.
+
+**Code quality:** No obvious bloat (largest files are inherently complex: Package 310, DiagnosticTracker 232, VsServiceRpc.Diff 217, ConPty 209). Minor issues: 15+ silent catch blocks with /* Ignore */ comment (COM exceptions during teardown — pattern is correct but repetitive), logging format inconsistencies, VsServices.Instance singleton mutability.
+
+**Summary:** 2 HIGH (diff cleanup leak, DebouncePusher race), 3 MEDIUM (terminal startup fallback, RPC timeout, GetSelectionAsync duplication), 9 LOW. Threading model is excellent. Terminal subsystem is solid. Overall codebase is in good shape. Full audit report in `.squad/decisions/inbox/hicks-extension-audit.md`.
+
 ### 2026-07-20 — Fix stale file name when all editors close
 
 **Bug:** When all editor tabs were closed (solution still loaded), Copilot CLI continued showing the last opened file name. `SelectionTracker.UntrackView()` nulled `_trackedView` and unsubscribed events but never pushed a "cleared" notification to the MCP server, so the server's cached push state retained the stale file name.

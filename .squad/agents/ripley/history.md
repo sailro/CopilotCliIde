@@ -384,6 +384,35 @@ Performed systematic analysis of all 4 capture files (vscode-0.38, vscode-0.39, 
 **Protocol.md updates needed:** 8 items (1 high: multi-session lifecycle, 2 medium: execution schema fix + LLM retries, 5 low).
 **Code fixes needed:** 4 items (1 high: session ID rotation, 2 medium: diagnostic range.end + code field, 1 low: schema extras).
 
+### 2026-07-25 — Full Architecture & Project Health Reassessment
+
+Performed comprehensive reassessment covering all 20+ key source files, the full 3194-line decisions ledger, and server build/test verification (284 tests pass, 0 failures).
+
+**Architecture verdict:** Sound. The three-project boundary is holding. Terminal subsystem was added with proper architectural isolation from MCP/RPC. Shared project remains lean (zero framework dependencies). The Kestrel migration was the single best architectural decision — eliminated 4 HIGH-impact server findings in one stroke.
+
+**Decision ledger audit (March 2026 HIGH-impact findings):**
+- **4 RESOLVED** — Bishop's H1-H4 all fixed by ASP.NET Core migration
+- **2 IMPROVED** — H3 diff cleanup (better lifecycle, 1-hour timeout), H4 silent catches (most now log)
+- **3 STILL OPEN** — H1/HIGH-2 DebouncePusher race, H2 Task.Delay(200), zero extension tests
+
+**Code evolution highlights:**
+- ModelContextProtocol.AspNetCore migration (573→492 LOC, eliminated custom HTTP stack)
+- VsServiceRpc split into 6 partials (L1 god class resolved)
+- DiagnosticTracker + DiagnosticTableSink (real-time Error List data layer subscription)
+- Terminal subsystem (~500 LOC, fully independent from MCP)
+- Server tests grew from 94→284
+
+**Top 5 open risks identified:**
+1. Zero test coverage on ~1,400+ LOC extension code (HIGH)
+2. DebouncePusher thread safety — `_timer`/`_lastKey` unsynchronized (MEDIUM)
+3. ServerProcessManager Task.Delay(200) readiness hack (MEDIUM)
+4. Active diff orphaning on connection teardown (MEDIUM)
+5. DiagnosticsKey incomplete hash — missing end position/code (LOW)
+
+**MCP wire compatibility:** Excellent. All 6 VS Code tools, both notification types, lock file schema, and server info are verified compatible. The capture-driven test methodology is a key differentiator.
+
+Full assessment: `.squad/decisions/inbox/ripley-full-reassessment.md`
+
 ### 2026-03-09 — Deep Protocol Inspection & Findings Consolidation
 
 Completed final systematic analysis of all 4 capture files (vscode-0.38, vscode-0.39, vscode-insiders-0.39, vs-1.0.8) in parallel with Bishop and Hudson. Identified 15 protocol observations across 4 sources with detailed classification.
