@@ -65,6 +65,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private IVsMonitorSelection? _monitorSelection;
 	private uint _selectionMonitorCookie;
 	private CancellationTokenSource? _connectionCts;
+	private VsServiceRpc? _vsServiceRpc;
 	private DiagnosticTracker? _diagnosticTracker;
 	private OutputLogger? _logger;
 	private TerminalSessionService? _terminalSession;
@@ -168,10 +169,13 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		VsServices.Instance.DiagnosticTracker = _diagnosticTracker;
 	}
 
-	// Tears down connection: removes lock file, kills server, disposes pipe.
+	// Tears down connection: cleans up diffs, removes lock file, kills server, disposes pipe.
 	private void StopConnection()
 	{
 		_mcpCallbacks = null;
+
+		_vsServiceRpc?.CleanupAllDiffs();
+		_vsServiceRpc = null;
 
 		_diagnosticTracker?.Dispose();
 		_diagnosticTracker = null;
@@ -199,7 +203,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			_rpcPipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 			await _rpcPipe.WaitForConnectionAsync(ct);
-			_rpc = JsonRpc.Attach(_rpcPipe, new VsServiceRpc());
+			_vsServiceRpc = new VsServiceRpc();
+			_rpc = JsonRpc.Attach(_rpcPipe, _vsServiceRpc);
 			_mcpCallbacks = _rpc.Attach<IMcpServerCallbacks>();
 #pragma warning disable VSTHRD003 // Completion is a long-running task representing the RPC lifetime
 			await _rpc.Completion;

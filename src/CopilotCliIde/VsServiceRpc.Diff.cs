@@ -31,7 +31,6 @@ public partial class VsServiceRpc
 			var existingEntry = _activeDiffs.FirstOrDefault(kv => kv.Value.TabName == tabName);
 			if (existingEntry.Key != null)
 			{
-				existingEntry.Value.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
 				await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 				CleanupDiff(existingEntry.Key);
 			}
@@ -112,32 +111,16 @@ public partial class VsServiceRpc
 		if (entry.Key == null)
 			return CreateAlreadyClosedResult(tabName);
 
-		entry.Value.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
-
-		if (!_activeDiffs.TryRemove(entry.Key, out var diff))
-			return CreateAlreadyClosedResult(tabName);
-
 		try
 		{
 			await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-			if (diff.InfoBarElement != null)
-			{
-				try { diff.InfoBarElement.Unadvise(diff.InfoBarCookie); diff.InfoBarElement.Close(); } catch { /* Ignore */ }
-			}
-
-			if (diff.Frame != null)
-			{
-				try { diff.Frame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave); } catch { /* Ignore */ }
-			}
-
-			try { File.Delete(diff.TempNewPath); } catch { /* Ignore */ }
+			CleanupDiff(entry.Key);
 
 			VsServices.Instance.Logger?.Log($"Tool close_diff: {tabName} (closed)");
 			return new CloseDiffResult
 			{
 				Success = true,
-				TabName = diff.TabName,
+				TabName = tabName,
 				Message = $"Diff \"{tabName}\" closed successfully"
 			};
 		}
@@ -196,10 +179,26 @@ public partial class VsServiceRpc
 		frame.SetProperty((int)__VSFPROPID.VSFPROPID_ViewHelper, new FrameCloseNotify(tcs));
 	}
 
+	public void CleanupAllDiffs()
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+
+		var keys = _activeDiffs.Keys.ToList();
+		if (keys.Count == 0)
+			return;
+
+		VsServices.Instance.Logger?.Log($"CleanupAllDiffs: cleaning {keys.Count} active diff(s)");
+
+		foreach (var key in keys)
+			CleanupDiff(key);
+	}
+
 	private void CleanupDiff(string diffId)
 	{
 		if (!_activeDiffs.TryRemove(diffId, out var diff))
 			return;
+
+		diff.Completion?.TrySetResult((DiffOutcome.Rejected, DiffTrigger.ClosedViaTool));
 
 		try
 		{
