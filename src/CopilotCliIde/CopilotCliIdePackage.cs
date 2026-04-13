@@ -6,8 +6,10 @@ using CopilotCliIde.Shared;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
+using Microsoft.VisualStudio.Settings;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Shell.Settings;
 using StreamJsonRpc;
 using Task = System.Threading.Tasks.Task;
 
@@ -18,9 +20,39 @@ namespace CopilotCliIde;
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExistsAndFullyLoaded_string, PackageAutoLoadFlags.BackgroundLoad)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
 [ProvideToolWindow(typeof(TerminalToolWindow), Transient = true, Style = VsDockStyle.Tabbed, Window = "34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3")]
+[ProvideSettingsManifest]
+[ProvideService(typeof(TerminalSettingsProvider), IsAsyncQueryable = true)]
 [Guid("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")]
 public sealed class CopilotCliIdePackage : AsyncPackage
 {
+	static CopilotCliIdePackage()
+	{
+		// Resolve Microsoft.Terminal.Wpf from VS's Terminal extension folder.
+		// VS registers it via ProvideCodeBase on its own package, but that doesn't
+		// help third-party extensions. We resolve it from the known VS install path.
+		AppDomain.CurrentDomain.AssemblyResolve += (_, args) =>
+		{
+			var name = new System.Reflection.AssemblyName(args.Name);
+			if (!string.Equals(name.Name, "Microsoft.Terminal.Wpf", StringComparison.OrdinalIgnoreCase))
+				return null;
+
+			var devEnvDir = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule?.FileName);
+			if (devEnvDir == null)
+				return null;
+
+			var basePath = Path.Combine(devEnvDir, "CommonExtensions", "Microsoft", "Terminal");
+			var dllPath = Path.Combine(basePath, "Microsoft.Terminal.Wpf.dll");
+			if (!File.Exists(dllPath))
+				dllPath = Path.Combine(basePath, "Terminal.Wpf", "Microsoft.Terminal.Wpf.dll");
+			if (!File.Exists(dllPath))
+			{
+				VsServices.Instance?.Logger?.Log($"Microsoft.Terminal.Wpf.dll not found in {basePath}");
+				return null;
+			}
+			return System.Reflection.Assembly.LoadFrom(dllPath);
+		};
+	}
+
 	private IdeDiscovery? _discovery;
 	private ServerProcessManager? _processManager;
 	private NamedPipeServerStream? _rpcPipe;
@@ -39,6 +71,13 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
+		AddService(typeof(TerminalSettingsProvider), (_, _, _) =>
+		{
+			var settingsManager = new ShellSettingsManager(this);
+			var store = settingsManager.GetWritableSettingsStore(SettingsScope.UserSettings);
+			return Task.FromResult<object?>(new TerminalSettingsProvider(store));
+		}, true);
+
 		await base.InitializeAsync(cancellationToken, progress);
 		await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
 
@@ -258,7 +297,17 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
 				var window = await ShowToolWindowAsync(typeof(TerminalToolWindow), 0, true, DisposalToken);
 				if (window?.Frame is IVsWindowFrame frame)
+				{
 					frame.Show();
+
+					// Yield to let VS finish its frame activation and focus handling,
+					// then switch back to UI thread to focus the native terminal control.
+					// Without this, VS steals focus back during its own activation sequence.
+					// Pattern from VS's own TerminalWindowBase.OnActiveFrameChanged.
+					await Task.Run(() => { });
+					await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
+					(window.Content as TerminalToolWindowControl)?.FocusTerminal();
+				}
 			}
 			catch (Exception ex)
 			{

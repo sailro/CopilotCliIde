@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Shell;
 
@@ -12,18 +13,29 @@ public sealed class TerminalToolWindow : ToolWindowPane
 		Content = new TerminalToolWindowControl();
 	}
 
-	// Prevent VS from intercepting arrow keys, Tab, Escape, etc.
-	// so they reach the WebView2 control and xterm.js.
+	// Escape key sequence matching VS's TerminalWindowBase.EscKeyCode (Kitty keyboard protocol).
+	private const string EscKeySequence = "\u001b[27;1;27;1;0;1_";
+
+	// Prevent VS command routing from intercepting keys meant for the terminal.
+	// Arrow keys, Tab, etc. return false (normal dispatch reaches the TerminalContainer HWND).
+	// Escape must be handled specially: VS maps Escape to "deactivate tool window",
+	// so we forward the escape sequence to the terminal session and return true to consume it.
 	protected override bool PreProcessMessage(ref System.Windows.Forms.Message m)
 	{
 		const int WM_KEYDOWN = 0x0100;
 		if (m.Msg == WM_KEYDOWN)
 		{
 			var key = (int)m.WParam & 0xFF;
-			// Arrow keys (37-40), Tab (9), Escape (27), Enter (13),
+			if (key == 27 && System.Windows.Forms.Control.ModifierKeys == System.Windows.Forms.Keys.None)
+			{
+				if (Content is TerminalToolWindowControl control)
+					control.SendInput(EscKeySequence);
+				return true;
+			}
+			// Arrow keys (37-40), Tab (9), Enter (13),
 			// Backspace (8), Delete (46), Home (36), End (35), PgUp (33), PgDn (34)
-			if (key is >= 33 and <= 40 or 8 or 9 or 13 or 27 or 46)
-				return false; // Let WebView2 handle it
+			if (key is >= 33 and <= 40 or 8 or 9 or 13 or 46)
+				return false;
 		}
 		return base.PreProcessMessage(ref m);
 	}

@@ -1,0 +1,37 @@
+{
+  "categories": {
+    "copilotCliIde": {
+      "title": "Copilot CLI IDE Bridge"
+    },
+    "copilotCliIde.terminal": {
+      "title": "Terminal",
+      "order": 1
+    }
+  },
+  "properties": {
+    "copilotCliIde.terminal.externalSettings": {
+      "type": "external",
+      "title": "Terminal",
+      "backingStoreDescription": "Stored in Visual Studio settings.",
+      "callback": {
+        "packageId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+        "serviceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
+      },
+      "realtimeNotifications": true,
+      "properties": {
+        "fontFamily": {
+          "type": "string",
+          "title": "Font Family",
+          "description": "Font family used for the embedded terminal. Monospace fonts installed on your system are listed.",
+          "enum": [],
+          "allowsFreeformInput": true
+        },
+        "fontSize": {
+          "type": "integer",
+          "title": "Font Size",
+          "description": "Font size (in points) used for the embedded terminal."
+        }
+      }
+    }
+  }
+}

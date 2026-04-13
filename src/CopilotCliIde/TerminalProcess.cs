@@ -43,6 +43,7 @@ internal sealed class TerminalProcess : IDisposable
 		{
 			if (_disposed)
 				throw new ObjectDisposedException(nameof(TerminalProcess));
+
 			if (_session != null)
 				throw new InvalidOperationException("Process is already running.");
 
@@ -106,6 +107,7 @@ internal sealed class TerminalProcess : IDisposable
 
 				var charCount = _utf8Decoder!.GetCharCount(buffer, 0, bytesRead);
 				var chars = new char[charCount];
+
 				_utf8Decoder.GetChars(buffer, 0, bytesRead, chars, 0);
 				var text = new string(chars);
 

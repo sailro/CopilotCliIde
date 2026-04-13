@@ -7,7 +7,7 @@ How to decide who handles what.
 | Work Type | Route To | Examples |
 |-----------|----------|----------|
 | VS extension, DTE, threading, selection, lock files, InfoBar | Hicks | Fix selection tracking, add new DTE event handler, pipe client |
-| Embedded terminal, ConPTY, WebView2, xterm.js, TerminalProcess | Hicks | Fix terminal rendering, ConPTY handle leak, WebView2 lifecycle |
+| Embedded terminal, ConPTY, Terminal.Wpf, TerminalProcess | Hicks | Fix terminal rendering, ConPTY handle leak, terminal control lifecycle |
 | MCP server, tools, RPC, shared contracts, DTOs | Bishop | Add MCP tool, fix RPC timeout, update shared interface |
 | Architecture, scope, cross-cutting | Ripley | Design new feature, review architecture, resolve conflicts |
 | Code review | Ripley | Review PRs, check quality, suggest improvements |
