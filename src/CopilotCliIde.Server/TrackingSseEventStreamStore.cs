@@ -35,6 +35,10 @@ internal sealed class TrackingSseEventStreamStore(Func<string, string, Task>? on
 					throw new InvalidOperationException("Event stream is closed.");
 				}
 
+				// Notifications are state snapshots — only the latest per method matters.
+				if (eventToWrite.Data is JsonRpcNotification notification)
+					_history.RemoveAll(h => h.Data is JsonRpcNotification n && n.Method == notification.Method);
+
 				_history.Add(eventToWrite);
 				_channel.Writer.TryWrite(eventToWrite);
 				return eventToWrite;
