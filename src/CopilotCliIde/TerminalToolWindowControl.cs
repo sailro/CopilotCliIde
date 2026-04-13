@@ -120,6 +120,8 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		_termControl?.Focus();
 	}
 
+	internal void FocusTerminal() => _termControl?.Focus();
+
 	private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
 	{
 		if (e.NewValue is true)

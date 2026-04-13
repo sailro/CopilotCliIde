@@ -297,7 +297,17 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
 				var window = await ShowToolWindowAsync(typeof(TerminalToolWindow), 0, true, DisposalToken);
 				if (window?.Frame is IVsWindowFrame frame)
+				{
 					frame.Show();
+
+					// Yield to let VS finish its frame activation and focus handling,
+					// then switch back to UI thread to focus the native terminal control.
+					// Without this, VS steals focus back during its own activation sequence.
+					// Pattern from VS's own TerminalWindowBase.OnActiveFrameChanged.
+					await Task.Run(() => { });
+					await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
+					(window.Content as TerminalToolWindowControl)?.FocusTerminal();
+				}
 			}
 			catch (Exception ex)
 			{
