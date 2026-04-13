@@ -389,3 +389,18 @@ Fixed two race conditions in `DebouncePusher.cs`:
 
 **Key insight:** `Timer.Change()` is thread-safe by design — multiple concurrent calls are fine, last writer wins on the due time. This makes the single-timer pattern inherently race-free without any locking.
 
+### 2026-07-20 — Fix Diff Orphaning on Solution Switch (HIGH-1)
+
+Fixed the long-standing HIGH-1 finding from the 2026-03-10 review. On solution switch, `StopConnection()` now properly cleans up all active diffs before tearing down RPC.
+
+**Root cause:** `VsServiceRpc` was created as `new VsServiceRpc()` inline in `StartRpcServerAsync` and passed directly to `JsonRpc.Attach()` — never stored as a field. `StopConnection()` had no reference to it, so `_activeDiffs` entries were orphaned: TCS objects hung until 1-hour timeout, InfoBars stayed visible, temp files leaked, diff frames stayed open.
+
+**Fix (3 parts):**
+1. Added `CleanupAllDiffs()` to `VsServiceRpc.Diff.cs` — iterates `_activeDiffs`, sets each TCS result to (Rejected, ClosedViaTool), closes frames, removes InfoBars, deletes temp files, clears the dictionary. Guarded by `ThreadHelper.ThrowIfNotOnUIThread()`.
+2. Stored the `VsServiceRpc` instance as `_vsServiceRpc` field in `CopilotCliIdePackage` (previously anonymous `new VsServiceRpc()` in `StartRpcServerAsync`).
+3. `StopConnection()` calls `_vsServiceRpc?.CleanupAllDiffs()` as its FIRST action, before disposing RPC/pipes/process. This ensures TCS objects complete before the RPC channel is torn down, giving `OpenDiffAsync` awaits a chance to return cleanly.
+
+**Threading:** `StopConnection()` is always called from UI thread (solution events, `StartConnectionAsync` preamble, `Dispose`). `CleanupAllDiffs()` requires UI thread for `IVsWindowFrame.CloseFrame` and `IVsInfoBarUIElement` operations.
+
+**Build:** Server compiles clean (0 errors, 0 warnings).
+
