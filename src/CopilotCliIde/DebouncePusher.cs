@@ -1,18 +1,13 @@
 namespace CopilotCliIde;
 
 // 200ms debounce timer with content-based deduplication for push notifications.
+// Timer is created once (dormant) and reused — Schedule() just reschedules it.
 internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 {
-	private Timer? _timer;
-	private string? _lastKey;
+	private readonly Timer _timer = new(_ => onElapsed(), null, Timeout.Infinite, Timeout.Infinite);
+	private volatile string? _lastKey;
 
-	public void Schedule()
-	{
-		if (_timer == null)
-			_timer = new Timer(_ => onElapsed(), null, 200, Timeout.Infinite);
-		else
-			_timer.Change(200, Timeout.Infinite);
-	}
+	public void Schedule() => _timer.Change(200, Timeout.Infinite);
 
 	public bool IsDuplicate(string key)
 	{
@@ -28,9 +23,8 @@ internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 	public void Reset()
 	{
 		_lastKey = null;
-		_timer?.Dispose();
-		_timer = null;
+		_timer.Change(Timeout.Infinite, Timeout.Infinite);
 	}
 
-	public void Dispose() => Reset();
+	public void Dispose() => _timer.Dispose();
 }
