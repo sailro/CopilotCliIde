@@ -66,11 +66,11 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 
 	protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
 	{
-		AddService(typeof(TerminalSettingsProvider), async (container, token, type) =>
+		AddService(typeof(TerminalSettingsProvider), (_, _, _) =>
 		{
 			var settingsManager = new ShellSettingsManager(this);
 			var store = settingsManager.GetWritableSettingsStore(SettingsScope.UserSettings);
-			return new TerminalSettingsProvider(store);
+			return Task.FromResult<object?>(new TerminalSettingsProvider(store));
 		}, true);
 
 		await base.InitializeAsync(cancellationToken, progress);

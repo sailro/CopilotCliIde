@@ -10,8 +10,6 @@ internal static class TerminalSettings
 	public const short DefaultFontSize = 12;
 
 	private const string CollectionPath = "CopilotCliIde\\Terminal";
-	private const string FontFamilyKey = "FontFamily";
-	private const string FontSizeKey = "FontSize";
 
 	public static string FontFamily
 	{
@@ -20,8 +18,8 @@ internal static class TerminalSettings
 			try
 			{
 				var store = GetStore();
-				if (store != null && store.CollectionExists(CollectionPath) && store.PropertyExists(CollectionPath, FontFamilyKey))
-					return store.GetString(CollectionPath, FontFamilyKey);
+				if (store != null && store.CollectionExists(CollectionPath) && store.PropertyExists(CollectionPath, TerminalSettingsProvider.FontFamilyKey))
+					return store.GetString(CollectionPath, TerminalSettingsProvider.FontFamilyKey);
 			}
 			catch { /* Ignore */ }
 
@@ -36,9 +34,9 @@ internal static class TerminalSettings
 			try
 			{
 				var store = GetStore();
-				if (store != null && store.CollectionExists(CollectionPath) && store.PropertyExists(CollectionPath, FontSizeKey))
+				if (store != null && store.CollectionExists(CollectionPath) && store.PropertyExists(CollectionPath, TerminalSettingsProvider.FontSizeKey))
 				{
-					var size = store.GetInt32(CollectionPath, FontSizeKey);
+					var size = store.GetInt32(CollectionPath, TerminalSettingsProvider.FontSizeKey);
 					return (short)Math.Max(6, Math.Min(72, size));
 				}
 			}
@@ -51,7 +49,9 @@ internal static class TerminalSettings
 	private static WritableSettingsStore? GetStore()
 	{
 		var sp = ServiceProvider.GlobalProvider;
-		if (sp == null) return null;
+		if (sp == null)
+			return null;
+
 		var manager = new ShellSettingsManager(sp);
 		return manager.GetWritableSettingsStore(SettingsScope.UserSettings);
 	}

@@ -36,8 +36,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		VSColorTheme.ThemeChanged += OnThemeChanged;
 	}
 
-	// --- ITerminalConnection ---
-
 	void ITerminalConnection.Start()
 	{
 	}
@@ -93,8 +91,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		// Session lifecycle is managed by TerminalSessionService — nothing to do here.
 	}
 
-	// --- Lifecycle ---
-
 	private void OnLoaded(object sender, RoutedEventArgs e)
 	{
 		if (_disposed)
@@ -132,8 +128,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		ThreadHelper.ThrowIfNotOnUIThread();
 		_termControl?.SetTheme(TerminalThemer.GetTheme(), TerminalSettings.FontFamily, TerminalSettings.FontSize);
 	}
-
-	// --- Session wiring ---
 
 	private void AttachToSession()
 	{
@@ -182,8 +176,6 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 			_sessionService?.Resize((short)_termControl.Columns, (short)_termControl.Rows);
 		}
 	}
-
-	// --- Dispose ---
 
 	public void Dispose()
 	{

@@ -64,16 +64,13 @@ internal static class TerminalThemer
 		var theme = isDark ? _darkTheme : _lightTheme;
 
 		theme.DefaultBackground = (uint)ColorTranslator.ToWin32(bgColor);
-		theme.DefaultForeground = (uint)ColorTranslator.ToWin32(
-			VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowTextColorKey));
-		theme.DefaultSelectionBackground = (uint)ColorTranslator.ToWin32(
-			VSColorTheme.GetThemedColor(CommonControlsColors.ComboBoxTextInputSelectionColorKey));
+		theme.DefaultForeground = (uint)ColorTranslator.ToWin32(VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowTextColorKey));
+		theme.DefaultSelectionBackground = (uint)ColorTranslator.ToWin32(VSColorTheme.GetThemedColor(CommonControlsColors.ComboBoxTextInputSelectionColorKey));
 		theme.CursorStyle = CursorStyle.BlinkingBlockDefault;
 
 		return theme;
 	}
 
 	// Perceived brightness: dark if < 128 on a 0-255 scale (ITU-R BT.601 luma).
-	private static bool IsDarkColor(Color c) =>
-		(0.299 * c.R + 0.587 * c.G + 0.114 * c.B) < 128;
+	private static bool IsDarkColor(Color c) => (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) < 128;
 }

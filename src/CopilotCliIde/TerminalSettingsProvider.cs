@@ -1,11 +1,6 @@
-using System.Collections.Generic;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.VisualStudio.Settings;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Settings;
 using Microsoft.VisualStudio.Utilities.UnifiedSettings;
 
 namespace CopilotCliIde;
@@ -16,8 +11,8 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 	public const string ServiceGuid = "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e";
 
 	private const string CollectionPath = "CopilotCliIde\\Terminal";
-	private const string FontFamilyKey = "FontFamily";
-	private const string FontSizeKey = "FontSize";
+	public const string FontFamilyKey = "FontFamily";
+	public const string FontSizeKey = "FontSize";
 	private const string FontFamilyMoniker = "fontFamily";
 	private const string FontSizeMoniker = "fontSize";
 
@@ -51,7 +46,7 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 		{
 			value = _store.PropertyExists(CollectionPath, FontSizeKey)
 				? _store.GetInt32(CollectionPath, FontSizeKey)
-				: (int)TerminalSettings.DefaultFontSize;
+				: TerminalSettings.DefaultFontSize;
 		}
 
 		return value is not null
