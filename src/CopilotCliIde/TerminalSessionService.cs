@@ -8,8 +8,6 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 	private readonly object _processLock = new();
 	private TerminalProcess? _process;
 	private string? _workingDirectory;
-	private short _cols = 120;
-	private short _rows = 40;
 
 	// Fired when the terminal produces output (UTF-8 string).
 	public event Action<string>? OutputReceived;
@@ -29,8 +27,6 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 			StopSessionCore();
 
 			_workingDirectory = workingDirectory;
-			_cols = cols;
-			_rows = rows;
 			logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows})");
 
 			try
@@ -82,14 +78,16 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 				StopSessionCore();
 
 				_workingDirectory = dir;
-				logger?.Log($"Terminal: restarting session in {dir} ({_cols}x{_rows})");
+				logger?.Log($"Terminal: restarting session in {dir}");
 
 				try
 				{
 					_process = new TerminalProcess();
 					_process.OutputReceived += OnOutputReceived;
 					_process.ProcessExited += OnProcessExited;
-					_process.Start(dir, _cols, _rows);
+					// Use defaults — the new TerminalControl's first Resize will
+					// set the real dimensions, forcing the process to redraw.
+					_process.Start(dir);
 					restarted = true;
 				}
 				catch (Exception ex)
@@ -113,6 +111,7 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public void Resize(short cols, short rows)
 	{
+		logger?.Log($"Terminal: Resize({cols}x{rows}), process={_process?.IsRunning}");
 		_process?.Resize(cols, rows);
 	}
 

@@ -62,10 +62,10 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		if (rows == 0 || columns == 0)
 			return;
 
-		_logger?.Log($"Terminal control: Resize({columns}x{rows}), session={_sessionService != null}, started={_sessionStartedByResize}");
-
 		var cols = (short)columns;
 		var r = (short)rows;
+
+		_logger?.Log($"Terminal control: Resize({columns}x{rows}), session={_sessionService != null}, started={_sessionStartedByResize}");
 
 		if (!_sessionStartedByResize && _sessionService is { IsRunning: false })
 		{
@@ -108,12 +108,11 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 
 		ThreadHelper.ThrowIfNotOnUIThread();
 		SetTheme();
-		AttachToSession();
 	}
 
 	private void OnUnloaded(object sender, RoutedEventArgs e)
 	{
-		DetachFromSession();
+		// Don't detach — session service is a singleton, process survives hide/show.
 	}
 
 	private void OnGotFocus(object sender, RoutedEventArgs e)
@@ -182,7 +181,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 
 	private void OnSessionRestarted()
 	{
-		// Native control handles VT reset sequences from the new shell — nothing extra needed.
+		_logger?.Log("Terminal control: OnSessionRestarted fired");
 	}
 
 	// --- Dispose ---
