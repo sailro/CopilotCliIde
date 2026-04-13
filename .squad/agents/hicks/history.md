@@ -404,3 +404,20 @@ Fixed the long-standing HIGH-1 finding from the 2026-03-10 review. On solution s
 
 **Build:** Server compiles clean (0 errors, 0 warnings).
 
+### 2026-07-24 — Replace Task.Delay(200) with READY handshake in ServerProcessManager
+
+**Problem:** `ServerProcessManager.StartAsync()` used `await Task.Delay(200)` after spawning the MCP server process — a fragile timing assumption. On slow machines or cold .NET startup, 200ms wasn't always enough. On fast machines, it was wasted time.
+
+**Fix:** Replaced the delay with a proper stdout-based readiness handshake. After `_process.Start()`, the extension reads lines from `StandardOutput` until it sees a line matching `"READY"` (exact, trimmed). Bishop is simultaneously adding `Console.WriteLine("READY")` to the server after Kestrel binds its pipe.
+
+**Implementation details:**
+- `WaitForReadySignalAsync(Process)` — static helper, races a `Task.Run` read loop against `Task.Delay(10s)` via `Task.WhenAny`.
+- **net472 constraint:** `StreamReader.ReadLineAsync()` has no `CancellationToken` overload on net472. Used `Task.WhenAny` with a timeout task instead of `CancellationTokenSource`.
+- **Process exit detection:** If the process exits before READY, `ReadLineAsync()` returns null → throws with exit code.
+- **Timeout:** 10 seconds — generous for cold .NET startup, throws `TimeoutException` with clear message.
+- **Stdout drain:** After READY, a fire-and-forget `Task.Run` loop drains remaining stdout to prevent the server from blocking on a full output buffer. Suppressed CS4014 with `#pragma warning disable`.
+
+**Key pattern:** When launching a child process that needs time to initialize, never use `Task.Delay` — use a readiness signal on stdout. The parent reads lines until the signal appears, with a timeout. After the signal, drain remaining stdout on a background thread.
+
+**Build:** MSBuild 0 errors, 0 new warnings. Two pre-existing VSTHRD010 warnings in CopilotCliIdePackage.cs (not related).
+

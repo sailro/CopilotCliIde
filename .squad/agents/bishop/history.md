@@ -802,3 +802,11 @@ Conducted comprehensive audit of all server code after the ModelContextProtocol.
 **Recommendation:** Ship it. The server is production-ready. The MEDIUM items are all optimizations or data quality improvements, not bugs.
 
 **Full audit report:** .squad/decisions/inbox/bishop-server-audit.md (35K words, comprehensive file-by-file analysis)
+
+### 2026-07-17 — READY Signal on stdout After Server Startup
+
+Added `Console.WriteLine("READY");` to `Program.cs` immediately after `mcpServer.StartAsync()` completes (line 18). This signals to the extension's `ServerProcessManager` that Kestrel has bound the named pipe and is ready to accept MCP connections.
+
+**Motivation:** The extension previously used `await Task.Delay(200)` + `HasExited` check — a fragile race condition. With the READY signal, the extension can read stdout and proceed as soon as the server is truly listening.
+
+**Scope:** Single line added to `src/CopilotCliIde.Server/Program.cs`. No other server files changed. Build clean, 284 tests pass.
