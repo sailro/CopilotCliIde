@@ -22,7 +22,7 @@ Copilot CLI ──(Streamable HTTP over named pipe)──▶ CopilotCliIde.Serve
 
 The connection is tied to the VS solution lifecycle (matching VS Code's close-folder behavior):
 - **Solution opens** → `StartConnectionAsync()` creates new pipes, launches the MCP server process, and writes a lock file to `~/.copilot/ide/`.
-- **Solution closes** → `StopConnection()` removes the lock file, kills the server process, and disposes pipes. Copilot CLI disconnects.
+- **Solution closes** → `StopConnection()` removes the lock file, kills the server process, and disposes pipes. Copilot CLI disconnects. The embedded terminal is restarted in the current directory (not stopped).
 - **Solution switches** → `StopConnection()` then `StartConnectionAsync()` — a fresh connection for the new workspace.
 
 ### Discovery
@@ -126,13 +126,26 @@ TerminalProcess ──(pipes)──▶ ConPTY pseudo-console ──▶ cmd.exe /
 - **`TerminalToolWindow.cs`** — `ToolWindowPane` shell. Overrides `PreProcessMessage` to prevent VS from intercepting arrow keys, Tab, Escape, Enter, etc. — lets them reach the native `TerminalControl`.
 - **`TerminalToolWindowControl.cs`** — WPF `UserControl` implementing `ITerminalConnection`. Hosts `Microsoft.Terminal.Wpf.TerminalControl` directly — zero marshaling overhead. `WriteInput` → session service, `Resize` → session start or resize, `TerminalOutput` event ← output received.
 - **`TerminalThemer.cs`** — Reads VS color theme and maps it to a `TerminalTheme` struct for the native control.
+- **`TerminalSettings.cs`** — Reads terminal font family and size from `WritableSettingsStore` (path `CopilotCliIde\Terminal`). Provides static `FontFamily` and `FontSize` accessors with defaults (`Cascadia Code`, 12pt).
+- **`TerminalSettingsProvider.cs`** — Implements `IExternalSettingsProvider` for VS Unified Settings. Dynamically enumerates installed monospace fonts via GDI+ `InstalledFontCollection` + character-width measurement. The font dropdown uses `allowsFreeformInput` so users can type arbitrary names.
+- **`registration.json`** — VS Unified Settings manifest declaring the `copilotCliIde.terminal` category with `fontFamily` (enum + freeform) and `fontSize` (integer) properties. Uses `"type": "external"` with a callback to `TerminalSettingsProvider`.
+
+### Unified Settings
+
+The extension exposes terminal font configuration through VS's Unified Settings API (**Settings → Copilot CLI IDE Bridge → Terminal**):
+
+- `[ProvideSettingsManifest]` on the package registers `registration.json` as a settings manifest.
+- `[ProvideService(typeof(TerminalSettingsProvider))]` proffers the external settings provider.
+- `registration.json` declares properties with `"type": "external"` and a callback containing the package and service GUIDs.
+- `GetEnumChoicesAsync` **must** use `await Task.Yield()` — VS silently drops enum choices from synchronous Task returns.
+- Settings are persisted in `WritableSettingsStore` under `CopilotCliIde\Terminal` and read by `TerminalSettings` at theme application time.
 
 ### Lifecycle
 
 - **Package init** → `TerminalSessionService` created and stored in `VsServices.Instance.TerminalSession`.
 - **Tool window opened** → `TerminalToolWindowControl` creates `TerminalControl`, sets `Connection = this`. Process is **not** started until the control fires `Resize` (so ConPTY gets correct initial dimensions).
 - **Solution opens** → `_terminalSession.RestartSession(workspaceFolder)` re-launches the CLI in the new solution directory.
-- **Solution closes** → `_terminalSession.StopSession()` kills the CLI process.
+- **Solution closes** → `_terminalSession.RestartSession(GetWorkspaceFolder())` restarts the CLI in the current directory (keeps terminal alive across solution switches).
 - **Process exits** → User sees `[Process exited. Press Enter to restart.]`; pressing Enter calls `RestartSession()`.
 - **Package dispose** → `_terminalSession.Dispose()` tears down everything.
 
