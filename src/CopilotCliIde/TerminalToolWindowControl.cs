@@ -89,6 +89,8 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		}
 		else
 		{
+			// Resize can be called from a non-UI thread by the native TerminalContainer.
+			// This is safe because TerminalProcess.Resize() uses a lock internally.
 			_sessionService?.Resize(cols, r);
 		}
 	}

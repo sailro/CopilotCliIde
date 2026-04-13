@@ -44,7 +44,12 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			var dllPath = Path.Combine(basePath, "Microsoft.Terminal.Wpf.dll");
 			if (!File.Exists(dllPath))
 				dllPath = Path.Combine(basePath, "Terminal.Wpf", "Microsoft.Terminal.Wpf.dll");
-			return File.Exists(dllPath) ? System.Reflection.Assembly.LoadFrom(dllPath) : null;
+			if (!File.Exists(dllPath))
+			{
+				VsServices.Instance?.Logger?.Log($"Microsoft.Terminal.Wpf.dll not found in {basePath}");
+				return null;
+			}
+			return System.Reflection.Assembly.LoadFrom(dllPath);
 		};
 	}
 
