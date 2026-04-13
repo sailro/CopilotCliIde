@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Terminal.Wpf;
@@ -41,6 +42,12 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 	}
 
 	void ITerminalConnection.WriteInput(string data)
+	{
+		SendInput(data);
+	}
+
+	// Called by TerminalToolWindow.PreProcessMessage for keys VS would intercept (Escape).
+	internal void SendInput(string data)
 	{
 		if (_sessionService?.IsRunning == true)
 		{
@@ -100,7 +107,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		SetTheme();
 	}
 
-	private void OnUnloaded(object sender, RoutedEventArgs e)
+	private static void OnUnloaded(object sender, RoutedEventArgs e)
 	{
 		// Don't detach — session service is a singleton, process survives hide/show.
 	}
