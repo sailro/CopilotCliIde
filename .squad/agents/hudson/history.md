@@ -20,7 +20,31 @@ Hudson owns test suite, coverage analysis, and test infrastructure. Key decision
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
-### 2026-03-30 — Full Test Suite Audit (284 tests passing)
+### 2026-07-24 — TrackingSseEventStreamStore History Trimming Tests (12 tests)
+
+**File:** `src/CopilotCliIde.Server.Tests/TrackingSseEventStreamStoreTests.cs`
+
+**What:** 12 tests covering the "trim to last-per-type" behavior in `TrackingSseEventStreamStore.StreamState.AddEvent`. When a `JsonRpcNotification` is added, any existing history entry with the same `Method` is removed before the new one is appended. Non-notification messages (`JsonRpcRequest`, `JsonRpcResponse`, null data) are left untouched.
+
+**Tests written:**
+1. `SingleNotification_StoredInHistory` — 1 selection → 1 in history
+2. `SameTypeNotification_ReplacesPrevious` — 2 selections → only latest in history
+3. `DifferentTypeNotifications_BothCoexist` — 1 selection + 1 diagnostics → 2 in history
+4. `MultipleSameTypeNotifications_OnlyKeepsLast` — 5 selections → only 5th in history
+5. `NonNotificationMessages_NotTrimmed` — 2 requests → both in history
+6. `Mixed_NotificationsTrimmed_NonNotificationsPreserved` — request + 2×selection + 2×diagnostics → 3 items
+7. `GetHistorySnapshot_ReturnsCorrectItemsAfterTrimming` — response + 3×selection + diagnostics → 3 items, snapshot is a copy
+8. `ChannelReceivesAllEvents_EvenWhenHistoryTrims` — 5 selections: history=1, channel=5
+9. `ResponseMessages_NotTrimmed` — 2 responses → both in history
+10. `NullDataEvents_NotTrimmed` — 2 null items → both in history
+11. `EventIds_AreSequential` — verifies `{session}:{stream}:{seq}` format
+12. `WritingToCompletedStream_Throws` — InvalidOperationException after RemoveSession
+
+**Key pattern:** `StreamState` is a private nested class. Reflection helper (`GetHistory`) accesses `_streamsById` dictionary and calls `GetHistorySnapshot()` to directly verify history content without conflating channel and history items. Similarly, `GetChannelReader` accesses the channel for the "all events pushed to live clients" test.
+
+**MCP SDK types used:** `JsonRpcNotification` (sealed, has `Method`), `JsonRpcRequest` (sealed, has `Method` + `Id`), `JsonRpcResponse` (sealed, has `Id` + `Result`). All from `ModelContextProtocol.Protocol`. `SseItem<T>` from `System.Net.ServerSentEvents`. `SseEventStreamOptions` from `ModelContextProtocol.Server` (has required `SessionId`, `StreamId`).
+
+### 2026-03-30— Full Test Suite Audit (284 tests passing)
 
 **Inventory:** 13 test files (excluding TrafficParser.cs utility), 116 test methods (62 [Fact], 54 [Theory]). Theories multiply to 284 total executions (8 capture files × 22 theory methods + 62 facts + ~20 integration tests). Test files:
 

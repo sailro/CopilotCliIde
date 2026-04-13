@@ -33,6 +33,8 @@ Bishop owns MCP server code, contract impact assessment, and HTTP response frami
 
 - **Documentation Session Completion (2026-03-07):** Parallel audit with Ripley. Completed protocol.md verification — confirmed all lock file fields, tool names/schemas, blocking behavior, notifications, transport details, server capabilities. Fixed get_diagnostics response example. All documentation now fully aligned with implementation.
 
+- **TrackingSseEventStreamStore now has 12 unit tests (2026-04-13):** Hudson wrote comprehensive test suite for history trimming behavior. Tests confirm trim-to-last-per-notification-method while preserving non-notification messages. Full suite: 294 tests passing (282 existing + 12 new).
+
 - **PathUtils URI Protocol Requirement (2026-03-07):** Critical team rule established. Code producing file URIs for MCP protocol MUST use `PathUtils.ToVsCodeFileUrl` and `PathUtils.ToLowerDriveLetter`, never raw `Uri.ToString()`. BCL's System.Uri produces incompatible formats (uppercase drive + literal colon); VS Code protocol requires lowercase drive + URL-encoded colon (`%3A`). Ripley found three VsServiceRpc call sites violating this rule, causing URI inconsistency between tool responses and push notifications. All three fixed. See `.squad/decisions.md` — "PathUtils is Protocol-Required, Not a Hack" section. **Team rule:** Enforce this in all future file URI code.
 
 - **Severity mapping centralization (2026-03-07):** Ripley centralized duplicate `vsBuildErrorLevel` → severity string mapping. Promoted `VsServiceRpc.MapSeverity` to internal static. Extension's `CollectDiagnosticsGrouped` now calls it for consistent severity strings in `diagnostics_changed` push notifications. Server tests remain at 109 passing (no VSIX test impact).
