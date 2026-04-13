@@ -377,3 +377,15 @@ This eliminated the `Find VS install path` CI step and `/p:DevEnvDir=...` overri
 
 **Key insight:** `$(DevEnvDir)` includes the trailing `Common7\IDE\` path segment (e.g., `C:\VS\Common7\IDE\`), while `$(VsInstallRoot)` is just the root (e.g., `C:\VS`). So the HintPath needed `\Common7\IDE\` inserted.
 
+### 2026-07-19 — DebouncePusher Race Condition Fix
+
+Fixed two race conditions in `DebouncePusher.cs`:
+
+1. **TOCTOU on `_timer`:** Two threads calling `Schedule()` simultaneously could both see `_timer == null`, both create a `new Timer(...)`, and one leaks. Fix: create the timer once in the constructor with `Timeout.Infinite` (dormant). `Schedule()` just calls `_timer.Change(200, Timeout.Infinite)` — no null check, no race. Timer is `readonly`.
+
+2. **Unsynchronized `_lastKey`:** Plain `string?` read/written from UI thread and timer callback thread. Fix: marked `volatile` for cross-thread visibility.
+
+3. **`Reset()` vs `Dispose()` separation:** `Reset()` now parks the timer (`Change(Timeout.Infinite, Timeout.Infinite)`) instead of disposing it — the pusher remains reusable after `StopTracking()`. `Dispose()` does the final teardown. This matches `SelectionTracker`'s lifecycle where `Reset()` is called on solution close but `Schedule()` resumes on the next solution open.
+
+**Key insight:** `Timer.Change()` is thread-safe by design — multiple concurrent calls are fine, last writer wins on the due time. This makes the single-timer pattern inherently race-free without any locking.
+
