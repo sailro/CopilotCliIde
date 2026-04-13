@@ -32,11 +32,21 @@ public sealed class ServerProcessManager : IDisposable
 			EnableRaisingEvents = true
 		};
 
-		_process.Start();
-		await Task.Delay(200); // Let server start
+		var ready = new TaskCompletionSource<bool>();
+		_process.OutputDataReceived += (s, e) =>
+		{
+			if (e.Data == "READY") ready.TrySetResult(true);
+		};
+		_process.Exited += (s, e) => ready.TrySetResult(false);
 
-		if (_process.HasExited)
-			throw new Exception($"MCP server exited immediately with code {_process.ExitCode}");
+		_process.Start();
+		_process.BeginOutputReadLine();
+
+		if (await Task.WhenAny(ready.Task, Task.Delay(10_000)) != ready.Task)
+			throw new TimeoutException("MCP server did not become ready within 10 seconds");
+
+		if (!await ready.Task)
+			throw new Exception($"MCP server exited with code {_process.ExitCode}");
 	}
 
 	public void Dispose()

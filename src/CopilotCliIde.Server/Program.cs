@@ -22,6 +22,9 @@ rpcClient.SelectionChanged += notification => mcpServer.PushSelectionChangedAsyn
 // Forward diagnostics changes from VS to all connected CLI clients
 rpcClient.DiagnosticsChanged += notification => mcpServer.PushDiagnosticsChangedAsync(notification);
 
+// Signal the parent process that all initialization is complete
+Console.WriteLine("READY");
+
 // Keep running until stdin closes (parent process dies) or cancellation
 var tcs = new TaskCompletionSource<int>();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; tcs.TrySetResult(0); };
