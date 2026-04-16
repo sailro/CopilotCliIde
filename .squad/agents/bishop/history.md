@@ -39,6 +39,12 @@ Bishop owns MCP server code, contract impact assessment, and HTTP response frami
 
 - **Severity mapping centralization (2026-03-07):** Ripley centralized duplicate `vsBuildErrorLevel` → severity string mapping. Promoted `VsServiceRpc.MapSeverity` to internal static. Extension's `CollectDiagnosticsGrouped` now calls it for consistent severity strings in `diagnostics_changed` push notifications. Server tests remain at 109 passing (no VSIX test impact).
 
+### 2026-04-16 — Full Team Re-Assessment Cross-Confirmation
+
+**Cross-agent findings:** Ripley: architecture healthy, boundary clean, H1 regression (cleared-selection push missing). Hicks: H1 matches Ripley, 4 MEDIUM + 5 LOW. Hudson: 294 tests passing (drifted +10), 5 coverage gaps (P0–P2). Charters updated to `claude-opus-4.7` model per user directive.
+
+**Status:** H1 re-opened for re-implementation. Decisions merged to `decisions.md`; inbox cleared. Session log written.
+
 ### 2026-03-07T11:24:48Z — ErrorListReader Deduplication (Extension Refactor)
 
 Hicks consolidated duplicate Error List iteration logic from `VsServiceRpc.GetDiagnosticsAsync` (RPC on-demand path, 100-item cap) and `CopilotCliIdePackage.CollectDiagnosticsGrouped` (push notification path, 200-item cap) into a new `ErrorListReader.CollectGrouped()` helper class.
@@ -812,3 +818,7 @@ Added `Console.WriteLine("READY");` to `Program.cs` immediately after `mcpServer
 **Motivation:** The extension previously used `await Task.Delay(200)` + `HasExited` check — a fragile race condition. With the READY signal, the extension can read stdout and proceed as soon as the server is truly listening.
 
 **Scope:** Single line added to `src/CopilotCliIde.Server/Program.cs`. No other server files changed. Build clean, 284 tests pass.
+
+### 2026-04-14 — Server re-assessment
+
+Full Server Dev-viewpoint audit. All 294 server tests pass. Key findings: (1) 7 MCP tools well-aligned with VS Code schemas; update_session_name is a no-op stub that only acks success. (2) TrackingSseEventStreamStore intentionally keeps StreamState alive after writer dispose to support server-initiated notifications; this causes POST-stream StreamState objects to accumulate until session DELETE — minor leak over long-lived sessions with many tool calls. (3) AspNetMcpPipeServer.MapMcp is called twice ('/' and '/mcp') — worth confirming the SDK doesn't double-register endpoints. (4) open_diff correctly has no server-side timeout — blocks on RPC until VS completes. (5) ResetNotificationStateAsync is recent IVsServiceRpc addition; breaks wire compat with older extension builds but both sides ship together. (6) Error handling: RPC exceptions propagate as MCP tool errors via SDK — no structured error DTO layering; get_diagnostics is the only tool that returns { error } on failure path. (7) ServerProcessManager 10s READY handshake is still correct. (8) Coverage gap: no dedicated ReadFileTool tests beyond schema/discovery.

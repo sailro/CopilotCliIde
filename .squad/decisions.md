@@ -3121,6 +3121,248 @@ ConPTY → C# ReadFile → UTF-8 decode → output batching →
 → xterm.js terminal.write() → Canvas/DOM render
 ```
 
+---
+
+## 2026-04-16 — Full Team Re-Assessment (Opus 4.7)
+
+### Regression Confirmed: Cleared-Selection Push Missing
+
+**Authors:** Ripley (Lead), Hicks (Extension Dev), Hudson (Tester)  
+**Date:** 2026-04-16T16:13:51Z  
+**Status:** REGRESSION DETECTED — Code missing despite decision marked "Implemented & Approved"  
+**Severity:** HIGH  
+
+#### Finding (Cross-Confirmed by 3 Agents)
+
+The `SelectionTracker.PushClearedSelection()` path documented in the 2026-03-30 decision (lines 3–63 above) as "Implemented & Approved" **does not exist in current code**:
+
+- **Expected:** `src/CopilotCliIde/SelectionTracker.cs` should have `PushClearedSelection()` method called from:
+  1. `TrackActiveView()` when `wpfView == null` (non-editor frame becomes active)
+  2. `OnViewClosed()` (belt-and-suspenders for timing edge cases)
+
+- **Actual:** Current code at line 56–60 calls `UntrackView(); return;` with no cleared push. Grep for `PushClearedSelection` / `cleared` returns zero hits.
+
+- **Git history:** No commit to `SelectionTracker.cs` after 2026-03-28. The March 30 Scribe commit (`060cf61`) is documentation-only.
+
+#### Why It Matters Now
+
+`TrackingSseEventStreamStore` (f1b9540, 2026-04-13) trims SSE history to **last per notification type**. A stale `selection_changed` entry persists in replay until a real editor selection pushes a new one.
+
+**Scenario:**
+1. User has file `foo.ts` open
+2. Closes all editor tabs (solution still loaded)
+3. Disconnects and reconnects Copilot CLI
+4. CLI sees the cached `selection_changed` event in SSE replay history
+5. User sees phantom file `foo.ts` despite no editors open
+
+#### Test Impact
+
+Hudson's 3 regression tests from 2026-03-30 were added but **only verify the absence of a push**, not the presence of a cleared push:
+- `InitialState_NoSelectionPushed_WhenNoActiveEditor` passed even with the regression in place because it asserts `PushInitialStateAsync` behavior (which is separate from the live cleared-push path).
+
+#### Recommended Fix
+
+**Owner:** Hicks (author), Hudson (re-verify tests)  
+**Estimated effort:** 1–2 hours
+
+1. Restore `PushClearedSelection()` in `SelectionTracker.OnViewClosed()` and `TrackActiveView()` when `wpfView == null`
+2. Create an empty `SelectionNotification()` (all-null fields) and push via existing debouncer
+3. Use dedup key `"cleared"` to avoid redundant sends
+4. **Hudson:** Update regression tests to verify **pushed cleared notification arrives on SSE stream**, not just that pull path returns correct state
+
+#### Implications
+
+- **Server:** Already handles null `FilePath` gracefully in `PushInitialStateAsync` (verified by Ripley)
+- **Extension tests:** Currently zero coverage; this fix will remain untested until `CopilotCliIde.Tests` project is created (Hudson's P1 recommendation)
+- **Protocol:** No client-side changes needed; `selection_changed` event with null `fileUrl` is already valid MCP
+
+---
+
+### Assessment: Extension Health & Resource Leaks
+
+**Author:** Hicks (Extension Dev)  
+**Date:** 2026-04-16T16:13:51Z  
+**Status:** Documented — 3 prioritized fixes identified  
+
+#### HIGH-Severity Issues
+
+1. **Cleared-selection regression** — See above (cross-confirmed with Ripley, Hudson)
+
+#### MEDIUM-Severity Issues
+
+2. **ServerProcessManager stderr not drained**
+   - `RedirectStandardError = true` is set but no `BeginErrorReadLine()` call
+   - If server writes >~4KB to stderr, child process blocks on pipe buffer full
+   - Fix: Call `BeginErrorReadLine()` and forward to `OutputLogger` or at minimum drain them
+
+3. **`timeoutCts` leak on OpenDiffAsync exception**
+   - `VsServiceRpc.Diff.cs:47` creates 1-hour `CancellationTokenSource`
+   - Only `Dispose()`d on success path (line 86)
+   - Any exception between L50–L83 leaks both CTS and underlying timer
+   - Fix: Use `using var timeoutCts = ...` or move `Dispose()` to `finally` block
+
+4. **`_mcpCallbacks` field lacks memory-model guarantees**
+   - Assigned on RPC server task, read from `SelectionTracker` / `DiagnosticTracker` threads
+   - Reference reads are atomic on x64 but no happens-before ordering with surrounding state
+   - No observed bug, but brittle
+   - Fix: Mark volatile or use `Interlocked` / consistent `Func<>` delegate pattern
+
+#### LOW-Severity Issues
+
+5. `StartRpcServerAsync` uses `WaitForConnectionAsync(ct)` with no timeout
+6. `TerminalProcess.Dispose` race on `_flushTimer` (mitigated by `_bufferLock`)
+7. `_activeDiffs.FirstOrDefault` linear scan (acceptable at N≤5, noted for completeness)
+8. `IVsMonitorSelection` sink registers before connection exists (guarded correctly, but subtle flow)
+9. Terminal.Wpf probing before logger init (null-check in place, but fallback error lost)
+10. `ServerProcessManager.Dispose` uses stdin close as shutdown signal (noisy, always elapses 3s)
+
+#### Strengths
+
+- DebouncePusher race properly fixed: single timer, `_lastKey` volatile (verified ✅)
+- ConPty.Session.Dispose handle ordering correct
+- ESC/Kitty sequence handling in TerminalToolWindow.PreProcessMessage correct
+- CleanupAllDiffs correctly cancels pending TCS
+- UTF-8 decoder handles split multi-byte sequences
+- Unified Settings `GetEnumChoicesAsync` uses `await Task.Yield()`
+- VsInstallRoot Terminal.Wpf probing covers both Community/Insiders and Canary
+
+#### Priority Fixes
+
+1. Restore cleared-selection push (HIGH-1) — user-visible correctness
+2. Drain server stderr (MEDIUM-2) — prevents rare hangs
+3. Fix timeoutCts leak (MEDIUM-3) — surgical change
+
+---
+
+### Assessment: Server Health & MCP Compatibility
+
+**Author:** Bishop (Server Dev)  
+**Date:** 2026-04-16T16:13:51Z  
+**Status:** Documented — All 294 tests passing, 3 medium concerns identified  
+
+#### Test Baseline
+
+- **294/294 tests passing** (xUnit v3, Central Package Management)
+- **Run time:** ~5 seconds
+- **Baseline drift:** +10 tests since last stored memory (284 → 294)
+
+#### HIGH-Severity Issues
+
+None actively breaking. MCP compatibility intact.
+
+#### MEDIUM-Severity Issues
+
+1. **StreamState leak in TrackingSseEventStreamStore**
+   - `OnWriterDisposed` keeps state alive for server-initiated notifications between request-scoped writers
+   - Consequence: every POST request creates `StreamState` in `_streamsById` / `_streamsBySession`, freed only on session DELETE
+   - Long-lived CLI sessions with many tool calls accumulate memory
+   - Fix: Distinguish long-lived GET streams (keep) from ephemeral POST streams (drop on writer dispose)
+
+2. **Double endpoint mapping**
+   - `AspNetMcpPipeServer` calls `MapMcp("/")` **and** `MapMcp("/mcp")`
+   - Verify MCP SDK handles both without duplicate endpoint warnings or state divergence
+   - VS Code CLI uses `/mcp` in practice; `/` may be vestigial
+   - Fix: Keep `/mcp`, drop `/` (unless capture proves CLI posts to `/`)
+
+3. **No structured error contract for tool failures**
+   - Only `get_diagnostics` returns `{ error }` on failure path
+   - Every other tool lets RPC exceptions propagate into MCP framework error responses
+   - Client sees generic framework errors, not domain errors
+   - Fix: Implement shared tool-error pattern across all tools
+
+#### LOW-Severity Issues
+
+4. `update_session_name` is no-op stub returning `{ success: true }` — document or wire
+5. Kestrel ListenNamedPipe uses default OS ACL (auth nonce compensates, but explicit `PipeSecurity` would be defense-in-depth)
+6. `DisposeAsync` does sync-over-async `StopAsync().GetAwaiter().GetResult()` (acceptable at shutdown, not ideal)
+7. Parameter casing inconsistency: `open_diff` uses snake_case, `read_file` uses camelCase (acceptable if `read_file` is internal tool, document intent)
+8. Coverage gap: `ReadFileTool` has no behavioral tests (only schema/discovery coverage)
+9. `IVsServiceRpc.ResetNotificationStateAsync` added without versioning scheme (acceptable because VSIX ships both, document invariant)
+
+#### Priority Fixes
+
+1. Fix StreamState leak — release POST-stream state once response completes (keep GET streams long-lived)
+2. Collapse `MapMcp` to single canonical path (`/mcp`, drop `/`) unless capture proves otherwise
+3. Add ReadFileTool behavior tests (file not found, startLine/maxLines bounds, encoding edge cases)
+
+---
+
+### Assessment: Test Coverage & Infrastructure Gaps
+
+**Author:** Hudson (Tester)  
+**Date:** 2026-04-16T16:13:51Z  
+**Status:** Proposed — 5 coverage gaps with priority ranking  
+
+#### Test Baseline
+
+- **294/294 tests passing** in `CopilotCliIde.Server.Tests` (5s run)
+- **Drifted +10** since last stored memory (284 → 294)
+- **Extension test coverage:** Zero automated tests in `CopilotCliIde` (net472) project
+
+#### Coverage Gaps (Ranked by Priority)
+
+**P0 (Trivial, High Impact)**
+
+1. **`read_file` tool is weakest-covered MCP tool**
+   - Only 1 mention (ToolDiscovery name check in discovery tests)
+   - No schema test, no behavioral test, no capture entry exercising it
+   - Copilot CLI calls `read_file` frequently (production-risk gap)
+   - Recommendation: Hudson to author `ReadFileToolTests.cs` with 4–6 cases: file-not-found, outside-workspace, binary, large, relative-path normalization, encoding edge cases
+
+2. **`ResetNotificationStateAsync` excess-fire lacks regression guardrail**
+   - Documented 2026-03-29: 26 resets observed vs 4 expected per session
+   - No test asserts call count — bug can silently regress
+   - Recommendation: Add `[Fact] ResetNotificationState_FiresOncePerSession_NotOncePerStream` using NSubstitute `Received(1)` after handshake + tool call
+
+**P1 (1–2 Days, Unblocks 5 Units)**
+
+3. **Extension test project not created**
+   - Blocks coverage of: `SelectionTracker` (163 LOC), `IdeDiscovery` (88 LOC), `DebouncePusher` (23 LOC), `TerminalSessionService` (112 LOC), `ServerProcessManager` (57 LOC) = ~443 LOC untested
+   - High-churn, high-risk code (all security/UI/lifecycle boundary code)
+   - Recommendation: Create `CopilotCliIde.Tests` project (multi-target net472;net8.0-windows with VSSDK mocked via interfaces). Hudson to backfill tests immediately after.
+
+4. **`open_diff` lifecycle edge cases untested**
+   - Tool blocks on `TaskCompletionSource<string>` with no timeout
+   - Untested paths: client pipe disconnect mid-wait, solution switch mid-wait, server dispose with pending TCS, VS crash
+   - Recommendation: 2–3 integration tests covering disconnect/teardown; verify no handle/TCS leaks, TCS transitions to REJECTED
+
+**P2 (Monthly Cadence)**
+
+5. **Protocol golden-testing missing VS Code reference snapshots**
+   - `protocol-golden-testing` skill defines `Snapshots/` with committed VS Code JSON and `VERSION` file
+   - Neither exists; `CrossCaptureConsistencyTests` compares VS-vs-VS-Code captures recorded by ourselves (no external canonical reference)
+   - Recommendation: Capture + commit golden snapshots from current VS Code Copilot Chat extension build under `src/CopilotCliIde.Server.Tests/Snapshots/` with monthly refresh cadence
+
+#### Non-Blocking Observations
+
+- Baseline drifted +10 tests since last memory cite — future memory updates should refresh numbers
+- `DiagnosticsConsistencyTests` and `SelectionConsistencyTests` each have 1 `[Theory]` method but fan out across captures — this is fine, just worth noting when reading test counts
+
+---
+
+### Directive: Default Model Update
+
+**Author:** Sebastien  
+**Date:** 2026-04-16T16:13:51Z  
+**Status:** Applied  
+
+User directive: Use `claude-opus-4.7` as the default/preferred model for all squad agents going forward.
+
+**Previously:** `claude-opus-4.6-1m`  
+**Now:** `claude-opus-4.7`  
+**Applied to:** All active agent charters (Ripley, Hicks, Bishop, Hudson); Scribe and Ralph unchanged (mechanical/monitor roles)
+
+---
+
+## Charter Updates (2026-04-16)
+
+All agent charters updated to reflect user directive. Model preference changed from `claude-opus-4.6-1m` to `claude-opus-4.7` in:
+- `.squad/agents/ripley/charter.md`
+- `.squad/agents/hicks/charter.md`
+- `.squad/agents/bishop/charter.md`
+- `.squad/agents/hudson/charter.md`
+```
+
 ### 3.2 Native WPF Path (2 hops)
 
 ```

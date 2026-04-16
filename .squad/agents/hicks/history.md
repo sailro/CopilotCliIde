@@ -21,6 +21,12 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-04-16 — Full Team Re-Assessment Cross-Confirmation
+
+**Cross-agent findings:** Ripley and Hudson independently confirmed Hicks's H1 regression (cleared-selection push missing) — all three agents flagged the same bug. Ripley: architecture is healthy, three-project boundary clean, RPC contract stable, threading excellent. Hudson: 294 tests passing, 5 coverage gaps (P0–P2). Bishop: zero HIGH issues, 3 MEDIUM concerns (StreamState leak, double MapMcp, error contract). Charters updated to `claude-opus-4.7` model per user directive.
+
+**Status:** H1 re-opened for re-implementation (Hicks author, Hudson re-verify tests). Decisions merged to `decisions.md`; inbox cleared. Session log written.
+
 ### 2026-07-19 — Contextual Tool Result Logging in VsServiceRpc
 
 Enhanced all 6 tool methods in `VsServiceRpc.cs` to log result details, matching the richness of push event logging in SelectionTracker and DiagnosticTracker.
@@ -421,3 +427,25 @@ Fixed the long-standing HIGH-1 finding from the 2026-03-10 review. On solution s
 
 **Build:** MSBuild 0 errors, 0 new warnings. Two pre-existing VSTHRD010 warnings in CopilotCliIdePackage.cs (not related).
 
+
+### 2026-04-16 — Extension Reassessment (Hicks)
+
+Full file-by-file re-audit of src/CopilotCliIde/. Key outcomes:
+
+**Confirmed fixed:**
+- DebouncePusher TOCTOU: timer is now created once in constructor with `Timeout.Infinite`, `_lastKey` is `volatile`. Schedule() only calls `_timer.Change()`. No more timer leak on concurrent Schedule.
+- Active-diff cleanup on teardown: `StopConnection` → `VsServiceRpc.CleanupAllDiffs` → per-diff `TrySetResult(Rejected, ClosedViaTool)` + InfoBar.Close + Frame.CloseFrame + temp file delete.
+- Silent catches mostly replaced by `OutputLogger` calls; remaining `/* Ignore */` blocks are justified (best-effort cleanup paths).
+
+**New / still-open concerns:**
+- HIGH: Mid-session "cleared selection" push is missing. UntrackView() doesn't send an empty notification to the CLI, so the CLI keeps a stale selection when user switches to a non-editor window. decisions.md 2026-07-20 describes a PushClearedSelection/PushEmptySelection that is not present in current code — likely a regression during refactor.
+- MEDIUM: ServerProcessManager never drains stderr (RedirectStandardError=true but no BeginErrorReadLine) — child can block on full stderr pipe.
+- MEDIUM: `timeoutCts` in VsServiceRpc.Diff.cs:47 leaks on any exception between creation and the success-path Dispose at L86. Use `using` or `finally`.
+- MEDIUM: `_mcpCallbacks` field has no memory-model guarantees (assigned on RPC task, read from timer callbacks). No observed bug but brittle.
+- LOW: `WaitForConnectionAsync` in StartRpcServerAsync has no timeout; TerminalProcess._flushTimer Dispose doesn't wait for in-flight callbacks.
+
+**Takeaways for future work:**
+- When removing a push path, double-check the state-machine contract with the CLI (initial state vs. live state flows are different: server-side PushInitialStateAsync covers only new connections).
+- Process redirection: always drain both stdout and stderr, or neither. Half-drained processes deadlock on log-heavy failure paths.
+
+Inbox entry: `.squad/decisions/inbox/hicks-reassessment-extension-health.md`

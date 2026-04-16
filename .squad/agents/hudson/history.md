@@ -20,6 +20,12 @@ Hudson owns test suite, coverage analysis, and test infrastructure. Key decision
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-04-16 — Full Team Re-Assessment Cross-Confirmation
+
+**Cross-agent findings:** Ripley and Hicks independently confirmed Hudson's H1 regression (cleared-selection push missing) — all three agents flagged the same bug. Ripley: architecture healthy, boundary clean. Bishop: 294 tests passing, 3 MEDIUM concerns. Charters updated to `claude-opus-4.7` model per user directive.
+
+**Status:** H1 re-opened for re-implementation (Hicks author, Hudson re-verify tests). 5 coverage gaps extracted (P0–P2): read_file tests (P0), ResetNotificationStateAsync guardrail (P0), CopilotCliIde.Tests project (P1), open_diff lifecycle tests (P1), golden snapshots (P2). Decisions merged to `decisions.md`; inbox cleared. Session log written.
+
 ### 2026-07-24 — TrackingSseEventStreamStore History Trimming Tests (12 tests)
 
 **File:** `src/CopilotCliIde.Server.Tests/TrackingSseEventStreamStoreTests.cs`
@@ -792,3 +798,56 @@ Fixed 5 test quality issues across 5 files. Before: 284 tests. After: 282 tests 
 - Commit: 616a5e6
 
 **Merged to decisions.md:** 2026-04-13
+
+## Learnings
+
+### 2026-07-26 — Full Test Coverage Re-Assessment
+
+**Baseline verified:** 294/294 tests pass (5s) in `CopilotCliIde.Server.Tests`. Memory said ~284 — drift is +10 from three sessions (B5b/B6/B7 + ServerWorkingDirectory pair + cleared-selection trio). Extension project `CopilotCliIde` (net472) still has **zero tests** — the structural blocker (no net472-compatible test project) persists since 2026-03-10.
+
+**Test methods by file (Fact/Theory decls — theories expand to 294 executions):**
+CrossCaptureConsistency 9 · DiagnosticsConsistency 1 · DtoSerialization 15 · McpPipeServer 4 · NotificationFormat 6 · RpcClient 10 · SelectionConsistency 1 · ServerWorkingDirectory 2 · SseNotificationIntegration 14 · ToolDiscovery 10 · ToolOutputSchema 9 · TrackingSseEventStreamStore 12 · TrafficReplay 29 · UpdateSessionNameTool 4 → 126 decls.
+
+**Per-tool golden/schema coverage ranking (weak → strong):**
+1. `read_file` — 1 mention (discovery only). No schema test, no behavioral test, no capture replay. **Weakest.**
+2. `get_selection` — consistency tests only, no ToolOutputSchemaTests entry.
+3. `get_vscode_info` — covered by B5/B5b in TrafficReplayTests; no dedicated schema test.
+4. `close_diff` — 2 schema tests.
+5. `update_session_name` — 4 dedicated tests.
+6. `get_diagnostics` — 3 schema tests + consistency.
+7. `open_diff` — 4 schema variants (accepted/rejected/closed_via_tool/error). Strongest.
+
+**RPC paths lacking integration tests:** No direct tests for `VsServiceRpc.ReadFile.cs`. Diagnostics/Selection/Diff/Info RPC branches exercised through the pipe; ReadFile is the gap.
+
+**Extension units with zero coverage (ranked by brittleness × blast radius):**
+1. `SelectionTracker` (163 LOC) — VS UI-thread + WPF event subscribe/unsubscribe + temp-buffer filtering + cleared-push logic.
+2. `TerminalSessionService` (112 LOC) — lifecycle orchestration, unprotected `_process` access previously flagged.
+3. `ServerProcessManager` (57 LOC) — `WorkingDirectory` regression risk; only 2 integration tests exist and live in the *server* suite.
+4. `IdeDiscovery` (88 LOC) — stale lock file cleanup, PID liveness, atomic lock-file write. No tests.
+5. `DebouncePusher` (23 LOC) — dedup key, timer reset, concurrent Push calls.
+
+**Edge cases with no coverage:**
+- Pipe disconnect mid-request (client closes during `open_diff` TCS wait).
+- Solution switch while `open_diff` TCS is pending — does it complete or leak?
+- Stale lock file cleanup when PID recycled by unrelated process.
+- `TerminalProcess` crash mid-stream → auto-restart prompt path.
+- ConPTY `ResizePseudoConsole` called during `ReadLoop` buffer flush race.
+- `ResetNotificationStateAsync` excess-fire regression (documented 2026-03-29, no guardrail test yet).
+- SSE stream abort mid-notification push.
+- Lock file write race between two VS instances opening the same solution.
+
+**Protocol drift prevention:** Partial. TrafficReplayTests compares structural shapes across stored vs-1.0.8/1.0.12/1.0.14 captures and cross-references VS Code captures. `CrossCaptureConsistencyTests` catches field-level drift across implementations. **Gap:** no committed golden JSON snapshots from current VS Code Copilot Chat extension; captures are our own traffic only. The protocol-golden-testing skill defines the pattern but no `Snapshots/` directory exists.
+
+**Recommended additions (ranked):**
+1. Schema + error-path tests for `read_file` (not-found, binary, large, outside workspace).
+2. `ResetNotificationStateAsync` call-count guardrail — assert `Received(1)` after handshake + tool call (catches the 26× excess-reset regression).
+3. Create `CopilotCliIde.Tests` project (net8.0-windows or net472 with mocked VSSDK) to unblock extension coverage.
+4. `IdeDiscovery` unit tests: stale-lock cleanup, PID-recycle safety, concurrent-write atomicity.
+5. `DebouncePusher` unit tests: dedup key equality, rapid-fire coalescing, disposal during pending flush.
+6. `open_diff` pipe-disconnect test — close client mid-wait, verify TCS disposal and no leaked handles.
+7. `open_diff` solution-switch test — ensure pending TCS resolves with REJECTED/closed_via_tool on teardown.
+8. `SelectionTracker` unit tests for view-close + cleared-push (currently only tested via SSE integration).
+9. Add VS Code golden snapshots under `Snapshots/` with `VERSION` file — enable true protocol-drift detection.
+10. `TerminalSessionService` lifecycle tests after factory extraction (Start/Stop/Restart/Dispose no-op guards, event forwarding, double-start safety).
+
+**Signal-to-noise:** Server suite is healthy — strong traffic-replay backbone, good DTO/schema coverage for diff/diagnostics. Main structural risks are (a) zero extension coverage, (b) read_file untested end-to-end, (c) protocol goldens come from our own captures, not VS Code.

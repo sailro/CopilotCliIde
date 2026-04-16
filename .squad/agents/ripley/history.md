@@ -20,6 +20,12 @@ Ripley leads protocol analysis, reverse-engineering, and spec validation. Key de
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-04-16 — Full Team Re-Assessment Cross-Confirmation
+
+**Cross-agent findings:** Hicks and Hudson independently confirmed Ripley's H1 regression (cleared-selection push missing) — all three agents flagged the same bug. Hudson additionally surfaced 5 coverage gaps (P0–P2 priority). Bishop reported 294 tests passing with 3 medium concerns (StreamState leak, double MapMcp, error contract gap). Charters updated to `claude-opus-4.7` model per user directive.
+
+**Status:** H1 re-opened for re-implementation (Hicks author, Hudson re-verify tests). Decisions merged to `decisions.md`; inbox cleared. Session log written.
+
 ### 2026-03-06 — VS Code Lock File Reverse Engineering
 
 Reverse-engineered the Copilot Chat extension (`github.copilot-chat-0.38.2026022303/dist/extension.js`) to compare lock file formats.
@@ -597,3 +603,18 @@ Performed full project sweep for WebView2/xterm.js artifacts after the Microsoft
 - WebView2/xterm.js mentions in `.squad/decisions.md` and agent history files — historical records, not active references.
 
 **Verified:** Server builds clean. 284 tests pass.
+
+### 2026-04-16T18:10:30Z — Full Project Re-Assessment (Lead)
+
+Comprehensive reassessment covering boundary health, RPC contract, MCP compatibility, threading, decision ledger, and trajectory. Key findings:
+
+- **Regression found**: `SelectionTracker.PushClearedSelection()` documented in decisions.md (2026-03-30, Hicks + Hudson approval, 285 tests passing) **no longer exists in source**. `wpfView == null` and `OnViewClosed` both call `UntrackView()` only — no cleared push. Likely silent revert during the 2026-03-28 'Extract notifications' refactor (which predates the decision). TrackingSseEventStreamStore's new last-per-method trim amplifies the impact: stale selection stays in SSE replay history.
+- **Architecture solid**: three-project boundary holding cleanly. Shared contains only POCOs and two interfaces; Server has no VS assembly refs; Extension is the only project touching DTE/VS SDK. No circular deps.
+- **RPC contract**: `IVsServiceRpc` gained `ResetNotificationStateAsync` without versioning — acceptable since both sides ship together in the VSIX, but worth a note. `IMcpServerCallbacks` stable.
+- **MCP tool compatibility**: 7 tools, names match VS Code. `read_file` is the documented extra.
+- **Threading**: JTF + `ThrowIfNotOnUIThread` discipline is excellent. Only 3 `#pragma warning disable VSTHRD010` uses, all justified (Dispose on UI thread, OutputLogger logging on background).
+- **Decision ledger**: 4508 lines, 217KB — needs another archival pass. Inbox is clean (1 active directive). Scope hygiene OK.
+- **READY handshake + TOCTOU fix + SSE history trim** are all good recent wins. Trajectory is positive — moving from structural work (PR#7 terminal) to polish.
+
+Deliverable: inbox report at `.squad/decisions/inbox/ripley-reassessment-2026-04-16.md`.
+
