@@ -12,7 +12,6 @@ public sealed class TerminalToolWindow : ToolWindowPane
 	{
 		Caption = "Copilot CLI";
 		Content = new TerminalToolWindowControl();
-		ToolBar = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x1030);
 	}
 
 	// Escape key sequence matching VS's TerminalWindowBase.EscKeyCode (Kitty keyboard protocol).

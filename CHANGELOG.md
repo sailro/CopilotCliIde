@@ -8,11 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Toolbar on the embedded Copilot CLI tool window** with two buttons (issue #9):
+- **Toolbar on the embedded Copilot CLI tool window** with three buttons (issue #9), right-aligned at the top of the tool window:
   - **View Session History** — VS-themed picker (filtered to current workspace) that resumes a previous Copilot CLI session via `copilot --resume=<id>`. Reads `~/.copilot/session-store.db` in read-only mode.
   - **New Session** — restarts the terminal with a fresh `copilot` (no `--resume`).
-  - Buttons use `KnownMonikers.History` and `KnownMonikers.NewItem` (theme-aware via `IconIsMoniker`).
-  - Both commands are disabled when no solution is open.
+  - **Delete Current Thread** — confirms, then permanently deletes the current chat thread (transactional across sessions, turns, files, refs, checkpoints, FTS index) and restarts fresh.
+  - Buttons use `KnownMonikers.History`, `KnownMonikers.NewItem`, and `KnownMonikers.DeleteListItem` (theme-aware via `CrispImage`).
+  - Buttons are hosted in a custom WPF toolbar inside the tool window content (not the native VS command toolbar) so they can sit on the right side, matching VS Code's terminal placement.
 
 ### Changed
 

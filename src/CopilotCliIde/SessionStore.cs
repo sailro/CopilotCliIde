@@ -155,4 +155,135 @@ internal sealed class SessionStore(OutputLogger? logger)
 			return dt;
 		return DateTime.MinValue;
 	}
+
+	// Returns the id of the most recently updated session that belongs to the given
+	// workspace, or null if the DB is missing / no session matches / lookup fails.
+	// Used to resolve "delete the current chat thread" when the caller didn't explicitly
+	// resume a known session id (i.e. copilot was started fresh and chose its own id).
+	public string? GetMostRecentSessionIdForWorkspace(string workspacePath)
+	{
+		var dbPath = DefaultDatabasePath;
+		if (!File.Exists(dbPath))
+			return null;
+
+		var normalizedWorkspace = NormalizePath(workspacePath);
+		if (normalizedWorkspace == null)
+			return null;
+
+		try
+		{
+			var connectionString = new SqliteConnectionStringBuilder
+			{
+				DataSource = dbPath,
+				Mode = SqliteOpenMode.ReadOnly,
+				Cache = SqliteCacheMode.Private,
+			}.ToString();
+
+			using var conn = new SqliteConnection(connectionString);
+			conn.Open();
+
+			var separator = Path.DirectorySeparatorChar.ToString();
+			var likePrefix = EscapeLike(normalizedWorkspace + separator) + "%";
+
+			using var cmd = conn.CreateCommand();
+			cmd.CommandText = @"
+				SELECT id, cwd FROM sessions
+				WHERE cwd = $exact OR cwd LIKE $prefix ESCAPE '\'
+				ORDER BY updated_at DESC
+				LIMIT 50";
+			cmd.Parameters.AddWithValue("$exact", normalizedWorkspace);
+			cmd.Parameters.AddWithValue("$prefix", likePrefix);
+
+			using var reader = cmd.ExecuteReader();
+			while (reader.Read())
+			{
+				var id = reader.GetString(0);
+				if (!SessionId.IsValid(id))
+					continue;
+				var cwd = reader.IsDBNull(1) ? null : reader.GetString(1);
+				if (!IsCwdMatch(cwd, normalizedWorkspace))
+					continue;
+				return id;
+			}
+		}
+		catch (Exception ex)
+		{
+			logger?.Log($"SessionStore: most-recent lookup failed: {ex.GetType().Name}: {ex.Message}");
+		}
+		return null;
+	}
+
+	// Deletes a single session and all its dependent rows (turns, files, refs, checkpoints,
+	// FTS index entries) in a single transaction. Returns true if the session row was removed.
+	// Caller should ensure the live copilot CLI process is stopped first to avoid contention
+	// and to prevent it from re-writing the row immediately after deletion.
+	public bool DeleteSession(string sessionId)
+	{
+		if (!SessionId.IsValid(sessionId))
+		{
+			logger?.Log("SessionStore: refusing to delete with invalid id");
+			return false;
+		}
+		var dbPath = DefaultDatabasePath;
+		if (!File.Exists(dbPath))
+			return false;
+
+		try
+		{
+			var connectionString = new SqliteConnectionStringBuilder
+			{
+				DataSource = dbPath,
+				Mode = SqliteOpenMode.ReadWrite,
+				Cache = SqliteCacheMode.Private,
+			}.ToString();
+
+			using var conn = new SqliteConnection(connectionString);
+			conn.Open();
+
+			// In case another writer (e.g. a still-running CLI) is mid-checkpoint.
+			using (var pragma = conn.CreateCommand())
+			{
+				pragma.CommandText = "PRAGMA busy_timeout = 3000";
+				pragma.ExecuteNonQuery();
+			}
+
+			using var tx = conn.BeginTransaction();
+			var tablesInOrder = new[]
+			{
+				"DELETE FROM search_index WHERE session_id = $id",
+				"DELETE FROM turns WHERE session_id = $id",
+				"DELETE FROM session_files WHERE session_id = $id",
+				"DELETE FROM session_refs WHERE session_id = $id",
+				"DELETE FROM checkpoints WHERE session_id = $id",
+				"DELETE FROM sessions WHERE id = $id",
+			};
+			var sessionsRemoved = 0;
+			foreach (var sql in tablesInOrder)
+			{
+				using var cmd = conn.CreateCommand();
+				cmd.Transaction = tx;
+				cmd.CommandText = sql;
+				cmd.Parameters.AddWithValue("$id", sessionId);
+				try
+				{
+					var affected = cmd.ExecuteNonQuery();
+					if (sql.StartsWith("DELETE FROM sessions ", StringComparison.Ordinal))
+						sessionsRemoved = affected;
+				}
+				catch (SqliteException ex) when (ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0)
+				{
+					// Schema variant that doesn't ship one of the auxiliary tables — keep going.
+					logger?.Log($"SessionStore: skip missing table during delete: {ex.Message}");
+				}
+			}
+			tx.Commit();
+			logger?.Log($"SessionStore: deleted session {sessionId} (rows from sessions: {sessionsRemoved})");
+			return sessionsRemoved > 0;
+		}
+		catch (Exception ex)
+		{
+			logger?.Log($"SessionStore: delete failed for {sessionId}: {ex.GetType().Name}: {ex.Message}");
+			return false;
+		}
+	}
 }

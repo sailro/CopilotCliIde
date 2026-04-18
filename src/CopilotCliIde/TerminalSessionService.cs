@@ -23,6 +23,11 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public bool IsRunning => _process?.IsRunning ?? false;
 
+	// The session id that the currently running CLI was launched with via --resume,
+	// or null if the CLI is running without --resume (a fresh session whose id was
+	// chosen by copilot internally). Updated by RestartResuming / RestartFresh.
+	public string? LastResumeSessionId => _lastResumeSessionId;
+
 	public void StartSession(string workingDirectory, short cols = 120, short rows = 40)
 	{
 		lock (_processLock)
