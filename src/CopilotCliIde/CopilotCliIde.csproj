@@ -16,7 +16,9 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK.VsixSuppression" PrivateAssets="all" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Bcl.HashCode" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="StreamJsonRpc" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" GeneratePathProperty="true" />
   </ItemGroup>
 
   <!-- Reference VS's built-in Terminal.Wpf assembly.
@@ -95,6 +97,25 @@
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
   </ItemGroup>
+
+  <!-- Bundle SQLite assets in the VSIX. Must run AFTER RemoveVSSDKAssemblies
+       (same as BundleServerInVsix below) — otherwise the VSSDK strips them.
+       Uses VSIXSourceItem (not Content/IncludeInVSIX) which is the pattern
+       VSIXProjectsCommon understands at this stage. -->
+  <Target Name="BundleSqliteInVsix" AfterTargets="RemoveVSSDKAssemblies">
+    <ItemGroup>
+      <VSIXSourceItem Include="$(OutputPath)Microsoft.Data.Sqlite.dll" Condition="Exists('$(OutputPath)Microsoft.Data.Sqlite.dll')" />
+      <VSIXSourceItem Include="$(OutputPath)SQLitePCLRaw.batteries_v2.dll" Condition="Exists('$(OutputPath)SQLitePCLRaw.batteries_v2.dll')" />
+      <VSIXSourceItem Include="$(OutputPath)SQLitePCLRaw.core.dll" Condition="Exists('$(OutputPath)SQLitePCLRaw.core.dll')" />
+      <VSIXSourceItem Include="$(OutputPath)SQLitePCLRaw.provider.dynamic_cdecl.dll" Condition="Exists('$(OutputPath)SQLitePCLRaw.provider.dynamic_cdecl.dll')" />
+      <VSIXSourceItem Include="$(OutputPath)runtimes\win-x64\native\e_sqlite3.dll" Condition="Exists('$(OutputPath)runtimes\win-x64\native\e_sqlite3.dll')">
+        <VSIXSubPath>runtimes\win-x64\native</VSIXSubPath>
+      </VSIXSourceItem>
+      <VSIXSourceItem Include="$(OutputPath)runtimes\win-arm64\native\e_sqlite3.dll" Condition="Exists('$(OutputPath)runtimes\win-arm64\native\e_sqlite3.dll')">
+        <VSIXSubPath>runtimes\win-arm64\native</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
 
   <!-- Publish the MCP server before building the extension -->
   <Target Name="PublishServerBeforeBuild" BeforeTargets="Build">

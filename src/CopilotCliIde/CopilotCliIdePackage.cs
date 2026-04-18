@@ -114,14 +114,22 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			_monitorSelection.AdviseSelectionEvents(new SelectionTracker.SelectionEventSink(_selectionTracker), out _selectionMonitorCookie);
 			_selectionTracker.TrackActiveView();
 
-			// Register Copilot CLI commands in the Tools menu
+			// Register Copilot CLI commands in the Tools menu and tool window toolbar
 			if (await GetServiceAsync(typeof(IMenuCommandService)) is OleMenuCommandService commandService)
 			{
-				var cmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0100);
-				commandService.AddCommand(new MenuCommand(OnLaunchCopilotCli, cmdId));
+				var cmdSetGuid = new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c");
 
-				var windowCmdId = new CommandID(new Guid("e7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c"), 0x0200);
-				commandService.AddCommand(new MenuCommand(OnShowCopilotCliWindow, windowCmdId));
+				commandService.AddCommand(new MenuCommand(OnLaunchCopilotCli, new CommandID(cmdSetGuid, 0x0100)));
+				commandService.AddCommand(new MenuCommand(OnShowCopilotCliWindow, new CommandID(cmdSetGuid, 0x0200)));
+
+				// Toolbar buttons on the embedded terminal tool window
+				var viewHistoryCmd = new OleMenuCommand(OnViewSessionHistory, new CommandID(cmdSetGuid, 0x0300));
+				viewHistoryCmd.BeforeQueryStatus += OnQueryWorkspaceCommandStatus;
+				commandService.AddCommand(viewHistoryCmd);
+
+				var newSessionCmd = new OleMenuCommand(OnNewSession, new CommandID(cmdSetGuid, 0x0301));
+				newSessionCmd.BeforeQueryStatus += OnQueryWorkspaceCommandStatus;
+				commandService.AddCommand(newSessionCmd);
 			}
 
 			// Create terminal session service (survives tool window hide/show)
@@ -242,7 +250,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
 				await StartConnectionAsync();
-				_terminalSession?.RestartSession(GetWorkspaceFolder());
+				// New solution context — drop any prior resume id so we start fresh.
+				_terminalSession?.RestartFresh(GetWorkspaceFolder());
 			}
 			catch (Exception ex)
 			{
@@ -258,7 +267,7 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			try
 			{
 				await JoinableTaskFactory.SwitchToMainThreadAsync();
-				_terminalSession?.RestartSession(GetWorkspaceFolder());
+				_terminalSession?.RestartFresh(GetWorkspaceFolder());
 				StopConnection();
 			}
 			catch (Exception ex)
@@ -326,6 +335,114 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	private void OnBuildDone(EnvDTE.vsBuildScope scope, EnvDTE.vsBuildAction action) => _diagnosticTracker?.SchedulePush();
 
 	private void OnDocumentSaved(EnvDTE.Document document) => _diagnosticTracker?.SchedulePush();
+
+	private void OnQueryWorkspaceCommandStatus(object sender, EventArgs e)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		if (sender is not OleMenuCommand cmd)
+			return;
+		// Both toolbar commands require an active terminal session service AND a real
+		// open solution. Without a solution, GetWorkspaceFolder() falls back to the
+		// process's CWD which is rarely meaningful for session matching.
+		cmd.Enabled = _terminalSession != null && IsSolutionOpen();
+	}
+
+	private static bool IsSolutionOpen()
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		try
+		{
+			var dte = (EnvDTE80.DTE2)GetGlobalService(typeof(EnvDTE.DTE));
+			return dte?.Solution != null && !string.IsNullOrEmpty(dte.Solution.FullName);
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private void OnNewSession(object sender, EventArgs e)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		try
+		{
+			if (_terminalSession == null)
+				return;
+			if (!ConfirmReplaceRunningSession("Start a new Copilot CLI session?"))
+				return;
+
+			_terminalSession.RestartFresh(GetWorkspaceFolder());
+		}
+		catch (Exception ex)
+		{
+			_logger?.Log($"OnNewSession failed: {ex.Message}");
+		}
+	}
+
+	private void OnViewSessionHistory(object sender, EventArgs e)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		try
+		{
+			if (_terminalSession == null)
+				return;
+
+			var workspace = GetWorkspaceFolder();
+			var dialog = new SessionPickerDialog(new SessionStore(_logger), workspace);
+			var ok = dialog.ShowModal() == true;
+			if (!ok || dialog.SelectedSessionId == null)
+				return;
+
+			if (!SessionId.IsValid(dialog.SelectedSessionId))
+			{
+				_logger?.Log("OnViewSessionHistory: rejected invalid session id from picker");
+				return;
+			}
+
+			if (!ConfirmReplaceRunningSession("Resume the selected Copilot CLI session?"))
+				return;
+
+			_terminalSession.RestartResuming(workspace, dialog.SelectedSessionId);
+			ShowToolWindowFireAndForget();
+		}
+		catch (Exception ex)
+		{
+			_logger?.Log($"OnViewSessionHistory failed: {ex.Message}");
+		}
+	}
+
+	private bool ConfirmReplaceRunningSession(string question)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		if (_terminalSession?.IsRunning != true)
+			return true;
+
+		var result = VsShellUtilities.ShowMessageBox(
+			this,
+			$"The Copilot CLI is currently running. {question} Any unsent input will be discarded.",
+			"Copilot CLI",
+			Microsoft.VisualStudio.Shell.Interop.OLEMSGICON.OLEMSGICON_QUERY,
+			Microsoft.VisualStudio.Shell.Interop.OLEMSGBUTTON.OLEMSGBUTTON_OKCANCEL,
+			Microsoft.VisualStudio.Shell.Interop.OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+		return result == 1; // IDOK
+	}
+
+	private void ShowToolWindowFireAndForget()
+	{
+		_ = JoinableTaskFactory.RunAsync(async () =>
+		{
+			try
+			{
+				await JoinableTaskFactory.SwitchToMainThreadAsync();
+				var window = await ShowToolWindowAsync(typeof(TerminalToolWindow), 0, true, DisposalToken);
+				(window?.Frame as IVsWindowFrame)?.Show();
+			}
+			catch (Exception ex)
+			{
+				_logger?.Log($"ShowToolWindowFireAndForget failed: {ex.Message}");
+			}
+		});
+	}
 
 	protected override void Dispose(bool disposing)
 	{

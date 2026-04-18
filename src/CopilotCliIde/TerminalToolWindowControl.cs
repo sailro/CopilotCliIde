@@ -54,7 +54,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		}
 		else if (data is "\r" or "\n")
 		{
-			_sessionService?.RestartSession();
+			_sessionService?.RestartPreservingMode();
 		}
 	}
 

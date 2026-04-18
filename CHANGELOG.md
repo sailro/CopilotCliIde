@@ -6,9 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Toolbar on the embedded Copilot CLI tool window** with two buttons (issue #9):
+  - **View Session History** — VS-themed picker (filtered to current workspace) that resumes a previous Copilot CLI session via `copilot --resume=<id>`. Reads `~/.copilot/session-store.db` in read-only mode.
+  - **New Session** — restarts the terminal with a fresh `copilot` (no `--resume`).
+  - Buttons use `KnownMonikers.History` and `KnownMonikers.NewItem` (theme-aware via `IconIsMoniker`).
+  - Both commands are disabled when no solution is open.
+
 ### Changed
 
 - Replace `Task.Delay(200)` server startup wait with stdout `READY` handshake — deterministic server readiness detection with 10s timeout
+- `TerminalSessionService` exposes explicit `RestartFresh` / `RestartResuming` / `RestartPreservingMode` methods in place of the previous tri-state `RestartSession` parameters
 
 ### Fixed
 
@@ -16,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Clean up orphaned diff views on solution switch — `CleanupAllDiffs()` runs before RPC teardown in `StopConnection()`
 - Trim SSE event historyto last-per-notification-type — prevents unbounded growth from rapid selection/diagnostics changes while preserving initial state for new SSE clients
 - Remove no-op assertions and duplicate tests in server test suite
+- `TerminalProcess.IsRunning` now returns `false` after the hosted CLI exits (previously stayed `true` until the process was disposed, breaking Enter-to-restart UX)
 
 ## [1.0.18] - 2026-04-13
 
