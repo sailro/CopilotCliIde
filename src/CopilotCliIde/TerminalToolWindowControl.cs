@@ -1,6 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Terminal.Wpf;
+using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.Imaging.Interop;
 using Microsoft.VisualStudio.PlatformUI;
 using Microsoft.VisualStudio.Shell;
 
@@ -23,9 +27,23 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		_logger = VsServices.Instance.Logger;
 
 		_termControl = new TerminalControl { Focusable = true, Connection = this, AutoResize = true };
-		Content = _termControl;
 
-		// Attach to session early — Resize may fire before OnLoaded
+		// Two-row layout: a thin right-aligned toolbar above the terminal control.
+		// VS's ToolWindow toolbars are left-aligned only — we host our own here so
+		// the buttons sit at the top right where the user expects them.
+		var grid = new Grid();
+		grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+		grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+		var toolbar = BuildToolbar();
+		Grid.SetRow(toolbar, 0);
+		grid.Children.Add(toolbar);
+
+		Grid.SetRow(_termControl, 1);
+		grid.Children.Add(_termControl);
+
+		Content = grid;
+
 		AttachToSession();
 
 		Loaded += OnLoaded;
@@ -34,6 +52,76 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		IsVisibleChanged += OnVisibleChanged;
 
 		VSColorTheme.ThemeChanged += OnThemeChanged;
+	}
+
+	private FrameworkElement BuildToolbar()
+	{
+		// Themed bar background — matches the rest of the tool window chrome.
+		var bar = new Border
+		{
+			Background = new DynamicResourceExtension(EnvironmentColors.ToolWindowBackgroundBrushKey).ProvideValue(null) as Brush,
+			BorderBrush = new DynamicResourceExtension(EnvironmentColors.ToolWindowBorderBrushKey).ProvideValue(null) as Brush,
+			BorderThickness = new Thickness(0, 0, 0, 1),
+			Padding = new Thickness(2, 1, 2, 1),
+		};
+
+		var stack = new StackPanel
+		{
+			Orientation = Orientation.Horizontal,
+			HorizontalAlignment = HorizontalAlignment.Right,
+		};
+		stack.Children.Add(MakeToolbarButton(KnownMonikers.History, "View Session History",
+			"Resume a previous Copilot CLI session for this workspace", OnViewSessionHistoryClick));
+		stack.Children.Add(MakeToolbarButton(KnownMonikers.NewItem, "New Session",
+			"Start a fresh Copilot CLI session", OnNewSessionClick));
+		stack.Children.Add(MakeToolbarButton(KnownMonikers.DeleteListItem, "Delete Current Thread",
+			"Permanently delete the current Copilot CLI chat thread", OnDeleteCurrentSessionClick));
+
+		bar.Child = stack;
+		return bar;
+	}
+
+	private static Button MakeToolbarButton(ImageMoniker moniker, string accessibleName, string tooltip, RoutedEventHandler onClick)
+	{
+		var img = new CrispImage
+		{
+			Moniker = moniker,
+			Width = 16,
+			Height = 16,
+			Margin = new Thickness(2),
+		};
+		var btn = new Button
+		{
+			Content = img,
+			ToolTip = tooltip,
+			Padding = new Thickness(4, 2, 4, 2),
+			Margin = new Thickness(1, 0, 1, 0),
+			Background = Brushes.Transparent,
+			BorderThickness = new Thickness(0),
+			Focusable = false,
+			Cursor = Cursors.Hand,
+		};
+		System.Windows.Automation.AutomationProperties.SetName(btn, accessibleName);
+		btn.Click += onClick;
+		return btn;
+	}
+
+	private void OnViewSessionHistoryClick(object sender, RoutedEventArgs e)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		VsServices.Instance.OnViewSessionHistory?.Invoke();
+	}
+
+	private void OnNewSessionClick(object sender, RoutedEventArgs e)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		VsServices.Instance.OnNewSession?.Invoke();
+	}
+
+	private void OnDeleteCurrentSessionClick(object sender, RoutedEventArgs e)
+	{
+		ThreadHelper.ThrowIfNotOnUIThread();
+		VsServices.Instance.OnDeleteCurrentSession?.Invoke();
 	}
 
 	void ITerminalConnection.Start()
@@ -54,7 +142,7 @@ internal sealed class TerminalToolWindowControl : UserControl, ITerminalConnecti
 		}
 		else if (data is "\r" or "\n")
 		{
-			_sessionService?.RestartSession();
+			_sessionService?.RestartPreservingMode();
 		}
 	}
 

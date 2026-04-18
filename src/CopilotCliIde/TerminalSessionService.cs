@@ -8,6 +8,9 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 	private readonly object _processLock = new();
 	private TerminalProcess? _process;
 	private string? _workingDirectory;
+	// Last launch parameters — preserved across implicit restarts (e.g., Enter-to-restart
+	// after the CLI exits) so a resumed session stays resumed instead of becoming a fresh one.
+	private string? _lastResumeSessionId;
 
 	// Fired when the terminal produces output (UTF-8 string).
 	public event Action<string>? OutputReceived;
@@ -20,6 +23,11 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 
 	public bool IsRunning => _process?.IsRunning ?? false;
 
+	// The session id that the currently running CLI was launched with via --resume,
+	// or null if the CLI is running without --resume (a fresh session whose id was
+	// chosen by copilot internally). Updated by RestartResuming / RestartFresh.
+	public string? LastResumeSessionId => _lastResumeSessionId;
+
 	public void StartSession(string workingDirectory, short cols = 120, short rows = 40)
 	{
 		lock (_processLock)
@@ -27,14 +35,16 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 			StopSessionCore();
 
 			_workingDirectory = workingDirectory;
-			logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows})");
+			// Initial start uses whatever resume id was previously selected (typically null).
+			// Toolbar actions go through RestartFresh / RestartResuming and update this state.
+			logger?.Log($"Terminal: starting session in {workingDirectory} ({cols}x{rows}){(_lastResumeSessionId != null ? " resume=" + _lastResumeSessionId : "")}");
 
 			try
 			{
 				_process = new TerminalProcess();
 				_process.OutputReceived += OnOutputReceived;
 				_process.ProcessExited += OnProcessExited;
-				_process.Start(workingDirectory, cols, rows);
+				_process.Start(workingDirectory, cols, rows, _lastResumeSessionId);
 			}
 			catch (Exception ex)
 			{
@@ -67,7 +77,28 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 		_workingDirectory = null;
 	}
 
-	public void RestartSession(string? workingDirectory = null)
+	// Restarts preserving the last launch mode (resume id is preserved).
+	// Used by Enter-to-restart after the CLI exits.
+	public void RestartPreservingMode() =>
+		RestartCore(workingDirectory: null, _lastResumeSessionId);
+
+	// Restarts in a brand-new session (no --resume). Updates persistent state.
+	public void RestartFresh(string workingDirectory)
+	{
+		_lastResumeSessionId = null;
+		RestartCore(workingDirectory, resumeSessionId: null);
+	}
+
+	// Restarts resuming the specified session. Updates persistent state.
+	public void RestartResuming(string workingDirectory, string sessionId)
+	{
+		if (!SessionId.IsValid(sessionId))
+			throw new ArgumentException("Invalid session id format.", nameof(sessionId));
+		_lastResumeSessionId = sessionId;
+		RestartCore(workingDirectory, resumeSessionId: sessionId);
+	}
+
+	private void RestartCore(string? workingDirectory, string? resumeSessionId)
 	{
 		var restarted = false;
 		lock (_processLock)
@@ -78,7 +109,7 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 				StopSessionCore();
 
 				_workingDirectory = dir;
-				logger?.Log($"Terminal: restarting session in {dir}");
+				logger?.Log($"Terminal: restarting session in {dir}{(resumeSessionId != null ? " resume=" + resumeSessionId : "")}");
 
 				try
 				{
@@ -87,7 +118,7 @@ internal sealed class TerminalSessionService(OutputLogger? logger) : IDisposable
 					_process.ProcessExited += OnProcessExited;
 					// Use defaults — the new TerminalControl's first Resize will
 					// set the real dimensions, forcing the process to redraw.
-					_process.Start(dir);
+					_process.Start(dir, resumeSessionId: resumeSessionId);
 					restarted = true;
 				}
 				catch (Exception ex)

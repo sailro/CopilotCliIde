@@ -9,6 +9,8 @@
     <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <PackageVersion Include="Microsoft.Bcl.HashCode" Version="6.0.0" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.10" />
     <!-- VS2022 provides StreamJsonRpc2.22 at runtime, VS2026 has 2.24 with binding redirects. See CopilotCliIde.Server.csproj -->
     <PackageVersion Include="StreamJsonRpc" Version="[2.22.23]" />
     <PackageVersion Include="coverlet.collector" Version="8.0.1" />

@@ -11,6 +11,7 @@ internal sealed class TerminalProcess : IDisposable
 	private CancellationTokenSource? _cts;
 	private readonly object _lock = new();
 	private bool _disposed;
+	private bool _exited;
 
 	// Output batching: accumulate reads, flush on timer (~16ms / 60fps)
 	private readonly StringBuilder _outputBuffer = new();
@@ -32,12 +33,12 @@ internal sealed class TerminalProcess : IDisposable
 		{
 			lock (_lock)
 			{
-				return _session != null && !_disposed;
+				return _session != null && !_disposed && !_exited;
 			}
 		}
 	}
 
-	public void Start(string workingDirectory, short cols = 120, short rows = 40)
+	public void Start(string workingDirectory, short cols = 120, short rows = 40, string? resumeSessionId = null)
 	{
 		lock (_lock)
 		{
@@ -48,7 +49,15 @@ internal sealed class TerminalProcess : IDisposable
 				throw new InvalidOperationException("Process is already running.");
 
 			_cts = new CancellationTokenSource();
-			_session = ConPty.Create("cmd.exe /c copilot", workingDirectory, cols, rows);
+
+			// resumeSessionId is validated by callers (SessionId.IsValid). We re-check here
+			// as a defense-in-depth measure since this string is interpolated into a cmd.exe
+			// command line. Anything not matching the strict UUID format is dropped.
+			var commandLine = SessionId.IsValid(resumeSessionId)
+				? $"cmd.exe /c copilot --resume={resumeSessionId}"
+				: "cmd.exe /c copilot";
+
+			_session = ConPty.Create(commandLine, workingDirectory, cols, rows);
 			_utf8Decoder = Encoding.UTF8.GetDecoder();
 			_flushTimer = new Timer(FlushOutput, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -130,6 +139,10 @@ internal sealed class TerminalProcess : IDisposable
 
 		// Flush any remaining buffered output
 		FlushOutput(null);
+		lock (_lock)
+		{
+			_exited = true;
+		}
 		ProcessExited?.Invoke();
 	}
 
