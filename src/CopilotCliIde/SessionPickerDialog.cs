@@ -187,18 +187,24 @@ internal sealed class SessionPickerDialog : DialogWindow
 
 	private sealed class Row
 	{
-		public required string Id { get; init; }
-		public required string SummaryDisplay { get; init; }
-		public required string UpdatedDisplay { get; init; }
-		public required int TurnCount { get; init; }
-
-		public static Row From(SessionInfo s) => new()
+		public Row(string id, string summaryDisplay, string updatedDisplay, int turnCount)
 		{
-			Id = s.Id,
-			SummaryDisplay = string.IsNullOrWhiteSpace(s.Summary) ? "(no summary)" : s.Summary!.Trim(),
-			UpdatedDisplay = FormatRelative(s.UpdatedAtUtc),
-			TurnCount = s.TurnCount,
-		};
+			Id = id;
+			SummaryDisplay = summaryDisplay;
+			UpdatedDisplay = updatedDisplay;
+			TurnCount = turnCount;
+		}
+
+		public string Id { get; }
+		public string SummaryDisplay { get; }
+		public string UpdatedDisplay { get; }
+		public int TurnCount { get; }
+
+		public static Row From(SessionInfo s) => new(
+			s.Id,
+			string.IsNullOrWhiteSpace(s.Summary) ? "(no summary)" : s.Summary!.Trim(),
+			FormatRelative(s.UpdatedAtUtc),
+			s.TurnCount);
 
 		private static string FormatRelative(DateTime utc)
 		{

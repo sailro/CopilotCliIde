@@ -139,12 +139,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			// Create terminal session service (survives tool window hide/show)
 			_terminalSession = new TerminalSessionService(_logger);
 			VsServices.Instance.TerminalSession = _terminalSession;
-
-			// Wire toolbar handlers used by the WPF buttons in TerminalToolWindowControl.
-			// They reuse the same handler methods as the registered commands.
-			VsServices.Instance.OnViewSessionHistory = () => OnViewSessionHistory(this, EventArgs.Empty);
-			VsServices.Instance.OnNewSession = () => OnNewSession(this, EventArgs.Empty);
-			VsServices.Instance.OnDeleteCurrentSession = () => OnDeleteCurrentSession(this, EventArgs.Empty);
 		}
 		catch (Exception ex)
 		{

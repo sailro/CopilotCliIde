@@ -8,7 +8,23 @@ using Microsoft.Data.Sqlite;
 
 namespace CopilotCliIde;
 
-internal readonly record struct SessionInfo(string Id, string? Summary, string? Cwd, DateTime UpdatedAtUtc, int TurnCount);
+internal readonly struct SessionInfo
+{
+	public SessionInfo(string id, string? summary, string? cwd, DateTime updatedAtUtc, int turnCount)
+	{
+		Id = id;
+		Summary = summary;
+		Cwd = cwd;
+		UpdatedAtUtc = updatedAtUtc;
+		TurnCount = turnCount;
+	}
+
+	public string Id { get; }
+	public string? Summary { get; }
+	public string? Cwd { get; }
+	public DateTime UpdatedAtUtc { get; }
+	public int TurnCount { get; }
+}
 
 internal enum SessionStoreStatus
 {
@@ -17,8 +33,19 @@ internal enum SessionStoreStatus
 	Unavailable,
 }
 
-internal readonly record struct SessionQueryResult(SessionStoreStatus Status, IReadOnlyList<SessionInfo> Sessions, string? ErrorMessage = null)
+internal readonly struct SessionQueryResult
 {
+	public SessionQueryResult(SessionStoreStatus status, IReadOnlyList<SessionInfo> sessions, string? errorMessage = null)
+	{
+		Status = status;
+		Sessions = sessions;
+		ErrorMessage = errorMessage;
+	}
+
+	public SessionStoreStatus Status { get; }
+	public IReadOnlyList<SessionInfo> Sessions { get; }
+	public string? ErrorMessage { get; }
+
 	public static SessionQueryResult Empty(SessionStoreStatus status, string? error = null) =>
 		new(status, Array.Empty<SessionInfo>(), error);
 }
