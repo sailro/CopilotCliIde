@@ -3,11 +3,27 @@
 
   <Extern href="stdidcmd.h" />
   <Extern href="vsshlids.h" />
+  <Extern href="KnownImageIds.vsct" />
 
   <Commands package="guidCopilotCliIdePackage">
+    <Menus>
+      <!-- Toolbar attached to the Copilot CLI tool window. The window's ToolBar property
+           must be set to {guidCopilotCliIdeCmdSet}:CopilotCliToolbarId for this to render. -->
+      <Menu guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarId" priority="0x0000" type="ToolWindowToolbar">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarId" />
+        <Strings>
+          <ButtonText>Copilot CLI Toolbar</ButtonText>
+          <CommandName>Copilot CLI Toolbar</CommandName>
+        </Strings>
+      </Menu>
+    </Menus>
+
     <Groups>
       <Group guid="guidCopilotCliIdeCmdSet" id="CopilotCliMenuGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+      <Group guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarGroup" priority="0x0000">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarId" />
       </Group>
     </Groups>
 
@@ -26,6 +42,36 @@
           <ButtonText>Show Copilot CLI (Embedded Terminal)</ButtonText>
         </Strings>
       </Button>
+
+      <!-- Toolbar buttons. IconIsMoniker tells VS the Icon refers to an image catalog
+           moniker (guid + id) rather than a Bitmap declared below. -->
+      <Button guid="guidCopilotCliIdeCmdSet" id="ViewSessionHistoryCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarGroup" />
+        <Icon guid="ImageCatalogGuid" id="History" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>View Session History</ButtonText>
+          <ToolTipText>Resume a previous Copilot CLI session for this workspace</ToolTipText>
+        </Strings>
+      </Button>
+      <Button guid="guidCopilotCliIdeCmdSet" id="NewSessionCommandId" priority="0x0200" type="Button">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarGroup" />
+        <Icon guid="ImageCatalogGuid" id="NewItem" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>New Session</ButtonText>
+          <ToolTipText>Start a fresh Copilot CLI session</ToolTipText>
+        </Strings>
+      </Button>
+      <Button guid="guidCopilotCliIdeCmdSet" id="DeleteCurrentSessionCommandId" priority="0x0300" type="Button">
+        <Parent guid="guidCopilotCliIdeCmdSet" id="CopilotCliToolbarGroup" />
+        <Icon guid="ImageCatalogGuid" id="DeleteListItem" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>Delete Current Thread</ButtonText>
+          <ToolTipText>Permanently delete the current Copilot CLI chat thread</ToolTipText>
+        </Strings>
+      </Button>
     </Buttons>
 
     <Bitmaps>
@@ -39,6 +85,11 @@
       <IDSymbol name="CopilotCliMenuGroup" value="0x1020" />
       <IDSymbol name="LaunchCopilotCliCommandId" value="0x0100" />
       <IDSymbol name="CopilotCliWindowCommandId" value="0x0200" />
+      <IDSymbol name="CopilotCliToolbarId" value="0x1030" />
+      <IDSymbol name="CopilotCliToolbarGroup" value="0x1031" />
+      <IDSymbol name="ViewSessionHistoryCommandId" value="0x0300" />
+      <IDSymbol name="NewSessionCommandId" value="0x0301" />
+      <IDSymbol name="DeleteCurrentSessionCommandId" value="0x0302" />
     </GuidSymbol>
     <GuidSymbol name="guidImages" value="{063cfd9a-783a-4907-801f-30eccf98c5f0}">
       <IDSymbol name="copilotIcon" value="1" />
@@ -46,3 +97,4 @@
   </Symbols>
 
 </CommandTable>
+
