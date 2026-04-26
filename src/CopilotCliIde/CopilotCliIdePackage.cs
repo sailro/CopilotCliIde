@@ -283,9 +283,8 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			Process.Start(new ProcessStartInfo
 			{
-				FileName = "cmd.exe",
-				Arguments = "/k copilot",
-				WorkingDirectory = GetWorkspaceFolder(),
+				FileName = "wt.exe",
+				Arguments = $"-d \"{GetWorkspaceFolder()}\" cmd.exe /k copilot",
 				UseShellExecute = true
 			});
 		}
