@@ -42,7 +42,7 @@ Double-click the `.vsix` to install, or use F5 in Visual Studio to debug in the 
 1. **Open a solution** in Visual Studio — the extension activates automatically
 2. **Launch Copilot CLI** using one of:
    - **Tools → Show Copilot CLI (Embedded Terminal)** — opens a dockable terminal inside VS with Copilot CLI running (native Microsoft.Terminal.Wpf control)
-   - **Tools → Launch Copilot CLI (External Terminal)** — opens Copilot CLI in an external terminal window
+   - **Tools → Launch Copilot CLI (External Terminal)** — opens Copilot CLI in an external terminal window. Configurable via **Settings → Copilot CLI IDE Bridge → External Terminal** (defaults to `cmd.exe /k copilot`; supports `wt.exe`, `pwsh.exe`, etc., with `{WorkspaceFolder}` placeholder).
    - Open a terminal manually in the solution folder
 3. **Run `/ide`** in Copilot CLI — it discovers Visual Studio and connects
 

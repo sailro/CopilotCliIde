@@ -9,41 +9,45 @@ internal static class TerminalSettings
 	public const string DefaultFontFamily = "Cascadia Code";
 	public const short DefaultFontSize = 12;
 
+	public const string DefaultExternalCommand = "cmd.exe";
+	public const string DefaultExternalArguments = "/k copilot";
+
 	private const string CollectionPath = "CopilotCliIde\\Terminal";
+	private const string ExternalCollectionPath = "CopilotCliIde\\ExternalTerminal";
 
-	public static string FontFamily
+	public static string FontFamily => GetString(CollectionPath, TerminalSettingsProvider.FontFamilyKey, DefaultFontFamily);
+	public static short FontSize => (short)Math.Max(6, Math.Min(72, GetInt32(CollectionPath, TerminalSettingsProvider.FontSizeKey, DefaultFontSize)));
+	public static string ExternalCommand => GetString(ExternalCollectionPath, TerminalSettingsProvider.ExternalCommandKey, DefaultExternalCommand, requireNonBlank: true);
+	public static string ExternalArguments => GetString(ExternalCollectionPath, TerminalSettingsProvider.ExternalArgumentsKey, DefaultExternalArguments);
+
+	private static string GetString(string collection, string key, string defaultValue, bool requireNonBlank = false)
 	{
-		get
+		try
 		{
-			try
+			var store = GetStore();
+			if (store != null && store.CollectionExists(collection) && store.PropertyExists(collection, key))
 			{
-				var store = GetStore();
-				if (store != null && store.CollectionExists(CollectionPath) && store.PropertyExists(CollectionPath, TerminalSettingsProvider.FontFamilyKey))
-					return store.GetString(CollectionPath, TerminalSettingsProvider.FontFamilyKey);
+				var value = store.GetString(collection, key);
+				if (!requireNonBlank || !string.IsNullOrWhiteSpace(value))
+					return value;
 			}
-			catch { /* Ignore */ }
-
-			return DefaultFontFamily;
 		}
+		catch { /* Ignore */ }
+
+		return defaultValue;
 	}
 
-	public static short FontSize
+	private static int GetInt32(string collection, string key, int defaultValue)
 	{
-		get
+		try
 		{
-			try
-			{
-				var store = GetStore();
-				if (store != null && store.CollectionExists(CollectionPath) && store.PropertyExists(CollectionPath, TerminalSettingsProvider.FontSizeKey))
-				{
-					var size = store.GetInt32(CollectionPath, TerminalSettingsProvider.FontSizeKey);
-					return (short)Math.Max(6, Math.Min(72, size));
-				}
-			}
-			catch { /* Ignore */ }
-
-			return DefaultFontSize;
+			var store = GetStore();
+			if (store != null && store.CollectionExists(collection) && store.PropertyExists(collection, key))
+				return store.GetInt32(collection, key);
 		}
+		catch { /* Ignore */ }
+
+		return defaultValue;
 	}
 
 	private static WritableSettingsStore? GetStore()

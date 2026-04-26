@@ -6,15 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.19] - 2026-04-26
+
+### Added
+
+- **External terminal configuration** via VS Settings (**Settings → Copilot CLI IDE Bridge → External Terminal**) — customize the executable (`Command`) and `Arguments` used by **Tools → Launch Copilot CLI (External Terminal)**. Defaults preserve existing behavior (`cmd.exe /k copilot`); supports any shell (`wt.exe`, `pwsh.exe`, `powershell.exe`, or any executable on PATH / full path).
+- `{WorkspaceFolder}` placeholder in `Command` and `Arguments` — substituted with the current solution directory at launch time. Required for terminals that don't inherit the parent process working directory (e.g. `wt.exe -d "{WorkspaceFolder}" cmd /k copilot`).
+- Output pane log entry on external terminal launch showing the resolved command, arguments, and working directory — for debugging custom configurations.
+
 ### Changed
 
 - Replace `Task.Delay(200)` server startup wait with stdout `READY` handshake — deterministic server readiness detection with 10s timeout
+- Renamed the existing **Terminal** settings category to **Embedded Terminal** to disambiguate from the new External Terminal category.
 
 ### Fixed
 
 - Fix TOCTOU race condition in `DebouncePusher` — timer and key fields now properly synchronized
 - Clean up orphaned diff views on solution switch — `CleanupAllDiffs()` runs before RPC teardown in `StopConnection()`
-- Trim SSE event historyto last-per-notification-type — prevents unbounded growth from rapid selection/diagnostics changes while preserving initial state for new SSE clients
+- Trim SSE event history to last-per-notification-type — prevents unbounded growth from rapid selection/diagnostics changes while preserving initial state for new SSE clients
 - Remove no-op assertions and duplicate tests in server test suite
 
 ## [1.0.18] - 2026-04-13

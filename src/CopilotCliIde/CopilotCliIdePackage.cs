@@ -281,11 +281,17 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		ThreadHelper.ThrowIfNotOnUIThread();
 		try
 		{
+			var workspaceFolder = GetWorkspaceFolder();
+			var fileName = ExpandPlaceholders(TerminalSettings.ExternalCommand, workspaceFolder);
+			var arguments = ExpandPlaceholders(TerminalSettings.ExternalArguments, workspaceFolder);
+
+			_logger?.Log($"Launching external terminal: \"{fileName}\" {arguments} (cwd: {workspaceFolder})");
+
 			Process.Start(new ProcessStartInfo
 			{
-				FileName = "cmd.exe",
-				Arguments = "/k copilot",
-				WorkingDirectory = GetWorkspaceFolder(),
+				FileName = fileName,
+				Arguments = arguments,
+				WorkingDirectory = workspaceFolder,
 				UseShellExecute = true
 			});
 		}
@@ -293,6 +299,16 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 		{
 			_logger?.Log($"Failed to launch Copilot CLI (External Terminal): {ex.Message}");
 		}
+	}
+
+	// Replaces {WorkspaceFolder} with the current solution directory.
+	// Some terminals (e.g. wt.exe) ignore the parent process WorkingDirectory,
+	// so users can pass the folder explicitly via arguments.
+	private static string ExpandPlaceholders(string value, string workspaceFolder)
+	{
+		return string.IsNullOrEmpty(value)
+			? value
+			: value.Replace("{WorkspaceFolder}", workspaceFolder);
 	}
 
 	private void OnShowCopilotCliWindow(object sender, EventArgs e)

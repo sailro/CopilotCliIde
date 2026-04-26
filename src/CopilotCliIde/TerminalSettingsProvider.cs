@@ -11,10 +11,11 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 	public const string ServiceGuid = "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e";
 
 	private const string CollectionPath = "CopilotCliIde\\Terminal";
+	private const string ExternalCollectionPath = "CopilotCliIde\\ExternalTerminal";
 	public const string FontFamilyKey = "FontFamily";
 	public const string FontSizeKey = "FontSize";
-	private const string FontFamilyMoniker = "fontFamily";
-	private const string FontSizeMoniker = "fontSize";
+	public const string ExternalCommandKey = "Command";
+	public const string ExternalArgumentsKey = "Arguments";
 
 	private readonly WritableSettingsStore _store;
 
@@ -30,23 +31,44 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 		_store = store;
 		if (!_store.CollectionExists(CollectionPath))
 			_store.CreateCollection(CollectionPath);
+		if (!_store.CollectionExists(ExternalCollectionPath))
+			_store.CreateCollection(ExternalCollectionPath);
 	}
+
+	// Monikers in registration.json mirror the storage keys with a lowercase first letter
+	// (e.g. "FontFamily" -> "fontFamily"). Treat them as the same identifier in two casings.
+	private static string ToMoniker(string key) => char.ToLowerInvariant(key[0]) + key.Substring(1);
+
+	private static bool Matches(string moniker, string key)
+		=> moniker.EndsWith(ToMoniker(key), StringComparison.OrdinalIgnoreCase);
 
 	public Task<ExternalSettingOperationResult<T>> GetValueAsync<T>(string moniker, CancellationToken cancellationToken) where T : notnull
 	{
 		object? value = null;
 
-		if (moniker.EndsWith(FontFamilyMoniker, StringComparison.OrdinalIgnoreCase))
+		if (Matches(moniker, FontFamilyKey))
 		{
 			value = _store.PropertyExists(CollectionPath, FontFamilyKey)
 				? _store.GetString(CollectionPath, FontFamilyKey)
 				: TerminalSettings.DefaultFontFamily;
 		}
-		else if (moniker.EndsWith(FontSizeMoniker, StringComparison.OrdinalIgnoreCase))
+		else if (Matches(moniker, FontSizeKey))
 		{
 			value = _store.PropertyExists(CollectionPath, FontSizeKey)
 				? _store.GetInt32(CollectionPath, FontSizeKey)
 				: TerminalSettings.DefaultFontSize;
+		}
+		else if (Matches(moniker, ExternalCommandKey))
+		{
+			value = _store.PropertyExists(ExternalCollectionPath, ExternalCommandKey)
+				? _store.GetString(ExternalCollectionPath, ExternalCommandKey)
+				: TerminalSettings.DefaultExternalCommand;
+		}
+		else if (Matches(moniker, ExternalArgumentsKey))
+		{
+			value = _store.PropertyExists(ExternalCollectionPath, ExternalArgumentsKey)
+				? _store.GetString(ExternalCollectionPath, ExternalArgumentsKey)
+				: TerminalSettings.DefaultExternalArguments;
 		}
 
 		return value is not null
@@ -56,13 +78,21 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 
 	public Task<ExternalSettingOperationResult> SetValueAsync<T>(string moniker, T value, CancellationToken cancellationToken) where T : notnull
 	{
-		if (moniker.EndsWith(FontFamilyMoniker, StringComparison.OrdinalIgnoreCase) && value is string s)
+		if (Matches(moniker, FontFamilyKey) && value is string s)
 		{
 			_store.SetString(CollectionPath, FontFamilyKey, s);
 		}
-		else if (moniker.EndsWith(FontSizeMoniker, StringComparison.OrdinalIgnoreCase) && value is int i)
+		else if (Matches(moniker, FontSizeKey) && value is int i)
 		{
 			_store.SetInt32(CollectionPath, FontSizeKey, Math.Max(6, Math.Min(72, i)));
+		}
+		else if (Matches(moniker, ExternalCommandKey) && value is string cmd)
+		{
+			_store.SetString(ExternalCollectionPath, ExternalCommandKey, cmd);
+		}
+		else if (Matches(moniker, ExternalArgumentsKey) && value is string args)
+		{
+			_store.SetString(ExternalCollectionPath, ExternalArgumentsKey, args);
 		}
 		else
 		{
@@ -75,7 +105,7 @@ internal sealed class TerminalSettingsProvider : IExternalSettingsProvider
 
 	public async Task<ExternalSettingOperationResult<IReadOnlyList<EnumChoice>>> GetEnumChoicesAsync(string enumSettingMoniker, CancellationToken cancellationToken)
 	{
-		if (!enumSettingMoniker.EndsWith(FontFamilyMoniker, StringComparison.OrdinalIgnoreCase))
+		if (!Matches(enumSettingMoniker, FontFamilyKey))
 			return ExternalSettingOperationResult.SuccessResult<IReadOnlyList<EnumChoice>>([]);
 
 		await Task.Yield();
