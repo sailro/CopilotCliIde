@@ -330,8 +330,6 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 	{
 		if (disposing)
 		{
-			_selectionTracker?.Dispose();
-
 			_solutionEvents?.Opened -= OnSolutionOpened;
 			_solutionEvents?.AfterClosing -= OnSolutionAfterClosing;
 			_solutionEvents = null;
@@ -345,11 +343,15 @@ public sealed class CopilotCliIdePackage : AsyncPackage
 			StopConnection();
 #pragma warning restore VSTHRD010
 
+			_selectionTracker?.Dispose();
+			_selectionTracker = null;
+
 			_terminalSession?.Dispose();
 			_terminalSession = null;
 			VsServices.Instance.TerminalSession = null;
 
 			_discovery?.Dispose();
+			_discovery = null;
 
 			if (_selectionMonitorCookie != 0)
 			{
