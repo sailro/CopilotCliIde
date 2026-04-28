@@ -1,154 +1,108 @@
 # Changelog
 
-All notable changes to the CopilotCliIde Visual Studio extension are documented in this file.
+All notable changes to the CopilotCliIde Visual Studio extension are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.20] - 2026-04-28
+
+### Fixed
+
+- Fixed a crash that could occur when closing a solution or shutting down Visual Studio while Copilot CLI was connected.
+
 ## [1.0.19] - 2026-04-26
 
 ### Added
 
-- **External terminal configuration** via VS Settings (**Settings → Copilot CLI IDE Bridge → External Terminal**) — customize the executable (`Command`) and `Arguments` used by **Tools → Launch Copilot CLI (External Terminal)**. Defaults preserve existing behavior (`cmd.exe /k copilot`); supports any shell (`wt.exe`, `pwsh.exe`, `powershell.exe`, or any executable on PATH / full path).
-- `{WorkspaceFolder}` placeholder in `Command` and `Arguments` — substituted with the current solution directory at launch time. Required for terminals that don't inherit the parent process working directory (e.g. `wt.exe -d "{WorkspaceFolder}" cmd /k copilot`).
-- Output pane log entry on external terminal launch showing the resolved command, arguments, and working directory — for debugging custom configurations.
+- **Configurable external terminal.** Pick your own terminal for **Tools → Launch Copilot CLI (External Terminal)** under **Settings → Copilot CLI IDE Bridge → External Terminal**. Use Windows Terminal, PowerShell, pwsh, or any other shell — defaults stay the same if you don't change anything.
+- Use `{WorkspaceFolder}` in the command or arguments to inject the current solution directory at launch (handy for terminals like Windows Terminal that don't inherit the working directory).
+- The Output pane now logs the full command, arguments, and working directory each time you launch the external terminal — useful when tuning a custom configuration.
 
 ### Changed
 
-- Replace `Task.Delay(200)` server startup wait with stdout `READY` handshake — deterministic server readiness detection with 10s timeout
-- Renamed the existing **Terminal** settings category to **Embedded Terminal** to disambiguate from the new External Terminal category.
+- Renamed the existing **Terminal** settings category to **Embedded Terminal** so it's clear which terminal you're configuring.
+- Faster, more reliable startup when Copilot CLI connects.
 
 ### Fixed
 
-- Fix TOCTOU race condition in `DebouncePusher` — timer and key fields now properly synchronized
-- Clean up orphaned diff views on solution switch — `CleanupAllDiffs()` runs before RPC teardown in `StopConnection()`
-- Trim SSE event history to last-per-notification-type — prevents unbounded growth from rapid selection/diagnostics changes while preserving initial state for new SSE clients
-- Remove no-op assertions and duplicate tests in server test suite
+- Diff views from a previous solution no longer linger after you switch solutions.
+- Selection and diagnostic notifications no longer stack up under rapid edits.
+- Eliminated a rare race condition during shutdown that could cause a crash.
 
 ## [1.0.18] - 2026-04-13
 
 ### Added
 
-- **Terminal font settings** via VS Unified Settings (**Settings → Copilot CLI IDE Bridge → Terminal**) — font family dropdown with monospace font detection (GDI+) and font size control, backed by `WritableSettingsStore`
+- **Embedded terminal font settings.** Choose your font family and size for the embedded Copilot CLI terminal under **Settings → Copilot CLI IDE Bridge → Terminal**. The font dropdown lists installed monospace fonts and accepts any name you type.
 
 ### Changed
 
-- Replace WebView2+xterm.js terminal with native `Microsoft.Terminal.Wpf` — the same terminal control used by Windows Terminal and Visual Studio itself. Eliminates Chromium dependency, fixes box-drawing character gaps, and reduces terminal code from ~600 LOC to ~200 LOC.
+- The embedded terminal now uses the same native terminal control that powers Windows Terminal and Visual Studio's built-in terminal. Result: crisper text, perfect box-drawing characters, and no Chromium dependency.
 
 ### Fixed
 
-- Auto-focus terminal when opening tool window from menu — no click needed to start typing
-- Fix Escape key stealing focus from embedded terminal (uses Kitty keyboard protocol sequence, matching VS's own terminal implementation)
-- Resolve `Microsoft.Terminal.Wpf` from both VS channel layouts (Community/Insiders vs Canary)
-- Reset terminal buffer and re-sync ConPTY dimensions on session restart
-- Log warning when `Microsoft.Terminal.Wpf.dll` cannot be found in AssemblyResolve handler
-
-### Removed
-
-- `Microsoft.Web.WebView2` NuGet dependency
-- `Resources/Terminal/` directory (terminal.html, terminal-app.js, xterm.js, addon-fit, addon-webgl)
-- `@xterm/*` npm dependencies
+- The embedded terminal now auto-focuses when you open it — no click needed before typing.
+- Pressing Escape no longer steals focus away from the embedded terminal.
+- Terminal redraws cleanly when restarting a session.
+- Resolved a Windows-Terminal compatibility issue that affected some Visual Studio installations.
 
 ## [1.0.17] - 2026-04-12
 
 ### Fixed
 
-- Disable Chromium context menu in embedded terminal (right-click is for paste)
-- Hide xterm.js scrollbar to match external terminal appearance
-- Match Windows Terminal ANSI color brightness in embedded terminal
-
-### Changed
-
-- Skip JSON serialization on terminal output hot path (`PostWebMessageAsString`)
-- Skip focus recovery when WebView2 already has focus (selection perf)
-- Remove redundant click-to-focus handler that interfered with xterm.js selection
-- Extract `DispatchToUI` helper with internalized try-catch
+- The embedded terminal's right-click menu no longer shows the browser context menu — right-click pastes, as expected.
+- Hidden the duplicate scrollbar in the embedded terminal so it matches an external terminal's appearance.
+- Embedded terminal colors now match Windows Terminal's brightness.
+- Smoother selection and focus handling in the embedded terminal.
 
 ## [1.0.16] - 2026-04-12
 
 ### Added
 
-- **Embedded Copilot CLI terminal** — dockable tool window (**Tools → Show Copilot CLI (Embedded Terminal)**) that hosts Copilot CLI directly inside Visual Studio with full ANSI color support, interactive prompts, and resize handling ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7) by @bommerts)
-
-### Fixed
-
-- Fix multi-byte UTF-8 character corruption in terminal output (emoji, CJK)
-- Fix terminal focus recovery after F5 debug cycles
-- Fix terminal session thread safety for concurrent start/stop calls
-- Fix terminal redraw on tab visibility change and solution reload
-- Fix terminal corruption on `/restart` by removing resize dedup
-- Keep terminal alive on solution close (restart with current directory instead of killing)
-- Add graceful fallback when WebView2 runtime is unavailable
-- Add `ResizeObserver` for terminal resize on dock panel splitter drags
+- **Embedded Copilot CLI terminal.** A dockable tool window (**Tools → Show Copilot CLI (Embedded Terminal)**) hosts Copilot CLI directly inside Visual Studio with full color, interactive prompts, and resizing ([PR #7](https://github.com/sailro/CopilotCliIde/pull/7) by @bommerts).
 
 ### Changed
 
-- Rename menu items for clarity: **Launch Copilot CLI (External Terminal)** and **Show Copilot CLI (Embedded Terminal)**
+- Clearer menu names: **Launch Copilot CLI (External Terminal)** and **Show Copilot CLI (Embedded Terminal)**.
+
+### Fixed
+
+- Emoji and CJK characters now display correctly in the embedded terminal.
+- The terminal recovers focus after F5 debug cycles.
+- The terminal redraws correctly when its tab becomes visible again or when the solution reloads.
+- The embedded terminal stays alive when you close a solution and restarts in the new working directory when you open another.
+- Friendly fallback if the WebView2 runtime isn't installed on the machine (no longer crashes).
+- The terminal now resizes correctly when you drag dock-panel splitters.
 
 ## [1.0.15] - 2026-03-31
 
 ### Fixed
 
-- Fix MCP server crash when VS solution folder contains `appsettings.json` with Kestrel HTTPS configuration ([#4](https://github.com/sailro/CopilotCliIde/issues/4))
-
-### Test
-
-- Add regression tests for server WorkingDirectory isolation (`ServerWorkingDirectoryTests`)
+- Fixed a startup crash when the solution folder contained an `appsettings.json` configuring Kestrel HTTPS ([#4](https://github.com/sailro/CopilotCliIde/issues/4)).
 
 ## [1.0.14] - 2026-03-30
 
 ### Changed
 
-- Replace custom HTTP/MCP stack with `ModelContextProtocol.AspNetCore` (Kestrel named-pipe transport)
-- Declare `TaskSupport = Forbidden` per-tool via `[McpServerTool]` attributes (VSCode parity)
+- Internal MCP plumbing modernized for better protocol parity with VS Code's Copilot Chat extension.
 
 ### Fixed
 
-- Fix reset-notification session gating (initial state push)
-
-### Test
-
-- Add VS capture session (v1.0.14) with capture-driven replay tests
-- Add `execution.taskSupport` parity assertions for all tools
-- Refine SSE session handling and tooling in test infrastructure
-
-### Build
-
-- Fix release workflow to prevent removing the related tag on delete release
+- The initial selection / diagnostics push now arrives reliably right after Copilot CLI connects.
 
 ## [1.0.13] - 2026-03-28
 
-### Changed
-
-- Extract shared `DiagnosticSeverity` contract into CopilotCliIde.Shared
-- Split `VsServiceRpc` into smaller focused classes
-- Extract notification handling from extension package
-- Refactor extension and server with OOP patterns
-
-### Test
-
-- Update `CrossCaptureConsistencyTests` for multi-VS-capture support
-- Add new VS Code capture session (v0.41)
-
 ### Docs
 
-- Document Tools → Launch Copilot CLI menu command in README
-- Align protocol docs with capture parity tests
-
-### Build
-
-- Update GitHub Actions to Node.js 24-compatible versions
+- README now documents the **Tools → Launch Copilot CLI** menu command.
 
 ## [1.0.12] - 2026-03-28
 
 ### Added
 
-- **Tools → Launch Copilot CLI** menu command to start Copilot CLI from within Visual Studio ([PR #3](https://github.com/sailro/CopilotCliIde/pull/3) by @andysterland)
-
-### Changed
-
-- Suppress additional compiler warnings (`nowarn`)
+- **Tools → Launch Copilot CLI** menu command to start Copilot CLI from inside Visual Studio ([PR #3](https://github.com/sailro/CopilotCliIde/pull/3) by @andysterland).
 
 ## [1.0.11] - 2026-03-26
 
@@ -158,132 +112,72 @@ _Re-tagged from 1.0.10 — marketplace publishing failed, creating an invalid pa
 
 ### Fixed
 
-- Fix VS2022 compatibility by downgrading StreamJsonRpc to 2.22 ([PR #2](https://github.com/sailro/CopilotCliIde/pull/2))
+- Compatibility with Visual Studio 2022 ([PR #2](https://github.com/sailro/CopilotCliIde/pull/2)).
 
 ## [1.0.9] - 2026-03-10
 
 ### Added
 
-- GitHub Actions CI workflow (`ci.yml`)
-- GitHub Actions release workflow (`release.yml`)
-- Build status badge in README
-
-### Build
-
-- Refactor build project structure
+- Continuous integration and release pipelines.
+- Build status badge in the README.
 
 ## [1.0.8] - 2026-03-10
 
 ### Fixed
 
-- Fix diagnostic `range.end` always being `(0,0)` by using `PersistentSpan`
-- Fix `get_selection` column reporting accuracy
-- Log format consistency for separator and position accuracy
-
-### Changed
-
-- Sync protocol responses with VS Code reference captures
-
-### Test
-
-- Rewrite `CrossCaptureConsistencyTests` to strict mode
+- Diagnostics now report accurate end-of-range positions instead of always showing column zero.
+- More accurate column reporting for the current selection.
 
 ## [1.0.7] - 2026-03-08
 
 ### Added
 
-- Live diagnostics push via `ITableDataSink` subscription
-- `DiagnosticTracker` extracted from package (mirrors `SelectionTracker` pattern)
-- PipeProxy tool for capturing MCP traffic between Copilot CLI and VS Code
-- Proxy-based protocol compatibility tests with strict unknown tool/notification detection
-- VS Code Insiders protocol capture for validation
-
-### Fixed
-
-- Fix `DiagnosticTracker` analyzer warnings (VSSDK007, IDE0028, IDE0031)
-- Fix path/uri parameter consistency in tool calls
-- Fix protocol compatibility issues found via capture comparison
-
-### Changed
-
-- Align HTTP response framing with VS Code Express server
-- Replace golden snapshot tests with real VS Code extension captures (v0.39)
-- Update RPC contracts for diagnostics support
-- Align `close_diff` message format
+- **Live diagnostics.** Errors and warnings from the Error List are pushed to Copilot CLI as they appear — no need to ask.
 
 ## [1.0.6] - 2026-03-07
 
 ### Added
 
-- Diagnostics deduplication via `HashCode` fingerprint
-- Push initial selection and diagnostics on CLI connect with dedup reset
-- `ErrorListReader` to consolidate diagnostics collection logic
-- Whitespace format enforcement via husky pre-commit hook
-- Unit tests (xUnit v3 migration)
-- `Directory.Build.props` for centralized build configuration
-- Protocol documentation from reverse-engineering sessions
+- Initial selection and diagnostics are pushed to Copilot CLI as soon as it connects.
+- Diagnostic logs are now consolidated in a dedicated **Copilot CLI IDE** pane in the Output Window (**View → Output**).
 
 ### Fixed
 
-- Fix URI format inconsistency — use `PathUtils` everywhere
-- Fix selection log to display 1-based line/column numbers
-
-### Changed
-
-- Replace file-based logging with VS Output Window pane ("Copilot CLI IDE")
-- Extract `SelectionTracker`, `DebouncePusher`, `PathUtils` from package
-- Centralize severity mapping into shared utility
-- Cache `IVsMonitorSelection`, remove UI thread assert from `Dispose`
-- Bump dependencies
+- Selection-position log entries now use 1-based line and column numbers, matching the editor.
 
 ### Docs
 
-- Update README to match current wire formats and notifications
-- Add Diagnostics section to README for Output Window logging
+- README updated to describe the Output Window diagnostics pane.
 
 ## [1.0.5] - 2026-03-05
 
-### Changed
-
-- Replace DTE events with native VS editor APIs (`IVsMonitorSelection`, `IWpfTextView`) for selection tracking
-- Replace debounce with synchronous selection reads
-- Push current selection when Copilot CLI SSE client connects
-- Simplify `PushCurrentSelection` — remove `BufferGraph` mapping and deferred re-push
-
 ### Fixed
 
-- Fix initial selection push on lazy load and clear on tab close
-- Fix active view tracking on document tab switch
-- Fix stale selection positions during mouse operations
-- Fix out-of-order selection notifications during mouse drag
+- The current selection is pushed correctly the first time Copilot CLI connects, even on lazily loaded windows.
+- Selection updates properly when you switch document tabs.
+- No more stale or out-of-order selection updates while dragging with the mouse.
+- The selection clears cleanly when the last editor tab is closed.
 
 ## [1.0.4] - 2026-03-05
 
 ### Changed
 
-- Tear down and recreate connection on solution close/open (solution lifecycle management)
+- Closing or switching solutions now disconnects Copilot CLI cleanly and reconnects to the new solution — matching how VS Code behaves when you close a folder.
 
 ### Docs
 
-- Update README to document solution lifecycle behavior
-- Add Copilot instructions and code review instructions
+- README documents the solution-lifecycle behavior.
 
 ## [1.0.3] - 2026-03-04
 
 ### Added
 
-- Blocking diff workflow with Accept/Reject InfoBar and `TaskCompletionSource`
-- SSE selection change notifications pushed to Copilot CLI
-- VS Code protocol alignment for tool schemas
-
-### Fixed
-
-- Fix VSTHRD010 warnings in InfoBar event handlers
-- Fix analyzer warnings and IDE messages
+- **Diff workflow.** When Copilot CLI proposes changes, a diff view opens with an Accept / Reject InfoBar. Closing the tab counts as Reject. The CLI waits until you decide.
+- Selection changes are pushed to Copilot CLI as you move the cursor.
 
 ### Docs
 
-- Update README with SSE notifications, architecture diagram, and VS Code compatibility notes
+- README updated with the new notification flow, architecture diagram, and VS Code compatibility notes.
 
 ## [1.0.2] - 2026-03-03
 
@@ -291,38 +185,26 @@ _Version bump only for marketplace publishing tests — no functional changes._
 
 ## [1.0.1] - 2026-03-03
 
-### Changed
-
-- Adjust RPC contracts to match VS Code Copilot Chat extension exactly
-
 ### Fixed
 
-- Track solution changes in lock file and fix multi-instance log conflicts
+- Multiple Visual Studio instances now coexist correctly (no shared-log conflicts, correct solution tracking per instance).
 
 ### Docs
 
-- Update README with screenshots and functionality details
+- README updated with screenshots and feature details.
 
 ## [1.0.0] - 2026-03-02
 
 ### Added
 
-- Initial release of the CopilotCliIde Visual Studio extension
-- Two-process architecture: VS extension (`net472`) + MCP server (`net10.0`) over named pipes
-- HTTP-over-pipe implementation for MCP Streamable HTTP transport with chunked transfer encoding
-- All 7 MCP tools matching VS Code's Copilot Chat extension:
-  - `get_vscode_info` — IDE and workspace metadata
-  - `get_selection` — Current editor selection with file context
-  - `open_diff` — Open diff viewer with proposed changes
-  - `close_diff` — Close diff viewer and return result
-  - `get_diagnostics` — Retrieve errors/warnings from the Error List
-  - `read_file` — Read file contents from the workspace
-  - `update_session_name` — Set the Copilot CLI session display name
-- `SelectionTracker` for real-time editor selection capture via DTE events
-- Lock file discovery mechanism (`~/.copilot/ide/*.lock`) for Copilot CLI to find running VS instances
-- Comprehensive README with usage instructions, architecture diagram, and tool documentation
+- Initial release: Copilot CLI's `/ide` command now works with Visual Studio, just like it does with VS Code.
+- Auto-discovery — Copilot CLI finds your running Visual Studio instances automatically.
+- All 7 IDE tools supported: editor info, current selection, diff viewer (open/close), diagnostics, file read, and session naming.
+- Live editor selection sent to Copilot CLI.
 
-[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.18...HEAD
+[Unreleased]: https://github.com/sailro/CopilotCliIde/compare/1.0.20...HEAD
+[1.0.20]: https://github.com/sailro/CopilotCliIde/compare/1.0.19...1.0.20
+[1.0.19]: https://github.com/sailro/CopilotCliIde/compare/1.0.18...1.0.19
 [1.0.18]: https://github.com/sailro/CopilotCliIde/compare/1.0.17...1.0.18
 [1.0.17]: https://github.com/sailro/CopilotCliIde/compare/1.0.16...1.0.17
 [1.0.16]: https://github.com/sailro/CopilotCliIde/compare/1.0.15...1.0.16
