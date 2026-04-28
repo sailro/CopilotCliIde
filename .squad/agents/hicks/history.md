@@ -297,6 +297,27 @@ Fixed System.ObjectDisposedException in `DebouncePusher._timer.Change()`. Root c
 **Files changed:**
 - `src/CopilotCliIde/DebouncePusher.cs` — added _disposed flag, defensive checks, exception handling
 
+---
+
+## Historical Archive Index
+
+*Entries from 2026-03-05 through 2026-04-15 have been summarized below for reference. Full details remain in the Learnings sections above.*
+
+**Key Historical Achievements (March–April 2026):**
+- **Protocol Alignment** (2026-03-xx): Resolved 5-area schema mismatch between VS Code and VS implementations (vscode_info, selection fields, diagnostics structure, open_diff values, close_diff casing)
+- **Transport Refactor** (2026-03-29): Bishop completed AspNetCore/Kestrel migration from custom MCP stack
+- **Diagnostics Architecture** (2026-03-28): ITableDataSink integration for real-time diagnostic notifications with 200ms debounce + dedup
+- **VS Extension Health Scan** (2026-03-10): Comprehensive code review identified 2 HIGH, 3 MEDIUM, 9 LOW findings; HIGH-2 (DebouncePusher TOCTOU race) addressed in 2026-04-28 patch
+- **Terminal Subsystem** (2026-03-xx to 2026-04-15): Embedded ConPTY terminal control integrated, theme support, settings provider, menu naming clarified
+
+**Learnings Established:**
+- Primitives (DebouncePusher, etc.) must be robust to caller-order fragility
+- Silent catch blocks (`{ /* Raced */ }`) for disposal races are acceptable defensive patterns
+- File URI handling requires PathUtils normalization (lowercase drive + URL encoding)
+- ITableDataSink thread-safety requires lock protection for concurrent diagnostic updates
+
+For detailed historical context, refer to `.squad/decisions.md` and `.squad/decisions-archive.md`.
+
 **Key finding:** Menu item text lives in 3 layers: VSCT ButtonText (menu), ToolWindowPane Caption (title bar), and docs. All must stay in sync. The "Loading Copilot CLI…" placeholder text in TerminalToolWindowControl was left as-is — it's transient loading state, not a navigable menu item.
 
 **Build:** Roslyn validation clean on both C# files. Server builds 0 errors, 0 warnings.
