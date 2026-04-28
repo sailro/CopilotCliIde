@@ -6,8 +6,16 @@ internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 {
 	private readonly Timer _timer = new(_ => onElapsed(), null, Timeout.Infinite, Timeout.Infinite);
 	private volatile string? _lastKey;
+	private volatile bool _disposed;
 
-	public void Schedule() => _timer.Change(200, Timeout.Infinite);
+	public void Schedule()
+	{
+		if (_disposed)
+			return;
+
+		try { _timer.Change(200, Timeout.Infinite); }
+		catch (ObjectDisposedException) { /* Raced with Dispose */ }
+	}
 
 	public bool IsDuplicate(string key)
 	{
@@ -23,8 +31,17 @@ internal sealed class DebouncePusher(Action onElapsed) : IDisposable
 	public void Reset()
 	{
 		_lastKey = null;
-		_timer.Change(Timeout.Infinite, Timeout.Infinite);
+
+		if (_disposed)
+			return;
+
+		try { _timer.Change(Timeout.Infinite, Timeout.Infinite); }
+		catch (ObjectDisposedException) { /* Raced with Dispose */ }
 	}
 
-	public void Dispose() => _timer.Dispose();
+	public void Dispose()
+	{
+		_disposed = true;
+		_timer.Dispose();
+	}
 }

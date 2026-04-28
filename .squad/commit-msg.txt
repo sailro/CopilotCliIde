@@ -1,11 +1,18 @@
-Scribe: Session log for Hudson's vs-1.0.14 capture test implementation
+Fix System.ObjectDisposedException in DebouncePusher._timer.Change()
 
-- Added 3 capture-driven tests (B5b, B6, B7) addressing P1 gaps
-- All 281 tests passing (278 baseline + 3 new)
-- Key decision: structural validation over temporal ordering for diff lifecycle tests
-- Merged decision from inbox into decisions.md
-- Updated Hudson's history.md with orchestration summary
+Made DebouncePusher dispose-safe with volatile _disposed flag and
+defensive try/catch ObjectDisposedException in Schedule() and Reset().
+Root cause: CopilotCliIdePackage.Dispose calls _selectionTracker.Dispose()
+then StopConnection() which calls _selectionTracker.Reset() on already-disposed
+pusher. Pattern: primitives should absorb caller-order fragility.
 
-Orchestration logs:
-- .squad/orchestration-log/20260330T082415Z-hudson.md
-- .squad/log/20260330T082415Z-capture-test-implementation.md
+Files changed:
+- src/CopilotCliIde/DebouncePusher.cs: added _disposed flag, defensive checks
+
+Squad artifacts:
+- .squad/orchestration-log/2026-04-28T05-50-18-coordinator.md
+- .squad/log/2026-04-28T05-50-18-debouncepusher-dispose-fix.md
+- .squad/decisions.md: merged DebouncePusher Dispose-Safe Pattern decision
+- .squad/agents/hicks/history.md: appended fix note and dispose-order lesson
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

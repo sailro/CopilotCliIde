@@ -4746,5 +4746,74 @@ The native control requires Windows 10 1903+ (for `icu.dll` in system32, per VS 
 ---
 
 *This proposal is based on exploration of VS source at `C:\Dev\VS\src\env\Terminal\` and the current extension source. The reference implementation in VS is the authoritative pattern.*
+---
 
+## DebouncePusher Dispose-Safe Pattern (2026-04-28)
+
+### Decision: Defensive dispose-safe pattern in primitive
+
+**Author:** Sebastien (Lightweight Mode - Coordinator)  
+**Date:** 2026-04-28  
+**Status:** Implemented
+
+#### Context
+
+System.ObjectDisposedException thrown in DebouncePusher._timer.Change() when CopilotCliIdePackage.Dispose(bool) calls _selectionTracker.Dispose() followed by StopConnection(), which calls _selectionTracker.Reset() on the already-disposed pusher.
+
+Root cause chain:
+1. CopilotCliIdePackage.Dispose (line 350) → _selectionTracker.Dispose()
+2. Then CopilotCliIdePackage.Dispose (line 362) → StopConnection()
+3. StopConnection (line 185) → _selectionTracker.Reset() on disposed object
+4. Field _selectionTracker was never nulled after Dispose
+
+#### Decision
+
+Rather than refactor CopilotCliIdePackage's fragile dispose sequence, make DebouncePusher robust to concurrent dispose + schedule/reset calls:
+
+1. Added olatile bool _disposed field
+2. Schedule(): early return if disposed; wrap _timer.Change() in try/catch ObjectDisposedException
+3. Reset(): identical pattern
+4. Dispose(): set flag true before calling _timer.Dispose()
+
+#### Rationale
+
+Primitives should absorb caller-order fragility. The pattern is standard and low-risk: flag + early-return + exception handling. No API change. No refactoring needed in CopilotCliIdePackage.
+
+#### Implementation
+
+**File:** src/CopilotCliIde/DebouncePusher.cs
+
+`csharp
+private volatile bool _disposed;
+
+public void Schedule()
+{
+    if (_disposed)
+        return;
+    try { _timer.Change(200, Timeout.Infinite); }
+    catch (ObjectDisposedException) { /* Raced with Dispose */ }
+}
+
+public void Reset()
+{
+    _lastKey = null;
+    if (_disposed)
+        return;
+    try { _timer.Change(Timeout.Infinite, Timeout.Infinite); }
+    catch (ObjectDisposedException) { /* Raced with Dispose */ }
+}
+
+public void Dispose()
+{
+    _disposed = true;
+    _timer.Dispose();
+}
+`
+
+#### Outcome
+
+✓ DebouncePusher now safe against concurrent dispose + reset/schedule calls  
+✓ Caller order remains unchanged — no architectural risk  
+✓ No API changes  
+✓ Pattern applicable to other timer-based primitives
 

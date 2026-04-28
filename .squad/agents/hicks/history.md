@@ -286,6 +286,17 @@ Parallel parenthetical naming so both group together and the distinction is obvi
 - `CHANGELOG.md` — historical menu references
 - `.github/copilot-instructions.md` — terminal subsystem docs
 
+### 2026-04-28 — DebouncePusher Dispose-Safe Pattern
+
+Fixed System.ObjectDisposedException in `DebouncePusher._timer.Change()`. Root cause: `CopilotCliIdePackage.Dispose(bool)` calls `_selectionTracker.Dispose()` then `StopConnection()`, which calls `_selectionTracker.Reset()` on an already-disposed pusher. The field was never nulled.
+
+**Fix pattern:** Made DebouncePusher dispose-safe with `volatile bool _disposed` flag + early-return + try/catch ObjectDisposedException in both `Schedule()` and `Reset()`. Dispose sets the flag true before calling `_timer.Dispose()`.
+
+**Key lesson:** Primitives should be robust to caller order. CopilotCliIdePackage's dispose sequence is fragile but refactoring is not worth the risk. Defensive patterns in the primitive eliminate the problem at the source.
+
+**Files changed:**
+- `src/CopilotCliIde/DebouncePusher.cs` — added _disposed flag, defensive checks, exception handling
+
 **Key finding:** Menu item text lives in 3 layers: VSCT ButtonText (menu), ToolWindowPane Caption (title bar), and docs. All must stay in sync. The "Loading Copilot CLI…" placeholder text in TerminalToolWindowControl was left as-is — it's transient loading state, not a navigable menu item.
 
 **Build:** Roslyn validation clean on both C# files. Server builds 0 errors, 0 warnings.
