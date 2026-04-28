@@ -618,3 +618,14 @@ Comprehensive reassessment covering boundary health, RPC contract, MCP compatibi
 
 Deliverable: inbox report at `.squad/decisions/inbox/ripley-reassessment-2026-04-16.md`.
 
+
+### 2026-04-28 — User Directive: CHANGELOG User-Facing Format
+
+**Captured:** Coordinator (Lightweight Mode)  
+**User:** Sebastien  
+**Decision:** CHANGELOG.md must stay user-facing — describe what users see/can do, not internal implementation details. No class names, file paths, code identifiers, or refactoring noise.
+
+**Impact:** All 20 released versions in CHANGELOG.md reviewed for user-focus compliance. Rewrite as needed to remove developer-only jargon.
+
+**Status:** Directive captured and stored in decisions.md for team memory and future changelog reviews.
+

@@ -4817,3 +4817,32 @@ public void Dispose()
 ✓ No API changes  
 ✓ Pattern applicable to other timer-based primitives
 
+
+---
+
+## User Directive: CHANGELOG User-Facing Format (2026-04-28)
+
+**Captured:** 2026-04-28T05-56-19Z  
+**From:** Sebastien (User)  
+**By:** Copilot CLI  
+
+### Directive
+
+**CHANGELOG.md must stay user-facing** — describe what users see/can do, not internal implementation details.
+
+### What This Means
+
+- ✅ Use plain language (e.g., "Embedded terminal" not "TerminalControl")
+- ✅ Describe user-visible features, changes, fixes
+- ❌ No class names, file paths, code identifiers
+- ❌ No refactoring/technical noise
+- ❌ No internal component names
+
+### Context
+
+All 20 released versions should be reviewed to ensure entries stay user-focused. Rewrite as needed to remove developer-only jargon.
+
+### Status
+
+Captured for team memory and future changelog reviews.
+
